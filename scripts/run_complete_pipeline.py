@@ -126,7 +126,26 @@ from src.classification import eligibility, hierarchy
 from src.scoring import monte_carlo
 from src.visualization import maps
 
-logger = setup_logger(__name__)
+# Import existing data processors
+try:
+    from hub_demand_processor import DemandDataProcessor
+    DEMAND_PROCESSOR_AVAILABLE = True
+except ImportError:
+    DEMAND_PROCESSOR_AVAILABLE = False
+    logger = setup_logger(__name__)
+    logger.warning("hub_demand_processor.py not found - will use placeholder demand values")
+
+try:
+    from influence_area_processor import InfluenceAreaProcessor
+    INFLUENCE_PROCESSOR_AVAILABLE = True
+except ImportError:
+    INFLUENCE_PROCESSOR_AVAILABLE = False
+    if 'logger' not in locals():
+        logger = setup_logger(__name__)
+    logger.warning("influence_area_processor.py not found - will use placeholder demographic values")
+
+if 'logger' not in locals():
+    logger = setup_logger(__name__)
 
 
 # ============================================================================
@@ -293,38 +312,123 @@ class CompleteHubPipeline:
             logger.warning("⚠ Skipping demand data - using placeholder values")
             self.hubs_with_demand = self.grouped_hubs.copy()
             self.hubs_with_demand['TotalDemand'] = 5000  # Placeholder
+            self.hubs_with_demand['TotalTransfers'] = 0
             logger.info("✓ Step 4 complete (skipped)")
             return
 
-        # TODO: Implement demand assignment logic here
-        # This would use the hub_demand_processor logic you had
-        # For now, using placeholder
-        logger.warning("⚠ Demand assignment not yet implemented, using placeholder")
-        self.hubs_with_demand = self.grouped_hubs.copy()
-        self.hubs_with_demand['TotalDemand'] = 5000
+        if not DEMAND_PROCESSOR_AVAILABLE:
+            logger.warning("⚠ DemandDataProcessor not available - using placeholder")
+            self.hubs_with_demand = self.grouped_hubs.copy()
+            self.hubs_with_demand['TotalDemand'] = 5000
+            self.hubs_with_demand['TotalTransfers'] = 0
+            logger.info("✓ Step 4 complete (placeholder)")
+            return
+
+        # Use the actual demand processor
+        logger.info("Using DemandDataProcessor...")
+        processor = DemandDataProcessor()
+
+        # Save grouped hubs temporarily
+        temp_csv = PROCESSED_DATA_DIR / f"temp_grouped_{self.timestamp}.csv"
+        export_df = self.grouped_hubs.copy()
+        export_df['geometry'] = export_df['geometry'].apply(lambda x: x.wkt)
+        export_df.to_csv(temp_csv, index=False, encoding='utf-8-sig')
+
+        # Standardize demand data
+        demand_standardized = processor.standardize_demand_dataframes(self.demand_data)
+
+        # Load hubs
+        hubs_gdf = processor.load_gdf_from_csv(str(temp_csv))
+
+        # Tag with spatial data if available
+        if self.metro_areas is not None and self.districts is not None:
+            logger.info("Tagging with spatial data...")
+            hubs_gdf = processor.tag_with_spatial_data(hubs_gdf, self.metro_areas, self.districts)
+        else:
+            # Add placeholder spatial tags
+            hubs_gdf['area'] = 'Unknown'
+            hubs_gdf['district'] = 'Unknown'
+            hubs_gdf['metro_area'] = None
+
+        # Assign demand
+        logger.info("Assigning demand data...")
+        hubs_gdf = processor.assign_demand_by_area(hubs_gdf, demand_standardized)
+
+        self.hubs_with_demand = hubs_gdf
+
+        # Clean up temp file
+        if temp_csv.exists():
+            temp_csv.unlink()
 
         logger.info("✓ Step 4 complete")
 
     def step_5_add_spatial_tags(self):
         """Step 5: Tag hubs with spatial attributes."""
         logger.info("\n" + "="*80)
-        logger.info("STEP 5: ADD SPATIAL TAGS")
+        logger.info("STEP 5: ADD SPATIAL TAGS (for location scoring)")
         logger.info("="*80)
 
-        if SKIP_SPATIAL_LAYERS or (self.metro_areas is None and self.districts is None):
-            logger.warning("⚠ Skipping spatial tagging - no layers loaded")
-            self.hubs_with_demand['region'] = 'Unknown'
-            self.hubs_with_demand['metro_position'] = 'Core'
-            logger.info("✓ Step 5 complete (skipped)")
-            return
-
-        # Spatial join with metro areas and districts
         hubs_tagged = self.hubs_with_demand.copy()
 
-        # Add placeholder tags for now
-        # TODO: Implement proper spatial joins
-        hubs_tagged['region'] = 'Center'
-        hubs_tagged['metro_position'] = 'Core'
+        # Convert to projected CRS for spatial operations
+        hubs_proj = hubs_tagged.to_crs('EPSG:2039')
+
+        # Tag with district (for region determination)
+        if self.districts is not None and not SKIP_SPATIAL_LAYERS:
+            logger.info("Spatial join with districts...")
+            try:
+                # Find district column
+                district_col = None
+                for col in ['MACHOZ', 'SHEM_NAFA', 'District', 'district', 'NAME']:
+                    if col in self.districts.columns:
+                        district_col = col
+                        break
+
+                if district_col:
+                    districts_proj = self.districts.to_crs('EPSG:2039')
+                    joined = gpd.sjoin(hubs_proj, districts_proj[[district_col, 'geometry']],
+                                     how='left', predicate='within')
+
+                    # Handle duplicates
+                    if joined.index.duplicated().any():
+                        joined = joined[~joined.index.duplicated(keep='first')]
+
+                    hubs_tagged['district'] = joined[district_col]
+
+                    # Map district to region
+                    def map_to_region(district):
+                        if pd.isna(district):
+                            return 'Center'
+                        dist_lower = str(district).lower()
+                        if 'חיפה' in dist_lower or 'haifa' in dist_lower:
+                            return 'Haifa'
+                        elif 'צפון' in dist_lower or 'north' in dist_lower:
+                            return 'North'
+                        elif 'דרום' in dist_lower or 'south' in dist_lower or 'באר שבע' in dist_lower:
+                            return 'South'
+                        elif 'ירושלים' in dist_lower or 'jerusalem' in dist_lower:
+                            return 'Jerusalem'
+                        else:
+                            return 'Center'
+
+                    hubs_tagged['region'] = hubs_tagged['district'].apply(map_to_region)
+                    logger.info(f"✓ Tagged with districts")
+                else:
+                    logger.warning("No district column found")
+                    hubs_tagged['region'] = 'Center'
+                    hubs_tagged['district'] = 'Unknown'
+            except Exception as e:
+                logger.warning(f"District tagging failed: {e}")
+                hubs_tagged['region'] = 'Center'
+                hubs_tagged['district'] = 'Unknown'
+        else:
+            logger.warning("No districts layer - using default region")
+            hubs_tagged['region'] = 'Center'
+            hubs_tagged['district'] = 'Unknown'
+
+        # Tag with metro position (simplified - using distance from city centers)
+        # TODO: Implement proper metro position determination
+        hubs_tagged['metro_position'] = 'Core'  # Default for now
 
         self.hubs_with_demand = hubs_tagged
         logger.info("✓ Step 5 complete")
@@ -345,15 +449,47 @@ class CompleteHubPipeline:
             logger.info("✓ Step 6 complete (skipped)")
             return
 
-        # TODO: Implement buffer zone calculations
-        # This would use influence_area_processor logic
-        logger.warning("⚠ Demographic calculation not yet implemented, using placeholder")
+        if not INFLUENCE_PROCESSOR_AVAILABLE:
+            logger.warning("⚠ InfluenceAreaProcessor not available - using placeholder")
+            for zone in ['zone1', 'zone2', 'zone3']:
+                self.hubs_with_demand[f'pop_{zone}'] = 1000
+                self.hubs_with_demand[f'emp_{zone}'] = 500
+            self.hubs_with_demographics = self.hubs_with_demand
+            logger.info("✓ Step 6 complete (placeholder)")
+            return
 
-        for zone in ['zone1', 'zone2', 'zone3']:
-            self.hubs_with_demand[f'pop_{zone}'] = 1000
-            self.hubs_with_demand[f'emp_{zone}'] = 500
+        # Use the actual influence area processor
+        logger.info("Using InfluenceAreaProcessor...")
+        processor = InfluenceAreaProcessor()
 
-        self.hubs_with_demographics = self.hubs_with_demand
+        # Save hubs temporarily
+        temp_csv = PROCESSED_DATA_DIR / f"temp_hubs_{self.timestamp}.csv"
+        export_df = self.hubs_with_demand.copy()
+        export_df['geometry'] = export_df['geometry'].apply(lambda x: x.wkt if x else None)
+        export_df.to_csv(temp_csv, index=False, encoding='utf-8-sig')
+
+        # Process influence areas
+        try:
+            result_gdf = processor.process_full_pipeline(
+                hubs_csv=str(temp_csv),
+                taz_shp=str(INPUT_TAZ_ZONES),
+                terminals_shp=str(INPUT_BUS_TERMINALS) if INPUT_BUS_TERMINALS.exists() else None,
+                output_csv=None  # Don't save intermediate file
+            )
+            self.hubs_with_demographics = result_gdf
+            logger.info("✓ Demographics added successfully")
+        except Exception as e:
+            logger.error(f"Demographics processing failed: {e}")
+            logger.warning("Using placeholder values")
+            for zone in ['zone1', 'zone2', 'zone3']:
+                self.hubs_with_demand[f'pop_{zone}'] = 1000
+                self.hubs_with_demand[f'emp_{zone}'] = 500
+            self.hubs_with_demographics = self.hubs_with_demand
+
+        # Clean up temp file
+        if temp_csv.exists():
+            temp_csv.unlink()
+
         logger.info("✓ Step 6 complete")
 
     def step_7_add_terminal_proximity(self):
@@ -362,15 +498,40 @@ class CompleteHubPipeline:
         logger.info("STEP 7: IDENTIFY TERMINAL PROXIMITY")
         logger.info("="*80)
 
+        # Check if already added by influence area processor
+        if 'near_bus_terminal' in self.hubs_with_demographics.columns:
+            logger.info("✓ Terminal proximity already added by InfluenceAreaProcessor")
+            return
+
         if self.bus_terminals is None:
             logger.warning("⚠ No bus terminals data")
             self.hubs_with_demographics['near_bus_terminal'] = False
             logger.info("✓ Step 7 complete (skipped)")
             return
 
-        # TODO: Implement buffer check
-        logger.warning("⚠ Terminal proximity check not yet implemented")
-        self.hubs_with_demographics['near_bus_terminal'] = False
+        # Implement buffer check
+        logger.info("Checking terminal proximity (200m buffer)...")
+        try:
+            hubs_proj = self.hubs_with_demographics.to_crs('EPSG:2039')
+            terminals_proj = self.bus_terminals.to_crs('EPSG:2039')
+
+            # Create 200m buffer around hub centroids
+            centroids = hubs_proj.geometry.centroid
+            buffers = centroids.buffer(200)
+
+            # Check intersections
+            near_terminal = []
+            for buffer in buffers:
+                intersects = terminals_proj.intersects(buffer).any()
+                near_terminal.append(intersects)
+
+            self.hubs_with_demographics['near_bus_terminal'] = near_terminal
+
+            n_near = sum(near_terminal)
+            logger.info(f"✓ Found {n_near} hubs near terminals ({n_near/len(near_terminal)*100:.1f}%)")
+        except Exception as e:
+            logger.warning(f"Terminal proximity check failed: {e}")
+            self.hubs_with_demographics['near_bus_terminal'] = False
 
         logger.info("✓ Step 7 complete")
 

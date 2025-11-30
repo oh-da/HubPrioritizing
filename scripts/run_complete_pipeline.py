@@ -7,7 +7,21 @@ This is the FULL pipeline including demand data and spatial layers.
 
 import sys
 import subprocess
+import os
 from pathlib import Path
+
+# ============================================================================
+# SETUP - Change to project directory if needed
+# ============================================================================
+
+# Get the project root directory
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+
+# Change to project root if not already there
+if Path.cwd() != PROJECT_ROOT:
+    print(f"Changing working directory to: {PROJECT_ROOT}")
+    os.chdir(PROJECT_ROOT)
 
 # ============================================================================
 # DEPENDENCY CHECK - Install requirements if needed
@@ -46,8 +60,7 @@ def check_and_install_dependencies():
         print("=" * 80)
 
         # Get requirements.txt path
-        project_root = Path(__file__).parent.parent
-        requirements_file = project_root / "requirements.txt"
+        requirements_file = PROJECT_ROOT / "requirements.txt"
 
         if requirements_file.exists():
             print(f"\nOption 1 (Recommended): Install all requirements")
@@ -84,7 +97,22 @@ check_and_install_dependencies()
 # Now import everything else
 # ============================================================================
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add project root to Python path
+sys.path.insert(0, str(PROJECT_ROOT))
+
+# Verify src directory exists
+src_dir = PROJECT_ROOT / "src"
+if not src_dir.exists():
+    print(f"\n❌ Error: 'src' directory not found!")
+    print(f"Current working directory: {Path.cwd()}")
+    print(f"Script location: {Path(__file__).resolve()}")
+    print(f"Expected project root: {PROJECT_ROOT}")
+    print(f"Expected src directory: {src_dir}")
+    print("\nDirectory contents:")
+    if PROJECT_ROOT.exists():
+        print(f"  {list(PROJECT_ROOT.iterdir())[:10]}")
+    print("\nPlease ensure the project structure is intact.")
+    sys.exit(1)
 
 import geopandas as gpd
 import pandas as pd

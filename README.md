@@ -22,14 +22,24 @@ Results are aggregated using **Monte Carlo simulation** to ensure no single crit
 
 ### Installation
 
+**Option 1: Automatic (Recommended)**
 ```bash
-# Clone repository
-git clone <repository-url>
-cd HubPrioritizing
+# Just run the pipeline - it will check and install dependencies
+python scripts/run_complete_pipeline.py
+# When prompted, type 'y' to install missing packages
+```
 
-# Install dependencies
+**Option 2: Install Script**
+```bash
+python scripts/install_dependencies.py
+```
+
+**Option 3: Manual**
+```bash
 pip install -r requirements.txt
 ```
+
+See **INSTALL.md** for detailed installation instructions and troubleshooting.
 
 ### Basic Usage
 

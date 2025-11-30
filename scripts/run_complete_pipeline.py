@@ -6,7 +6,83 @@ This is the FULL pipeline including demand data and spatial layers.
 """
 
 import sys
+import subprocess
 from pathlib import Path
+
+# ============================================================================
+# DEPENDENCY CHECK - Install requirements if needed
+# ============================================================================
+
+def check_and_install_dependencies():
+    """Check if required packages are installed, install if missing."""
+
+    required_packages = {
+        'h3': 'h3>=3.7.0',
+        'geopandas': 'geopandas>=0.13.0',
+        'pandas': 'pandas>=2.0.0',
+        'numpy': 'numpy>=1.24.0',
+        'shapely': 'shapely>=2.0.0',
+    }
+
+    missing_packages = []
+
+    # Check which packages are missing
+    for package_name, package_spec in required_packages.items():
+        try:
+            __import__(package_name)
+        except ImportError:
+            missing_packages.append(package_spec)
+
+    if missing_packages:
+        print("=" * 80)
+        print("⚠️  MISSING DEPENDENCIES DETECTED")
+        print("=" * 80)
+        print(f"\nThe following required packages are not installed:")
+        for pkg in missing_packages:
+            print(f"  - {pkg}")
+
+        print("\n" + "=" * 80)
+        print("INSTALLATION OPTIONS")
+        print("=" * 80)
+
+        # Get requirements.txt path
+        project_root = Path(__file__).parent.parent
+        requirements_file = project_root / "requirements.txt"
+
+        if requirements_file.exists():
+            print(f"\nOption 1 (Recommended): Install all requirements")
+            print(f"  pip install -r {requirements_file}")
+
+        print(f"\nOption 2: Install only missing packages")
+        print(f"  pip install {' '.join(missing_packages)}")
+
+        print("\n" + "=" * 80)
+
+        # Ask user if they want auto-install
+        response = input("\nWould you like to install missing packages now? (y/n): ").strip().lower()
+
+        if response == 'y':
+            print("\nInstalling missing packages...")
+            try:
+                subprocess.check_call([
+                    sys.executable, "-m", "pip", "install"
+                ] + missing_packages)
+                print("\n✅ Installation complete! Continuing with pipeline...\n")
+            except subprocess.CalledProcessError as e:
+                print(f"\n❌ Installation failed: {e}")
+                print("Please install manually using one of the options above.")
+                sys.exit(1)
+        else:
+            print("\n❌ Cannot proceed without required dependencies.")
+            print("Please install packages manually and run again.")
+            sys.exit(1)
+
+# Run dependency check
+check_and_install_dependencies()
+
+# ============================================================================
+# Now import everything else
+# ============================================================================
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

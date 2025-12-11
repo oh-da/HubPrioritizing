@@ -153,7 +153,7 @@ def aggregate_by_h3(
     logger.info("Aggregating by H3 index (combining modes)")
 
     h3_final = h3_mode_grouped.groupby('h3_index').agg({
-        node_column: 'first',
+        node_column: lambda x: list(x.unique()),  # Keep ALL nodes, not just first
         mode_column: lambda x: list(x.unique()),
         'Line_Nunique': 'sum',
         'Line_Unique': lambda x: list(set([item for sublist in x for item in sublist]))

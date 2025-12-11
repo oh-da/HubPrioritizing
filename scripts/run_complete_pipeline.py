@@ -157,7 +157,7 @@ INPUT_TRANSIT_NODES = RAW_DATA_DIR / "All_nodes+lines.csv"
 INPUT_LINES_MODES = RAW_DATA_DIR / "Lines_and_Planned_Mode.csv"
 
 # Demand forecasts (REQUIRED for activity scoring)
-INPUT_DEMAND_EXCEL = RAW_DATA_DIR / "demand_2050.xlsx"
+INPUT_DEMAND_CSV = RAW_DATA_DIR / "Demand_2050_all.csv"
 
 # Spatial layers for tagging and demographic scoring
 INPUT_METRO_AREAS = RAW_DATA_DIR / "metro.shp"
@@ -216,9 +216,9 @@ class CompleteHubPipeline:
         self.lines_modes = loaders.load_lines_and_modes(INPUT_LINES_MODES)
 
         # Demand data (optional)
-        if not SKIP_DEMAND_DATA and INPUT_DEMAND_EXCEL.exists():
+        if not SKIP_DEMAND_DATA and INPUT_DEMAND_CSV.exists():
             logger.info("\n1.3: Loading demand data...")
-            self.demand_data = loaders.load_demand_data(INPUT_DEMAND_EXCEL)
+            self.demand_data = loaders.load_demand_data(INPUT_DEMAND_CSV)
         else:
             logger.warning("⚠ Skipping demand data (file not found or disabled)")
 
@@ -303,64 +303,143 @@ class CompleteHubPipeline:
         logger.info("✓ Step 3 complete")
 
     def step_4_add_demand_data(self):
-        """Step 4: Add demand forecasts to hubs."""
+        """Step 4: Add demand forecasts to hubs.
+
+        Reads demand data from CSV file with columns:
+        - Node: node ID
+        - Area: geographic area (Haifa, TelAviv, BeerSheva, etc.)
+        - TotalDemand: total daily demand at this node
+        - TotalTransfers: number of transfers (0 if no data)
+        """
         logger.info("\n" + "="*80)
         logger.info("STEP 4: ADD DEMAND DATA")
         logger.info("="*80)
 
-        if SKIP_DEMAND_DATA or self.demand_data is None:
-            logger.warning("⚠ Skipping demand data - using placeholder values")
+        if SKIP_DEMAND_DATA or not INPUT_DEMAND_CSV.exists():
+            logger.warning("⚠ Skipping demand data - file not found or disabled")
             self.hubs_with_demand = self.grouped_hubs.copy()
             self.hubs_with_demand['TotalDemand'] = 5000  # Placeholder
             self.hubs_with_demand['TotalTransfers'] = 0
             logger.info("✓ Step 4 complete (skipped)")
             return
 
-        if not DEMAND_PROCESSOR_AVAILABLE:
-            logger.warning("⚠ DemandDataProcessor not available - using placeholder")
+        try:
+            logger.info(f"Loading demand from: {INPUT_DEMAND_CSV}")
+
+            # Load the CSV file
+            df_demand = pd.read_csv(INPUT_DEMAND_CSV, encoding='utf-8-sig')
+            logger.info(f"Loaded {len(df_demand)} rows")
+            logger.info(f"Columns: {list(df_demand.columns)}")
+
+            # Standardize column names (case-insensitive matching)
+            col_mapping = {}
+            for col in df_demand.columns:
+                col_lower = col.lower().strip()
+                if col_lower in ['node', 'node_id', 'nodeid']:
+                    col_mapping[col] = 'Node'
+                elif col_lower in ['area', 'region']:
+                    col_mapping[col] = 'Area'
+                elif col_lower in ['totaldemand', 'total_demand', 'demand']:
+                    col_mapping[col] = 'TotalDemand'
+                elif col_lower in ['totaltransfers', 'total_transfers', 'transfers']:
+                    col_mapping[col] = 'TotalTransfers'
+
+            df_demand = df_demand.rename(columns=col_mapping)
+
+            # Verify required columns exist
+            if 'Node' not in df_demand.columns:
+                raise ValueError("Required column 'Node' not found in demand data")
+            if 'TotalDemand' not in df_demand.columns:
+                raise ValueError("Required column 'TotalDemand' not found in demand data")
+
+            # Add TotalTransfers column if missing
+            if 'TotalTransfers' not in df_demand.columns:
+                logger.warning("TotalTransfers column not found, setting to 0")
+                df_demand['TotalTransfers'] = 0
+
+            # Create dictionary mapping node_id -> {demand, transfers}
+            node_demand = {}
+            areas_found = set()
+
+            for _, row in df_demand.iterrows():
+                try:
+                    node_id = int(row['Node'])
+                    demand = float(row['TotalDemand']) if pd.notna(row['TotalDemand']) else 0
+                    transfers = float(row['TotalTransfers']) if pd.notna(row['TotalTransfers']) else 0
+
+                    # Track areas
+                    if 'Area' in df_demand.columns and pd.notna(row['Area']):
+                        areas_found.add(row['Area'])
+
+                    # Store demand (sum if node appears multiple times)
+                    if node_id not in node_demand:
+                        node_demand[node_id] = {'demand': demand, 'transfers': transfers}
+                    else:
+                        node_demand[node_id]['demand'] += demand
+                        node_demand[node_id]['transfers'] += transfers
+
+                except (ValueError, TypeError, KeyError) as e:
+                    continue
+
+            logger.info(f"✓ Loaded demand for {len(node_demand)} nodes")
+            if areas_found:
+                logger.info(f"  Areas: {', '.join(sorted(areas_found))}")
+
+            # Match demand to grouped hubs
+            hubs_with_demand = self.grouped_hubs.copy()
+
+            # Initialize demand columns
+            hubs_with_demand['TotalDemand'] = 0.0
+            hubs_with_demand['TotalTransfers'] = 0.0
+
+            # For each hub group, sum demand from all its nodes
+            matched_hubs = 0
+            for idx, row in hubs_with_demand.iterrows():
+                # Get list of nodes in this hub group
+                nodes_in_group = row.get('node', [])
+
+                # Handle if it's a single value or list
+                if not isinstance(nodes_in_group, list):
+                    nodes_in_group = [nodes_in_group]
+
+                # Sum demand from all nodes in the group
+                total_demand = 0
+                total_transfers = 0
+                nodes_matched = 0
+
+                for node in nodes_in_group:
+                    try:
+                        node = int(node)
+                    except (ValueError, TypeError):
+                        continue
+
+                    if node in node_demand:
+                        total_demand += node_demand[node]['demand']
+                        total_transfers += node_demand[node]['transfers']
+                        nodes_matched += 1
+
+                # Assign to hub
+                hubs_with_demand.at[idx, 'TotalDemand'] = total_demand
+                hubs_with_demand.at[idx, 'TotalTransfers'] = total_transfers
+
+                if nodes_matched > 0:
+                    matched_hubs += 1
+
+            logger.info(f"✓ Matched demand to {matched_hubs}/{len(hubs_with_demand)} hub groups")
+            logger.info(f"  Total demand across all hubs: {hubs_with_demand['TotalDemand'].sum():,.0f}")
+            logger.info(f"  Total transfers across all hubs: {hubs_with_demand['TotalTransfers'].sum():,.0f}")
+            logger.info(f"  Demand range: {hubs_with_demand['TotalDemand'].min():,.0f} - {hubs_with_demand['TotalDemand'].max():,.0f}")
+
+            self.hubs_with_demand = hubs_with_demand
+            logger.info("✓ Step 4 complete")
+
+        except Exception as e:
+            logger.error(f"Error loading demand data: {e}", exc_info=True)
+            logger.warning("Using placeholder values")
             self.hubs_with_demand = self.grouped_hubs.copy()
             self.hubs_with_demand['TotalDemand'] = 5000
             self.hubs_with_demand['TotalTransfers'] = 0
-            logger.info("✓ Step 4 complete (placeholder)")
-            return
-
-        # Use the actual demand processor
-        logger.info("Using DemandDataProcessor...")
-        processor = DemandDataProcessor()
-
-        # Save grouped hubs temporarily
-        temp_csv = PROCESSED_DATA_DIR / f"temp_grouped_{self.timestamp}.csv"
-        export_df = self.grouped_hubs.copy()
-        export_df['geometry'] = export_df['geometry'].apply(lambda x: x.wkt)
-        export_df.to_csv(temp_csv, index=False, encoding='utf-8-sig')
-
-        # Standardize demand data
-        demand_standardized = processor.standardize_demand_dataframes(self.demand_data)
-
-        # Load hubs
-        hubs_gdf = processor.load_gdf_from_csv(str(temp_csv))
-
-        # Tag with spatial data if available
-        if self.metro_areas is not None and self.districts is not None:
-            logger.info("Tagging with spatial data...")
-            hubs_gdf = processor.tag_with_spatial_data(hubs_gdf, self.metro_areas, self.districts)
-        else:
-            # Add placeholder spatial tags
-            hubs_gdf['area'] = 'Unknown'
-            hubs_gdf['district'] = 'Unknown'
-            hubs_gdf['metro_area'] = None
-
-        # Assign demand
-        logger.info("Assigning demand data...")
-        hubs_gdf = processor.assign_demand_by_area(hubs_gdf, demand_standardized)
-
-        self.hubs_with_demand = hubs_gdf
-
-        # Clean up temp file
-        if temp_csv.exists():
-            temp_csv.unlink()
-
-        logger.info("✓ Step 4 complete")
+            logger.info("✓ Step 4 complete (error - used placeholders)")
 
     def step_5_add_spatial_tags(self):
         """Step 5: Tag hubs with spatial attributes."""

@@ -118,16 +118,35 @@ class InfluenceAreaProcessor:
     def load_taz_data(self, filepath: str) -> gpd.GeoDataFrame:
         """
         Load TAZ (Traffic Analysis Zones) shapefile with population and employment data.
-        
+
         Args:
             filepath: Path to TAZ shapefile
-            
+
         Returns:
             GeoDataFrame with TAZ polygons and demographic data
         """
         print(f"Loading TAZ data from {filepath}...")
-        
-        taz_gdf = gpd.read_file(filepath, encoding=self.encoding)
+
+        # Try multiple encodings - Israeli shapefiles often use Windows-1255 for Hebrew
+        encodings_to_try = ['utf-8', 'utf-8-sig', 'windows-1255', 'cp1255', 'iso-8859-8', 'cp1252', 'latin1']
+
+        taz_gdf = None
+        for encoding in encodings_to_try:
+            try:
+                taz_gdf = gpd.read_file(filepath, encoding=encoding)
+                print(f"  ✓ Successfully loaded with encoding: {encoding}")
+                break
+            except (UnicodeDecodeError, UnicodeError) as e:
+                continue
+            except Exception as e:
+                # Some errors might not be encoding related
+                if 'codec' in str(e).lower() or 'decode' in str(e).lower():
+                    continue
+                else:
+                    raise
+
+        if taz_gdf is None:
+            raise ValueError(f"Could not read TAZ file with any encoding: {encodings_to_try}")
         
         # Check for required columns
         required_cols = ['POP_2050', 'EMPL_2050']
@@ -157,28 +176,48 @@ class InfluenceAreaProcessor:
     def load_bus_terminals(self, filepath: Optional[str]) -> Optional[gpd.GeoDataFrame]:
         """
         Load bus terminals shapefile (optional).
-        
+
         Args:
             filepath: Path to bus terminals shapefile (or None)
-            
+
         Returns:
             GeoDataFrame with terminal locations or None
         """
         if not filepath:
             print("No bus terminals file provided (optional)")
             return None
-        
+
         try:
             print(f"Loading bus terminals from {filepath}...")
-            terminals_gdf = gpd.read_file(filepath, encoding=self.encoding)
-            
+
+            # Try multiple encodings - Israeli shapefiles often use Windows-1255 for Hebrew
+            encodings_to_try = ['utf-8', 'utf-8-sig', 'windows-1255', 'cp1255', 'iso-8859-8', 'cp1252', 'latin1']
+
+            terminals_gdf = None
+            for encoding in encodings_to_try:
+                try:
+                    terminals_gdf = gpd.read_file(filepath, encoding=encoding)
+                    print(f"  ✓ Successfully loaded with encoding: {encoding}")
+                    break
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+                except Exception as e:
+                    # Some errors might not be encoding related
+                    if 'codec' in str(e).lower() or 'decode' in str(e).lower():
+                        continue
+                    else:
+                        raise
+
+            if terminals_gdf is None:
+                raise ValueError(f"Could not read terminals file with any encoding: {encodings_to_try}")
+
             # Ensure projected CRS
             if terminals_gdf.crs != self.crs_projected:
                 terminals_gdf = terminals_gdf.to_crs(self.crs_projected)
-            
+
             print(f"✓ Loaded {len(terminals_gdf)} bus terminals")
             return terminals_gdf
-        
+
         except Exception as e:
             print(f"⚠ Could not load bus terminals: {e}")
             return None

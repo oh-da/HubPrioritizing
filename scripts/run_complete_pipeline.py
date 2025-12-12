@@ -326,6 +326,15 @@ class CompleteHubPipeline:
         if 'area' not in self.grouped_hubs.columns or self.grouped_hubs['area'].isna().all() or (self.grouped_hubs['area'] == 'Unknown').all():
             logger.info("Assigning area from spatial layers for demand matching...")
 
+            # Debug: Check what spatial layers are available
+            logger.info(f"  Metro areas layer: {'LOADED' if self.metro_areas is not None else 'NOT LOADED'}")
+            logger.info(f"  Districts layer: {'LOADED' if self.districts is not None else 'NOT LOADED'}")
+
+            if self.metro_areas is not None:
+                logger.info(f"  Metro columns: {list(self.metro_areas.columns)}")
+            if self.districts is not None:
+                logger.info(f"  Districts columns: {list(self.districts.columns)}")
+
             # Initialize area column
             self.grouped_hubs['area'] = None
 
@@ -336,6 +345,9 @@ class CompleteHubPipeline:
                     hubs_wgs = self.grouped_hubs.to_crs('EPSG:4326')
                     metro_wgs = self.metro_areas.to_crs('EPSG:4326')
 
+                    logger.info(f"  Hub bounds: {hubs_wgs.total_bounds}")
+                    logger.info(f"  Metro bounds: {metro_wgs.total_bounds}")
+
                     # Find metro name column
                     metro_col = None
                     for col in ['METRO_NAME', 'MetroName', 'metro_name', 'NAME', 'name']:
@@ -344,6 +356,9 @@ class CompleteHubPipeline:
                             break
 
                     if metro_col:
+                        logger.info(f"  Using metro column: {metro_col}")
+                        logger.info(f"  Metro values: {metro_wgs[metro_col].unique().tolist()}")
+
                         joined = gpd.sjoin(hubs_wgs, metro_wgs[[metro_col, 'geometry']],
                                          how='left', predicate='intersects')
                         if joined.index.duplicated().any():
@@ -351,8 +366,12 @@ class CompleteHubPipeline:
                         self.grouped_hubs['area'] = joined[metro_col].values
                         n_tagged = self.grouped_hubs['area'].notna().sum()
                         logger.info(f"  ✓ Tagged {n_tagged}/{len(self.grouped_hubs)} hubs from metro layer")
+                    else:
+                        logger.warning(f"  No metro name column found!")
                 except Exception as e:
                     logger.warning(f"  Metro tagging failed: {e}")
+                    import traceback
+                    logger.warning(f"  {traceback.format_exc()}")
 
             # Fall back to districts for untagged hubs (has MACHOZ column)
             if self.districts is not None:
@@ -363,6 +382,9 @@ class CompleteHubPipeline:
                         hubs_wgs = self.grouped_hubs[nan_mask].to_crs('EPSG:4326')
                         districts_wgs = self.districts.to_crs('EPSG:4326')
 
+                        logger.info(f"  Hub bounds (untagged): {hubs_wgs.total_bounds}")
+                        logger.info(f"  Districts bounds: {districts_wgs.total_bounds}")
+
                         # Find district name column
                         district_col = None
                         for col in ['MACHOZ', 'SHEM_MACHOZ', 'SHEM_NAFA', 'District', 'NAME']:
@@ -371,10 +393,15 @@ class CompleteHubPipeline:
                                 break
 
                         if district_col:
+                            logger.info(f"  Using district column: {district_col}")
+                            logger.info(f"  District values: {districts_wgs[district_col].unique().tolist()}")
+
                             joined = gpd.sjoin(hubs_wgs, districts_wgs[[district_col, 'geometry']],
                                              how='left', predicate='within')
                             if joined.index.duplicated().any():
                                 joined = joined[~joined.index.duplicated(keep='first')]
+
+                            logger.info(f"  Joined result - NaN count: {joined[district_col].isna().sum()}/{len(joined)}")
 
                             # Update only the NaN rows
                             for idx in joined.index:
@@ -383,8 +410,12 @@ class CompleteHubPipeline:
 
                             n_tagged_district = self.grouped_hubs['area'].notna().sum() - (~nan_mask).sum()
                             logger.info(f"  ✓ Tagged {n_tagged_district} additional hubs from districts layer")
+                        else:
+                            logger.warning(f"  No district column found in districts layer!")
                 except Exception as e:
                     logger.warning(f"  District tagging failed: {e}")
+                    import traceback
+                    logger.warning(f"  {traceback.format_exc()}")
 
             # Fill remaining NaN with 'Unknown'
             self.grouped_hubs['area'] = self.grouped_hubs['area'].fillna('Unknown')

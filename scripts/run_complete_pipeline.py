@@ -568,12 +568,77 @@ class CompleteHubPipeline:
             sample_demand_nodes = list(node_demand.keys())[:10]
             logger.info(f"  Sample demand node IDs: {sample_demand_nodes}")
 
+            # Also store demand by region for area-based matching
+            # region_demand = {region_name: {node_id: {demand, transfers}}}
+            region_demand = {}
+            for sheet in raw_sheet_names if excel_file else []:
+                region_name = SHEET_NAME_MAPPING.get(sheet, sheet)
+                if region_name not in region_demand:
+                    region_demand[region_name] = {}
+                try:
+                    df = pd.read_excel(excel_file, sheet_name=sheet)
+                    config = SHEET_COLUMN_CONFIG.get(region_name, DEFAULT_COLUMN_CONFIG)
+                    node_col = find_column(df.columns, config['node_cols'])
+                    boardings_col = find_column(df.columns, config['boardings_cols'])
+                    alightings_col = find_column(df.columns, config['alightings_cols'])
+
+                    if node_col:
+                        for _, row in df.iterrows():
+                            try:
+                                node_val = row[node_col]
+                                if pd.isna(node_val):
+                                    continue
+                                node_id = int(float(node_val))
+                                boardings = float(row[boardings_col]) if boardings_col and pd.notna(row.get(boardings_col)) else 0
+                                alightings = float(row[alightings_col]) if alightings_col and pd.notna(row.get(alightings_col)) else 0
+                                demand = boardings + alightings
+
+                                if node_id not in region_demand[region_name]:
+                                    region_demand[region_name][node_id] = {'demand': demand, 'transfers': 0}
+                                else:
+                                    region_demand[region_name][node_id]['demand'] += demand
+                            except (ValueError, TypeError):
+                                continue
+                except Exception:
+                    pass
+
+            # Area to region mapping (Hebrew area names to demand model regions)
+            AREA_TO_REGION = {
+                'חיפה': 'Haifa',
+                'צפון': 'Haifa',
+                'תל אביב': 'Tel Aviv',
+                'תל-אביב': 'Tel Aviv',
+                'מרכז': 'Tel Aviv',
+                'באר שבע': 'Beer Sheva',
+                'דרום': 'Beer Sheva',
+                'ירושלים': 'Jerusalem',
+                'אשדוד': 'Ashdod-Ashkelon',
+                'אשקלון': 'Ashdod-Ashkelon',
+                # English names
+                'Haifa': 'Haifa',
+                'North': 'Haifa',
+                'Tel Aviv': 'Tel Aviv',
+                'Center': 'Tel Aviv',
+                'Beer Sheva': 'Beer Sheva',
+                'South': 'Beer Sheva',
+                'Jerusalem': 'Jerusalem',
+            }
+
             # Match demand to grouped hubs
             hubs_with_demand = self.grouped_hubs.copy()
 
             # Initialize demand columns
             hubs_with_demand['TotalDemand'] = 0.0
             hubs_with_demand['TotalTransfers'] = 0.0
+
+            # Check if 'area' column exists for area-based matching
+            has_area_column = 'area' in hubs_with_demand.columns
+            if has_area_column:
+                logger.info("  Using area-based demand matching (area column found)")
+                unique_areas = hubs_with_demand['area'].unique()
+                logger.info(f"  Areas in data: {list(unique_areas)}")
+            else:
+                logger.info("  Using global demand matching (no area column)")
 
             # Debug: Show sample of node IDs from hubs
             import ast
@@ -608,6 +673,10 @@ class CompleteHubPipeline:
                 if not isinstance(nodes_in_group, list):
                     nodes_in_group = [nodes_in_group]
 
+                # Get hub's area for area-based matching
+                hub_area = row.get('area', None) if has_area_column else None
+                hub_region = AREA_TO_REGION.get(hub_area) if hub_area else None
+
                 # Sum demand from all nodes in the group
                 total_demand = 0
                 total_transfers = 0
@@ -620,7 +689,18 @@ class CompleteHubPipeline:
                     except (ValueError, TypeError):
                         continue
 
-                    if node in node_demand:
+                    # Try area-based matching first
+                    matched = False
+                    if hub_region and hub_region in region_demand:
+                        if node in region_demand[hub_region]:
+                            total_demand += region_demand[hub_region][node]['demand']
+                            total_transfers += region_demand[hub_region][node]['transfers']
+                            nodes_matched += 1
+                            total_nodes_matched += 1
+                            matched = True
+
+                    # Fall back to global matching if area-based didn't match
+                    if not matched and node in node_demand:
                         total_demand += node_demand[node]['demand']
                         total_transfers += node_demand[node]['transfers']
                         nodes_matched += 1
@@ -632,6 +712,33 @@ class CompleteHubPipeline:
 
                 if nodes_matched > 0:
                     matched_hubs += 1
+
+            # Apply overlay models (Hadera, Haifa Metronit) - these ADD to existing demand
+            overlay_regions = ['Hadera', 'Haifa Metronit']
+            for overlay_region in overlay_regions:
+                if overlay_region in region_demand:
+                    overlay_matched = 0
+                    for idx, row in hubs_with_demand.iterrows():
+                        nodes_in_group = row.get('node', [])
+                        if isinstance(nodes_in_group, str):
+                            try:
+                                nodes_in_group = ast.literal_eval(nodes_in_group)
+                            except (ValueError, SyntaxError):
+                                nodes_in_group = [nodes_in_group]
+                        if not isinstance(nodes_in_group, list):
+                            nodes_in_group = [nodes_in_group]
+
+                        for node in nodes_in_group:
+                            try:
+                                node = int(node)
+                            except (ValueError, TypeError):
+                                continue
+                            if node in region_demand[overlay_region]:
+                                hubs_with_demand.at[idx, 'TotalDemand'] += region_demand[overlay_region][node]['demand']
+                                hubs_with_demand.at[idx, 'TotalTransfers'] += region_demand[overlay_region][node]['transfers']
+                                overlay_matched += 1
+                    if overlay_matched > 0:
+                        logger.info(f"  Applied {overlay_region} overlay: {overlay_matched} nodes updated")
 
             # Summary statistics
             logger.info("\n  DEMAND MATCHING SUMMARY:")
@@ -654,6 +761,7 @@ class CompleteHubPipeline:
                 logger.warning("     1. Node IDs in demand file don't match node IDs in hub groups")
                 logger.warning("     2. Demand file uses different node numbering system")
                 logger.warning("     3. Node column format mismatch (string vs integer)")
+                logger.warning("     4. Hub 'area' column doesn't map to any demand region")
                 logger.warning("     Check sample node IDs above to compare formats")
 
             self.hubs_with_demand = hubs_with_demand

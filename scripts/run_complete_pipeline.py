@@ -536,14 +536,31 @@ class CompleteHubPipeline:
                 if nodes_matched > 0:
                     matched_hubs += 1
 
-            logger.info(f"✓ Matched demand to {matched_hubs}/{len(hubs_with_demand)} hub groups")
-            logger.info(f"  Nodes checked: {total_nodes_checked}, matched: {total_nodes_matched}")
-            logger.info(f"  Total demand across all hubs: {hubs_with_demand['TotalDemand'].sum():,.0f}")
-            logger.info(f"  Total transfers across all hubs: {hubs_with_demand['TotalTransfers'].sum():,.0f}")
+            # Summary statistics
+            logger.info("\n  DEMAND MATCHING SUMMARY:")
+            logger.info(f"  ─────────────────────────")
+            logger.info(f"  Hub groups processed: {len(hubs_with_demand)}")
+            logger.info(f"  Hub groups with demand: {matched_hubs} ({matched_hubs/len(hubs_with_demand)*100:.1f}%)")
+            logger.info(f"  Hub groups without demand: {len(hubs_with_demand) - matched_hubs}")
+            logger.info(f"  Nodes checked: {total_nodes_checked}")
+            logger.info(f"  Nodes matched: {total_nodes_matched} ({total_nodes_matched/max(total_nodes_checked,1)*100:.1f}%)")
+            logger.info(f"  Total demand: {hubs_with_demand['TotalDemand'].sum():,.0f}")
+            logger.info(f"  Total transfers: {hubs_with_demand['TotalTransfers'].sum():,.0f}")
             logger.info(f"  Demand range: {hubs_with_demand['TotalDemand'].min():,.0f} - {hubs_with_demand['TotalDemand'].max():,.0f}")
 
+            # Flag hubs with no demand for debugging
+            hubs_with_demand['has_demand_data'] = hubs_with_demand['TotalDemand'] > 0
+
+            if total_nodes_matched == 0:
+                logger.warning("\n  ⚠ WARNING: No nodes were matched to demand data!")
+                logger.warning("     Possible causes:")
+                logger.warning("     1. Node IDs in demand file don't match node IDs in hub groups")
+                logger.warning("     2. Demand file uses different node numbering system")
+                logger.warning("     3. Node column format mismatch (string vs integer)")
+                logger.warning("     Check sample node IDs above to compare formats")
+
             self.hubs_with_demand = hubs_with_demand
-            logger.info("✓ Step 4 complete")
+            logger.info("\n✓ Step 4 complete")
 
         except Exception as e:
             logger.error(f"Error loading demand data: {e}", exc_info=True)

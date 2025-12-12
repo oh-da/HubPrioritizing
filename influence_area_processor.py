@@ -63,18 +63,18 @@ class InfluenceAreaProcessor:
     def load_grouped_hubs(self, filepath: str) -> gpd.GeoDataFrame:
         """
         Load grouped hub GeoDataFrame from CSV file.
-        
+
         Args:
             filepath: Path to CSV file with grouped hubs
-            
+
         Returns:
             GeoDataFrame with hub groups
         """
         print(f"Loading grouped hubs from {filepath}...")
-        
-        # Try multiple encodings
-        encodings_to_try = ['utf-8-sig', 'utf-8', 'windows-1255', 'cp1252', 'latin1']
-        
+
+        # Try windows-1255 first for Hebrew, then others
+        encodings_to_try = ['windows-1255', 'utf-8-sig', 'utf-8', 'cp1252', 'latin1']
+
         df = None
         for encoding in encodings_to_try:
             try:
@@ -86,10 +86,10 @@ class InfluenceAreaProcessor:
             except Exception as e:
                 print(f"  ⚠ Error with encoding {encoding}: {e}")
                 continue
-        
+
         if df is None:
             raise ValueError(f"Could not read file with any encoding: {encodings_to_try}")
-        
+
         # Parse geometry from WKT if it exists as string
         if 'geometry' in df.columns:
             if df['geometry'].dtype == 'object':
@@ -98,10 +98,26 @@ class InfluenceAreaProcessor:
                 except Exception as e:
                     print(f"  ⚠ Warning: Could not parse geometry column: {e}")
                     print(f"    Attempting to continue without geometry...")
-        
+
         # Create GeoDataFrame
         if 'geometry' in df.columns and df['geometry'].notna().any():
             gdf = gpd.GeoDataFrame(df, geometry='geometry', crs=self.crs_wgs84)
+
+            # Debug: Check coordinate ranges to detect CRS issues
+            bounds = gdf.total_bounds  # [minx, miny, maxx, maxy]
+            print(f"  Geometry bounds (raw): {bounds}")
+
+            # Detect if coordinates look like Israel TM (large numbers) vs WGS84 (small numbers)
+            if bounds[0] > 100000 or bounds[2] > 100000:
+                print(f"  ⚠ WARNING: Coordinates appear to be in projected CRS (Israel TM), not WGS84!")
+                print(f"    Adjusting CRS to EPSG:2039 (Israel TM)")
+                gdf = gdf.set_crs(self.crs_projected, allow_override=True)
+            elif 34 < bounds[0] < 36 and 29 < bounds[1] < 34:
+                print(f"  ✓ Coordinates appear to be in WGS84 (Israel region)")
+            else:
+                print(f"  ⚠ WARNING: Coordinate range doesn't match expected Israel bounds!")
+                print(f"    Expected WGS84: X ~34-36, Y ~29-34")
+                print(f"    Expected Israel TM: X ~100000-300000, Y ~350000-800000")
         else:
             # If no geometry, try to create from coordinates
             if 'lat' in df.columns and 'lon' in df.columns:
@@ -111,8 +127,9 @@ class InfluenceAreaProcessor:
             else:
                 print(f"  ⚠ Warning: No geometry or coordinates found, creating GeoDataFrame without geometry")
                 gdf = gpd.GeoDataFrame(df, crs=self.crs_wgs84)
-        
+
         print(f"  ✓ Loaded {len(gdf)} hub groups")
+        print(f"  CRS: {gdf.crs}")
         return gdf
     
     def load_taz_data(self, filepath: str) -> gpd.GeoDataFrame:
@@ -127,8 +144,8 @@ class InfluenceAreaProcessor:
         """
         print(f"Loading TAZ data from {filepath}...")
 
-        # Try multiple encodings - Israeli shapefiles often use Windows-1255 for Hebrew
-        encodings_to_try = ['utf-8', 'utf-8-sig', 'windows-1255', 'cp1255', 'iso-8859-8', 'cp1252', 'latin1']
+        # Try windows-1255 FIRST for Israeli shapefiles with Hebrew
+        encodings_to_try = ['windows-1255', 'cp1255', 'iso-8859-8', 'utf-8', 'utf-8-sig', 'cp1252', 'latin1']
 
         taz_gdf = None
         for encoding in encodings_to_try:
@@ -147,30 +164,81 @@ class InfluenceAreaProcessor:
 
         if taz_gdf is None:
             raise ValueError(f"Could not read TAZ file with any encoding: {encodings_to_try}")
-        
-        # Check for required columns
+
+        # Debug: Print original CRS and bounds
+        print(f"  Original CRS: {taz_gdf.crs}")
+        bounds = taz_gdf.total_bounds
+        print(f"  Original bounds: {bounds}")
+
+        # Check for required columns (case-insensitive search)
         required_cols = ['POP_2050', 'EMPL_2050']
+        col_mapping = {}
+        for req_col in required_cols:
+            found = False
+            for col in taz_gdf.columns:
+                if col.upper() == req_col.upper():
+                    col_mapping[col] = req_col
+                    found = True
+                    break
+            if not found:
+                # Try partial match
+                for col in taz_gdf.columns:
+                    if 'POP' in col.upper() and '2050' in col:
+                        col_mapping[col] = 'POP_2050'
+                        found = True
+                        break
+                    if 'EMPL' in col.upper() and '2050' in col:
+                        col_mapping[col] = 'EMPL_2050'
+                        found = True
+                        break
+
+        # Rename columns if found with different case
+        if col_mapping:
+            taz_gdf = taz_gdf.rename(columns=col_mapping)
+            print(f"  Column mapping applied: {col_mapping}")
+
         missing_cols = [col for col in required_cols if col not in taz_gdf.columns]
-        
+
         if missing_cols:
             print(f"⚠ Warning: Missing columns in TAZ data: {missing_cols}")
             print(f"  Available columns: {list(taz_gdf.columns)}")
             # Create dummy columns with zeros
             for col in missing_cols:
                 taz_gdf[col] = 0
-        
+
         # Ensure numeric types
         taz_gdf['POP_2050'] = pd.to_numeric(taz_gdf['POP_2050'], errors='coerce').fillna(0)
         taz_gdf['EMPL_2050'] = pd.to_numeric(taz_gdf['EMPL_2050'], errors='coerce').fillna(0)
-        
-        # Ensure projected CRS
-        if taz_gdf.crs != self.crs_projected:
+
+        # Handle CRS - detect and convert as needed
+        if taz_gdf.crs is None:
+            print(f"  ⚠ WARNING: TAZ file has no CRS defined!")
+            # Try to detect from coordinates
+            if bounds[0] > 100000:
+                print(f"    Assuming Israel TM (EPSG:2039) based on coordinate range")
+                taz_gdf = taz_gdf.set_crs(self.crs_projected)
+            else:
+                print(f"    Assuming WGS84 based on coordinate range")
+                taz_gdf = taz_gdf.set_crs(self.crs_wgs84)
+                taz_gdf = taz_gdf.to_crs(self.crs_projected)
+        elif taz_gdf.crs.to_epsg() != 2039:
+            print(f"  Converting from {taz_gdf.crs} to {self.crs_projected}")
             taz_gdf = taz_gdf.to_crs(self.crs_projected)
-        
+
+        # Final bounds check
+        final_bounds = taz_gdf.total_bounds
+        print(f"  Final CRS: {taz_gdf.crs}")
+        print(f"  Final bounds: {final_bounds}")
+
+        # Validate bounds are in Israel TM range
+        if not (100000 < final_bounds[0] < 300000 and 350000 < final_bounds[1] < 800000):
+            print(f"  ⚠ WARNING: Bounds don't look like Israel TM coordinates!")
+            print(f"    Expected: X ~100000-300000, Y ~350000-800000")
+
         print(f"✓ Loaded {len(taz_gdf)} TAZ zones")
         print(f"  Total population: {taz_gdf['POP_2050'].sum():,.0f}")
         print(f"  Total employment: {taz_gdf['EMPL_2050'].sum():,.0f}")
-        
+
         return taz_gdf
     
     def load_bus_terminals(self, filepath: Optional[str]) -> Optional[gpd.GeoDataFrame]:
@@ -190,8 +258,8 @@ class InfluenceAreaProcessor:
         try:
             print(f"Loading bus terminals from {filepath}...")
 
-            # Try multiple encodings - Israeli shapefiles often use Windows-1255 for Hebrew
-            encodings_to_try = ['utf-8', 'utf-8-sig', 'windows-1255', 'cp1255', 'iso-8859-8', 'cp1252', 'latin1']
+            # Try windows-1255 FIRST for Israeli shapefiles with Hebrew
+            encodings_to_try = ['windows-1255', 'cp1255', 'iso-8859-8', 'utf-8', 'utf-8-sig', 'cp1252', 'latin1']
 
             terminals_gdf = None
             for encoding in encodings_to_try:
@@ -211,8 +279,19 @@ class InfluenceAreaProcessor:
             if terminals_gdf is None:
                 raise ValueError(f"Could not read terminals file with any encoding: {encodings_to_try}")
 
-            # Ensure projected CRS
-            if terminals_gdf.crs != self.crs_projected:
+            # Debug: Print CRS info
+            print(f"  Original CRS: {terminals_gdf.crs}")
+
+            # Handle CRS
+            if terminals_gdf.crs is None:
+                bounds = terminals_gdf.total_bounds
+                if bounds[0] > 100000:
+                    print(f"  Assuming Israel TM (EPSG:2039)")
+                    terminals_gdf = terminals_gdf.set_crs(self.crs_projected)
+                else:
+                    terminals_gdf = terminals_gdf.set_crs(self.crs_wgs84)
+                    terminals_gdf = terminals_gdf.to_crs(self.crs_projected)
+            elif terminals_gdf.crs.to_epsg() != 2039:
                 terminals_gdf = terminals_gdf.to_crs(self.crs_projected)
 
             print(f"✓ Loaded {len(terminals_gdf)} bus terminals")

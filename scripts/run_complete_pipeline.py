@@ -306,10 +306,8 @@ class CompleteHubPipeline:
         """Step 4: Add demand forecasts to hubs.
 
         Reads demand data from Excel file with multiple worksheets (one per region)
-        or from a combined CSV file. Each worksheet/file should have columns:
-        - Node: node ID
-        - Boardings, Alightings (or TotalDemand)
-        - Transfers (optional)
+        or from a combined CSV file. Handles various column naming conventions
+        used by different regional transport models.
         """
         logger.info("\n" + "="*80)
         logger.info("STEP 4: ADD DEMAND DATA")
@@ -323,9 +321,174 @@ class CompleteHubPipeline:
             logger.info("✓ Step 4 complete (skipped)")
             return
 
+        # Sheet name mapping: technical names to region names
+        SHEET_NAME_MAPPING = {
+            '5040_Daily': 'Haifa',
+            'Daily_5087': 'Tel Aviv',
+            'Daily_BS': 'Beer Sheva',
+            'Daily_Hadera': 'Hadera',
+            'Daily_Jerusalem': 'Jerusalem',
+            'HaifaNewMetronit': 'Haifa Metronit',
+            'Daily_5093': 'Ashdod-Ashkelon',
+            'National': 'Rail',
+            # Also accept already-mapped names
+            'Haifa': 'Haifa',
+            'TelAviv': 'Tel Aviv',
+            'Tel Aviv': 'Tel Aviv',
+            'BeerSheva': 'Beer Sheva',
+            'Beer Sheva': 'Beer Sheva',
+            'Hadera': 'Hadera',
+            'Jerusalem': 'Jerusalem',
+            'Ashdod': 'Ashdod-Ashkelon',
+            'Ashdod-Ashkelon': 'Ashdod-Ashkelon',
+            'Ashkelon': 'Ashdod-Ashkelon',
+            'HaifaMetronit': 'Haifa Metronit',
+            'Haifa Metronit': 'Haifa Metronit',
+        }
+
+        # Per-sheet column configurations
+        # Each entry: (node_col_options, boardings_col_options, alightings_col_options, has_transfers)
+        SHEET_COLUMN_CONFIG = {
+            'Beer Sheva': {
+                'node_cols': ['NODE_ID', 'Node', 'node'],
+                'boardings_cols': ['Boardings', 'Boardings_Daily', 'TotalBoardings'],
+                'alightings_cols': ['Alightings', 'Alightings_Daily', 'TotalAlight'],
+                'transfer_cols': [],
+            },
+            'Hadera': {
+                'node_cols': ['NodeID', 'Node', 'node'],
+                'boardings_cols': ['On', 'Boardings', 'Boardings_Daily'],
+                'alightings_cols': ['Off', 'Alightings', 'Alightings_Daily'],
+                'transfer_cols': [],
+            },
+            'Tel Aviv': {
+                'node_cols': ['Node', 'node'],
+                'boardings_cols': ['TotalBoardings', 'Boardings', 'Boardings_Daily'],
+                'alightings_cols': ['TotalAlight', 'Alightings', 'Alightings_Daily'],
+                'transfer_cols': ['TransferBoardings', 'TransferAlight'],
+            },
+            'Ashdod-Ashkelon': {
+                'node_cols': ['Node', 'node'],
+                'boardings_cols': ['InitialBoardings', 'Boardings', 'TotalBoardings'],
+                'alightings_cols': ['FinalAlight', 'Alightings', 'TotalAlight'],
+                'transfer_cols': [],
+            },
+            'Haifa': {
+                'node_cols': ['Node', 'node'],
+                'boardings_cols': ['TotalBoardings', 'Boardings', 'Boardings_Daily'],
+                'alightings_cols': ['TotalAlight', 'Alightings', 'Alightings_Daily'],
+                'transfer_cols': ['TransferBoardings', 'TransferAlight'],
+            },
+            'Haifa Metronit': {
+                'node_cols': ['ModelNode', 'Node', 'node'],
+                'boardings_cols': ['Boardings_Daily', 'Boardings', 'TotalBoardings'],
+                'alightings_cols': ['Alightings_Daily', 'Alightings', 'TotalAlight'],
+                'transfer_cols': [],
+            },
+            'Jerusalem': {
+                'node_cols': ['ID', 'Node', 'node'],
+                'boardings_cols': ['DailyBoard_2050', 'Boardings', 'Boardings_Daily'],
+                'alightings_cols': ['DailyAlight_2050', 'Alightings', 'Alightings_Daily'],
+                'transfer_cols': [],
+            },
+            'Rail': {
+                'node_cols': ['Node', 'node', 'NODE_ID'],
+                'boardings_cols': ['Boardings', 'TotalBoardings', 'Boardings_Daily'],
+                'alightings_cols': ['Alightings', 'TotalAlight', 'Alightings_Daily'],
+                'transfer_cols': [],
+            },
+        }
+
+        # Default column config for unknown sheets
+        DEFAULT_COLUMN_CONFIG = {
+            'node_cols': ['Node', 'node', 'NODE_ID', 'NodeID', 'ID', 'ModelNode', 'N'],
+            'boardings_cols': ['Boardings', 'TotalBoardings', 'Boardings_Daily', 'InitialBoardings', 'On', 'DailyBoard_2050'],
+            'alightings_cols': ['Alightings', 'TotalAlight', 'Alightings_Daily', 'FinalAlight', 'Off', 'DailyAlight_2050'],
+            'transfer_cols': ['Transfers', 'TotalTransfers', 'TransferBoardings', 'TransferAlight'],
+        }
+
+        def find_column(df_columns, possible_names):
+            """Find matching column from list of possible names."""
+            for name in possible_names:
+                if name in df_columns:
+                    return name
+                # Case-insensitive fallback
+                for col in df_columns:
+                    if col.lower() == name.lower():
+                        return col
+            return None
+
+        def process_sheet(df, sheet_name, region_name):
+            """Process a single sheet and return dict of node_id -> (demand, transfers)."""
+            # Get column config for this region
+            config = SHEET_COLUMN_CONFIG.get(region_name, DEFAULT_COLUMN_CONFIG)
+
+            # Find columns
+            node_col = find_column(df.columns, config['node_cols'])
+            boardings_col = find_column(df.columns, config['boardings_cols'])
+            alightings_col = find_column(df.columns, config['alightings_cols'])
+            transfer_cols = [find_column(df.columns, [tc]) for tc in config.get('transfer_cols', [])]
+            transfer_cols = [tc for tc in transfer_cols if tc]  # Remove None values
+
+            if node_col is None:
+                logger.warning(f"    No node column found in sheet '{sheet_name}' (region: {region_name})")
+                logger.warning(f"    Available columns: {list(df.columns)}")
+                logger.warning(f"    Tried: {config['node_cols']}")
+                return {}
+
+            logger.info(f"    Using columns: node='{node_col}', boardings='{boardings_col}', alightings='{alightings_col}'")
+            if transfer_cols:
+                logger.info(f"    Transfer columns: {transfer_cols}")
+
+            result = {}
+            rows_processed = 0
+
+            for _, row in df.iterrows():
+                try:
+                    # Get node ID
+                    node_val = row[node_col]
+                    if pd.isna(node_val):
+                        continue
+                    node_id = int(float(node_val))
+
+                    # Calculate boardings
+                    boardings = 0
+                    if boardings_col and pd.notna(row.get(boardings_col)):
+                        boardings = float(row[boardings_col])
+
+                    # Calculate alightings
+                    alightings = 0
+                    if alightings_col and pd.notna(row.get(alightings_col)):
+                        alightings = float(row[alightings_col])
+
+                    demand = boardings + alightings
+
+                    # Calculate transfers (sum of transfer columns)
+                    transfers = 0
+                    for tc in transfer_cols:
+                        if pd.notna(row.get(tc)):
+                            transfers += float(row[tc])
+
+                    # Store result
+                    if node_id not in result:
+                        result[node_id] = {'demand': demand, 'transfers': transfers}
+                    else:
+                        result[node_id]['demand'] += demand
+                        result[node_id]['transfers'] += transfers
+
+                    rows_processed += 1
+
+                except (ValueError, TypeError) as e:
+                    continue
+
+            logger.info(f"    Processed {rows_processed} rows, {len(result)} unique nodes")
+            return result
+
         # Try to find demand file (Excel or CSV)
         demand_excel = RAW_DATA_DIR / "Demand_2050_all.xlsx"
         demand_xls = RAW_DATA_DIR / "Demand_2050_all.xls"
+        # Also check for the original filename pattern
+        demand_excel_alt = RAW_DATA_DIR / "Nodes_w_results_21082025.xlsx"
         demand_csv = INPUT_DEMAND_CSV
 
         node_demand = {}
@@ -333,87 +496,48 @@ class CompleteHubPipeline:
         try:
             # Try Excel file first (with multiple sheets)
             excel_file = None
-            if demand_excel.exists():
-                excel_file = demand_excel
-            elif demand_xls.exists():
-                excel_file = demand_xls
+            for ef in [demand_excel, demand_xls, demand_excel_alt]:
+                if ef.exists():
+                    excel_file = ef
+                    break
 
             if excel_file:
                 logger.info(f"Loading demand from Excel: {excel_file}")
 
                 # Get all sheet names
                 xl = pd.ExcelFile(excel_file)
-                sheet_names = xl.sheet_names
-                logger.info(f"Found sheets: {sheet_names}")
+                raw_sheet_names = xl.sheet_names
+                logger.info(f"Found sheets: {raw_sheet_names}")
 
-                # Load each sheet
-                for sheet in sheet_names:
-                    try:
-                        df = pd.read_excel(excel_file, sheet_name=sheet)
-                        logger.info(f"  Sheet '{sheet}': {len(df)} rows, columns: {list(df.columns)}")
-
-                        # Find node column (case-insensitive)
-                        node_col = None
-                        for col in df.columns:
-                            if col.lower() in ['node', 'node_id', 'nodeid', 'n']:
-                                node_col = col
+                # Process each sheet
+                for sheet in raw_sheet_names:
+                    # Map sheet name to region name
+                    region_name = SHEET_NAME_MAPPING.get(sheet)
+                    if region_name is None:
+                        # Try case-insensitive match
+                        for key, value in SHEET_NAME_MAPPING.items():
+                            if key.lower() == sheet.lower():
+                                region_name = value
                                 break
 
-                        if node_col is None:
-                            logger.warning(f"    No node column found in sheet '{sheet}', skipping")
-                            continue
+                    if region_name is None:
+                        logger.warning(f"  Sheet '{sheet}': Unknown region, using default config")
+                        region_name = sheet  # Use sheet name as region name
 
-                        # Find demand columns
-                        boardings_col = None
-                        alightings_col = None
-                        demand_col = None
-                        transfers_col = None
+                    try:
+                        df = pd.read_excel(excel_file, sheet_name=sheet)
+                        logger.info(f"  Sheet '{sheet}' → Region '{region_name}': {len(df)} rows")
+                        logger.info(f"    Columns: {list(df.columns)}")
 
-                        for col in df.columns:
-                            col_lower = col.lower()
-                            if 'boarding' in col_lower or col_lower == 'board':
-                                boardings_col = col
-                            elif 'alighting' in col_lower or col_lower == 'alight':
-                                alightings_col = col
-                            elif 'demand' in col_lower or 'total' in col_lower:
-                                demand_col = col
-                            elif 'transfer' in col_lower:
-                                transfers_col = col
+                        sheet_demand = process_sheet(df, sheet, region_name)
 
-                        # Process each row
-                        rows_added = 0
-                        for _, row in df.iterrows():
-                            try:
-                                node_id = int(row[node_col])
-
-                                # Calculate demand
-                                if boardings_col and alightings_col:
-                                    boardings = float(row[boardings_col]) if pd.notna(row[boardings_col]) else 0
-                                    alightings = float(row[alightings_col]) if pd.notna(row[alightings_col]) else 0
-                                    demand = boardings + alightings
-                                elif demand_col:
-                                    demand = float(row[demand_col]) if pd.notna(row[demand_col]) else 0
-                                else:
-                                    demand = 0
-
-                                # Get transfers
-                                transfers = 0
-                                if transfers_col and pd.notna(row[transfers_col]):
-                                    transfers = float(row[transfers_col])
-
-                                # Store/accumulate demand
-                                if node_id not in node_demand:
-                                    node_demand[node_id] = {'demand': demand, 'transfers': transfers}
-                                else:
-                                    node_demand[node_id]['demand'] += demand
-                                    node_demand[node_id]['transfers'] += transfers
-
-                                rows_added += 1
-
-                            except (ValueError, TypeError) as e:
-                                continue
-
-                        logger.info(f"    Added demand for {rows_added} nodes from sheet '{sheet}'")
+                        # Merge into main demand dict
+                        for node_id, data in sheet_demand.items():
+                            if node_id not in node_demand:
+                                node_demand[node_id] = {'demand': data['demand'], 'transfers': data['transfers']}
+                            else:
+                                node_demand[node_id]['demand'] += data['demand']
+                                node_demand[node_id]['transfers'] += data['transfers']
 
                     except Exception as e:
                         logger.warning(f"    Error loading sheet '{sheet}': {e}")
@@ -425,47 +549,20 @@ class CompleteHubPipeline:
                 logger.info(f"Loaded {len(df_demand)} rows")
                 logger.info(f"Columns: {list(df_demand.columns)}")
 
-                # Standardize column names
-                col_mapping = {}
-                for col in df_demand.columns:
-                    col_lower = col.lower().strip()
-                    if col_lower in ['node', 'node_id', 'nodeid']:
-                        col_mapping[col] = 'Node'
-                    elif 'demand' in col_lower:
-                        col_mapping[col] = 'TotalDemand'
-                    elif 'transfer' in col_lower:
-                        col_mapping[col] = 'TotalTransfers'
-
-                df_demand = df_demand.rename(columns=col_mapping)
-
-                if 'Node' not in df_demand.columns:
-                    raise ValueError("Required column 'Node' not found in demand data")
-
-                for _, row in df_demand.iterrows():
-                    try:
-                        node_id = int(row['Node'])
-                        demand = float(row.get('TotalDemand', 0)) if pd.notna(row.get('TotalDemand')) else 0
-                        transfers = float(row.get('TotalTransfers', 0)) if pd.notna(row.get('TotalTransfers')) else 0
-
-                        if node_id not in node_demand:
-                            node_demand[node_id] = {'demand': demand, 'transfers': transfers}
-                        else:
-                            node_demand[node_id]['demand'] += demand
-                            node_demand[node_id]['transfers'] += transfers
-
-                    except (ValueError, TypeError):
-                        continue
+                # Use default config for CSV
+                sheet_demand = process_sheet(df_demand, 'CSV', 'default')
+                node_demand = sheet_demand
 
             else:
                 logger.warning("⚠ No demand file found!")
-                logger.info(f"  Looked for: {demand_excel}, {demand_xls}, {demand_csv}")
+                logger.info(f"  Looked for: {demand_excel}, {demand_xls}, {demand_excel_alt}, {demand_csv}")
                 self.hubs_with_demand = self.grouped_hubs.copy()
                 self.hubs_with_demand['TotalDemand'] = 5000  # Placeholder
                 self.hubs_with_demand['TotalTransfers'] = 0
                 logger.info("✓ Step 4 complete (no file)")
                 return
 
-            logger.info(f"✓ Total demand loaded for {len(node_demand)} unique nodes")
+            logger.info(f"\n✓ Total demand loaded for {len(node_demand)} unique nodes")
 
             # Debug: Show sample of node IDs from demand data
             sample_demand_nodes = list(node_demand.keys())[:10]

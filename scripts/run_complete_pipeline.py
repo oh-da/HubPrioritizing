@@ -305,85 +305,171 @@ class CompleteHubPipeline:
     def step_4_add_demand_data(self):
         """Step 4: Add demand forecasts to hubs.
 
-        Reads demand data from CSV file with columns:
+        Reads demand data from Excel file with multiple worksheets (one per region)
+        or from a combined CSV file. Each worksheet/file should have columns:
         - Node: node ID
-        - Area: geographic area (Haifa, TelAviv, BeerSheva, etc.)
-        - TotalDemand: total daily demand at this node
-        - TotalTransfers: number of transfers (0 if no data)
+        - Boardings, Alightings (or TotalDemand)
+        - Transfers (optional)
         """
         logger.info("\n" + "="*80)
         logger.info("STEP 4: ADD DEMAND DATA")
         logger.info("="*80)
 
-        if SKIP_DEMAND_DATA or not INPUT_DEMAND_CSV.exists():
-            logger.warning("⚠ Skipping demand data - file not found or disabled")
+        if SKIP_DEMAND_DATA:
+            logger.warning("⚠ Skipping demand data - disabled")
             self.hubs_with_demand = self.grouped_hubs.copy()
             self.hubs_with_demand['TotalDemand'] = 5000  # Placeholder
             self.hubs_with_demand['TotalTransfers'] = 0
             logger.info("✓ Step 4 complete (skipped)")
             return
 
+        # Try to find demand file (Excel or CSV)
+        demand_excel = RAW_DATA_DIR / "Demand_2050_all.xlsx"
+        demand_xls = RAW_DATA_DIR / "Demand_2050_all.xls"
+        demand_csv = INPUT_DEMAND_CSV
+
+        node_demand = {}
+
         try:
-            logger.info(f"Loading demand from: {INPUT_DEMAND_CSV}")
+            # Try Excel file first (with multiple sheets)
+            excel_file = None
+            if demand_excel.exists():
+                excel_file = demand_excel
+            elif demand_xls.exists():
+                excel_file = demand_xls
 
-            # Load the CSV file
-            df_demand = pd.read_csv(INPUT_DEMAND_CSV, encoding='utf-8-sig')
-            logger.info(f"Loaded {len(df_demand)} rows")
-            logger.info(f"Columns: {list(df_demand.columns)}")
+            if excel_file:
+                logger.info(f"Loading demand from Excel: {excel_file}")
 
-            # Standardize column names (case-insensitive matching)
-            col_mapping = {}
-            for col in df_demand.columns:
-                col_lower = col.lower().strip()
-                if col_lower in ['node', 'node_id', 'nodeid']:
-                    col_mapping[col] = 'Node'
-                elif col_lower in ['area', 'region']:
-                    col_mapping[col] = 'Area'
-                elif col_lower in ['totaldemand', 'total_demand', 'demand']:
-                    col_mapping[col] = 'TotalDemand'
-                elif col_lower in ['totaltransfers', 'total_transfers', 'transfers']:
-                    col_mapping[col] = 'TotalTransfers'
+                # Get all sheet names
+                xl = pd.ExcelFile(excel_file)
+                sheet_names = xl.sheet_names
+                logger.info(f"Found sheets: {sheet_names}")
 
-            df_demand = df_demand.rename(columns=col_mapping)
+                # Load each sheet
+                for sheet in sheet_names:
+                    try:
+                        df = pd.read_excel(excel_file, sheet_name=sheet)
+                        logger.info(f"  Sheet '{sheet}': {len(df)} rows, columns: {list(df.columns)}")
 
-            # Verify required columns exist
-            if 'Node' not in df_demand.columns:
-                raise ValueError("Required column 'Node' not found in demand data")
-            if 'TotalDemand' not in df_demand.columns:
-                raise ValueError("Required column 'TotalDemand' not found in demand data")
+                        # Find node column (case-insensitive)
+                        node_col = None
+                        for col in df.columns:
+                            if col.lower() in ['node', 'node_id', 'nodeid', 'n']:
+                                node_col = col
+                                break
 
-            # Add TotalTransfers column if missing
-            if 'TotalTransfers' not in df_demand.columns:
-                logger.warning("TotalTransfers column not found, setting to 0")
-                df_demand['TotalTransfers'] = 0
+                        if node_col is None:
+                            logger.warning(f"    No node column found in sheet '{sheet}', skipping")
+                            continue
 
-            # Create dictionary mapping node_id -> {demand, transfers}
-            node_demand = {}
-            areas_found = set()
+                        # Find demand columns
+                        boardings_col = None
+                        alightings_col = None
+                        demand_col = None
+                        transfers_col = None
 
-            for _, row in df_demand.iterrows():
-                try:
-                    node_id = int(row['Node'])
-                    demand = float(row['TotalDemand']) if pd.notna(row['TotalDemand']) else 0
-                    transfers = float(row['TotalTransfers']) if pd.notna(row['TotalTransfers']) else 0
+                        for col in df.columns:
+                            col_lower = col.lower()
+                            if 'boarding' in col_lower or col_lower == 'board':
+                                boardings_col = col
+                            elif 'alighting' in col_lower or col_lower == 'alight':
+                                alightings_col = col
+                            elif 'demand' in col_lower or 'total' in col_lower:
+                                demand_col = col
+                            elif 'transfer' in col_lower:
+                                transfers_col = col
 
-                    # Track areas
-                    if 'Area' in df_demand.columns and pd.notna(row['Area']):
-                        areas_found.add(row['Area'])
+                        # Process each row
+                        rows_added = 0
+                        for _, row in df.iterrows():
+                            try:
+                                node_id = int(row[node_col])
 
-                    # Store demand (sum if node appears multiple times)
-                    if node_id not in node_demand:
-                        node_demand[node_id] = {'demand': demand, 'transfers': transfers}
-                    else:
-                        node_demand[node_id]['demand'] += demand
-                        node_demand[node_id]['transfers'] += transfers
+                                # Calculate demand
+                                if boardings_col and alightings_col:
+                                    boardings = float(row[boardings_col]) if pd.notna(row[boardings_col]) else 0
+                                    alightings = float(row[alightings_col]) if pd.notna(row[alightings_col]) else 0
+                                    demand = boardings + alightings
+                                elif demand_col:
+                                    demand = float(row[demand_col]) if pd.notna(row[demand_col]) else 0
+                                else:
+                                    demand = 0
 
-                except (ValueError, TypeError, KeyError) as e:
-                    continue
+                                # Get transfers
+                                transfers = 0
+                                if transfers_col and pd.notna(row[transfers_col]):
+                                    transfers = float(row[transfers_col])
 
-            logger.info(f"✓ Loaded demand for {len(node_demand)} nodes")
-            if areas_found:
-                logger.info(f"  Areas: {', '.join(sorted(areas_found))}")
+                                # Store/accumulate demand
+                                if node_id not in node_demand:
+                                    node_demand[node_id] = {'demand': demand, 'transfers': transfers}
+                                else:
+                                    node_demand[node_id]['demand'] += demand
+                                    node_demand[node_id]['transfers'] += transfers
+
+                                rows_added += 1
+
+                            except (ValueError, TypeError) as e:
+                                continue
+
+                        logger.info(f"    Added demand for {rows_added} nodes from sheet '{sheet}'")
+
+                    except Exception as e:
+                        logger.warning(f"    Error loading sheet '{sheet}': {e}")
+
+            # If no Excel or no data found, try CSV
+            elif demand_csv.exists():
+                logger.info(f"Loading demand from CSV: {demand_csv}")
+                df_demand = pd.read_csv(demand_csv, encoding='utf-8-sig')
+                logger.info(f"Loaded {len(df_demand)} rows")
+                logger.info(f"Columns: {list(df_demand.columns)}")
+
+                # Standardize column names
+                col_mapping = {}
+                for col in df_demand.columns:
+                    col_lower = col.lower().strip()
+                    if col_lower in ['node', 'node_id', 'nodeid']:
+                        col_mapping[col] = 'Node'
+                    elif 'demand' in col_lower:
+                        col_mapping[col] = 'TotalDemand'
+                    elif 'transfer' in col_lower:
+                        col_mapping[col] = 'TotalTransfers'
+
+                df_demand = df_demand.rename(columns=col_mapping)
+
+                if 'Node' not in df_demand.columns:
+                    raise ValueError("Required column 'Node' not found in demand data")
+
+                for _, row in df_demand.iterrows():
+                    try:
+                        node_id = int(row['Node'])
+                        demand = float(row.get('TotalDemand', 0)) if pd.notna(row.get('TotalDemand')) else 0
+                        transfers = float(row.get('TotalTransfers', 0)) if pd.notna(row.get('TotalTransfers')) else 0
+
+                        if node_id not in node_demand:
+                            node_demand[node_id] = {'demand': demand, 'transfers': transfers}
+                        else:
+                            node_demand[node_id]['demand'] += demand
+                            node_demand[node_id]['transfers'] += transfers
+
+                    except (ValueError, TypeError):
+                        continue
+
+            else:
+                logger.warning("⚠ No demand file found!")
+                logger.info(f"  Looked for: {demand_excel}, {demand_xls}, {demand_csv}")
+                self.hubs_with_demand = self.grouped_hubs.copy()
+                self.hubs_with_demand['TotalDemand'] = 5000  # Placeholder
+                self.hubs_with_demand['TotalTransfers'] = 0
+                logger.info("✓ Step 4 complete (no file)")
+                return
+
+            logger.info(f"✓ Total demand loaded for {len(node_demand)} unique nodes")
+
+            # Debug: Show sample of node IDs from demand data
+            sample_demand_nodes = list(node_demand.keys())[:10]
+            logger.info(f"  Sample demand node IDs: {sample_demand_nodes}")
 
             # Match demand to grouped hubs
             hubs_with_demand = self.grouped_hubs.copy()
@@ -392,20 +478,33 @@ class CompleteHubPipeline:
             hubs_with_demand['TotalDemand'] = 0.0
             hubs_with_demand['TotalTransfers'] = 0.0
 
+            # Debug: Show sample of node IDs from hubs
+            import ast
+            sample_hub_nodes = []
+            for idx, row in hubs_with_demand.head(5).iterrows():
+                nodes = row.get('node', [])
+                if isinstance(nodes, str):
+                    try:
+                        nodes = ast.literal_eval(nodes)
+                    except:
+                        nodes = [nodes]
+                sample_hub_nodes.extend(nodes[:3] if isinstance(nodes, list) else [nodes])
+            logger.info(f"  Sample hub node IDs: {sample_hub_nodes[:10]}")
+
             # For each hub group, sum demand from all its nodes
             matched_hubs = 0
+            total_nodes_checked = 0
+            total_nodes_matched = 0
+
             for idx, row in hubs_with_demand.iterrows():
                 # Get list of nodes in this hub group
                 nodes_in_group = row.get('node', [])
 
                 # Handle string representation of list from CSV (e.g., "[123, 456]")
                 if isinstance(nodes_in_group, str):
-                    # Try to parse as Python literal (list)
-                    import ast
                     try:
                         nodes_in_group = ast.literal_eval(nodes_in_group)
                     except (ValueError, SyntaxError):
-                        # If it's a single value as string, make it a list
                         nodes_in_group = [nodes_in_group]
 
                 # Handle if it's a single value or list
@@ -418,6 +517,7 @@ class CompleteHubPipeline:
                 nodes_matched = 0
 
                 for node in nodes_in_group:
+                    total_nodes_checked += 1
                     try:
                         node = int(node)
                     except (ValueError, TypeError):
@@ -427,6 +527,7 @@ class CompleteHubPipeline:
                         total_demand += node_demand[node]['demand']
                         total_transfers += node_demand[node]['transfers']
                         nodes_matched += 1
+                        total_nodes_matched += 1
 
                 # Assign to hub
                 hubs_with_demand.at[idx, 'TotalDemand'] = total_demand
@@ -435,13 +536,31 @@ class CompleteHubPipeline:
                 if nodes_matched > 0:
                     matched_hubs += 1
 
-            logger.info(f"✓ Matched demand to {matched_hubs}/{len(hubs_with_demand)} hub groups")
-            logger.info(f"  Total demand across all hubs: {hubs_with_demand['TotalDemand'].sum():,.0f}")
-            logger.info(f"  Total transfers across all hubs: {hubs_with_demand['TotalTransfers'].sum():,.0f}")
+            # Summary statistics
+            logger.info("\n  DEMAND MATCHING SUMMARY:")
+            logger.info(f"  ─────────────────────────")
+            logger.info(f"  Hub groups processed: {len(hubs_with_demand)}")
+            logger.info(f"  Hub groups with demand: {matched_hubs} ({matched_hubs/len(hubs_with_demand)*100:.1f}%)")
+            logger.info(f"  Hub groups without demand: {len(hubs_with_demand) - matched_hubs}")
+            logger.info(f"  Nodes checked: {total_nodes_checked}")
+            logger.info(f"  Nodes matched: {total_nodes_matched} ({total_nodes_matched/max(total_nodes_checked,1)*100:.1f}%)")
+            logger.info(f"  Total demand: {hubs_with_demand['TotalDemand'].sum():,.0f}")
+            logger.info(f"  Total transfers: {hubs_with_demand['TotalTransfers'].sum():,.0f}")
             logger.info(f"  Demand range: {hubs_with_demand['TotalDemand'].min():,.0f} - {hubs_with_demand['TotalDemand'].max():,.0f}")
 
+            # Flag hubs with no demand for debugging
+            hubs_with_demand['has_demand_data'] = hubs_with_demand['TotalDemand'] > 0
+
+            if total_nodes_matched == 0:
+                logger.warning("\n  ⚠ WARNING: No nodes were matched to demand data!")
+                logger.warning("     Possible causes:")
+                logger.warning("     1. Node IDs in demand file don't match node IDs in hub groups")
+                logger.warning("     2. Demand file uses different node numbering system")
+                logger.warning("     3. Node column format mismatch (string vs integer)")
+                logger.warning("     Check sample node IDs above to compare formats")
+
             self.hubs_with_demand = hubs_with_demand
-            logger.info("✓ Step 4 complete")
+            logger.info("\n✓ Step 4 complete")
 
         except Exception as e:
             logger.error(f"Error loading demand data: {e}", exc_info=True)

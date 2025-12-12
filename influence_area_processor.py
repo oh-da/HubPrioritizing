@@ -400,6 +400,45 @@ class InfluenceAreaProcessor:
         print("\nCalculating population and employment statistics...")
         print("  This may take a few minutes for large datasets...")
 
+        # Check TAZ coverage vs hub coverage
+        gdf_proj_check = gdf.to_crs(self.crs_projected)
+        hub_bounds = gdf_proj_check.total_bounds
+        taz_bounds = taz_gdf.total_bounds
+
+        print(f"\n  COVERAGE CHECK:")
+        print(f"  Hub bounds (Israel TM): X=[{hub_bounds[0]:.0f}, {hub_bounds[2]:.0f}], Y=[{hub_bounds[1]:.0f}, {hub_bounds[3]:.0f}]")
+        print(f"  TAZ bounds (Israel TM): X=[{taz_bounds[0]:.0f}, {taz_bounds[2]:.0f}], Y=[{taz_bounds[1]:.0f}, {taz_bounds[3]:.0f}]")
+
+        # Check overlap
+        x_overlap = (hub_bounds[0] <= taz_bounds[2]) and (hub_bounds[2] >= taz_bounds[0])
+        y_overlap = (hub_bounds[1] <= taz_bounds[3]) and (hub_bounds[3] >= taz_bounds[1])
+
+        if not (x_overlap and y_overlap):
+            print(f"  ⚠ WARNING: Hub bounds and TAZ bounds DO NOT OVERLAP!")
+            print(f"     This explains why population/employment are 0.")
+            print(f"     The TAZ shapefile may not cover all hub locations.")
+        else:
+            # Calculate approximate coverage
+            hub_minx, hub_miny, hub_maxx, hub_maxy = hub_bounds
+            taz_minx, taz_miny, taz_maxx, taz_maxy = taz_bounds
+
+            # Intersection bounds
+            int_minx = max(hub_minx, taz_minx)
+            int_miny = max(hub_miny, taz_miny)
+            int_maxx = min(hub_maxx, taz_maxx)
+            int_maxy = min(hub_maxy, taz_maxy)
+
+            hub_area = (hub_maxx - hub_minx) * (hub_maxy - hub_miny)
+            int_area = max(0, int_maxx - int_minx) * max(0, int_maxy - int_miny)
+            coverage_pct = (int_area / hub_area * 100) if hub_area > 0 else 0
+
+            print(f"  TAZ coverage of hub area: ~{coverage_pct:.1f}%")
+
+            if coverage_pct < 50:
+                print(f"  ⚠ WARNING: TAZ data only covers ~{coverage_pct:.1f}% of hub locations!")
+                print(f"     Many hubs will have 0 population/employment.")
+                print(f"     Consider obtaining TAZ data for the full study area.")
+
         # Convert to projected CRS for accurate spatial operations
         gdf_proj = gdf.to_crs(self.crs_projected)
 
@@ -512,10 +551,30 @@ class InfluenceAreaProcessor:
             stats_df['emp_zone1'] + stats_df['emp_zone2'] + stats_df['emp_zone3']
         )
         
-        print(f"✓ Calculated statistics for {len(stats_df)} hubs")
+        # Add flag for hubs with no TAZ coverage
+        stats_df['has_taz_coverage'] = (
+            (stats_df['pop_zone1'] > 0) |
+            (stats_df['emp_zone1'] > 0) |
+            (stats_df['pop_zone2'] > 0) |
+            (stats_df['emp_zone2'] > 0) |
+            (stats_df['pop_zone3'] > 0) |
+            (stats_df['emp_zone3'] > 0)
+        )
+
+        hubs_with_coverage = stats_df['has_taz_coverage'].sum()
+        hubs_without_coverage = len(stats_df) - hubs_with_coverage
+
+        print(f"\n✓ Calculated statistics for {len(stats_df)} hubs")
+        print(f"  Hubs with TAZ coverage: {hubs_with_coverage} ({hubs_with_coverage/len(stats_df)*100:.1f}%)")
+        print(f"  Hubs without TAZ coverage: {hubs_without_coverage} ({hubs_without_coverage/len(stats_df)*100:.1f}%)")
         print(f"  Total allocated population: {stats_df['total_pop_influence'].sum():,.0f}")
         print(f"  Total allocated employment: {stats_df['total_emp_influence'].sum():,.0f}")
-        
+
+        if hubs_without_coverage > 0:
+            print(f"\n  ⚠ NOTE: {hubs_without_coverage} hubs have 0 population/employment")
+            print(f"     This is likely because the TAZ shapefile doesn't cover their locations.")
+            print(f"     These hubs will have 'has_taz_coverage' = False.")
+
         return stats_df
     
     def identify_bus_terminal_proximity(self, gdf: gpd.GeoDataFrame,

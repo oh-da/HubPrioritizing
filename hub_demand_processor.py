@@ -425,22 +425,40 @@ class DemandDataProcessor:
         
         # Always include group (will be reset_index later)
         # Check for h3_index
+        # Handles both single values and lists (from H3 aggregation)
         if 'h3_index' in gdf.columns:
-            agg_dict['h3_index'] = lambda x: list(x.unique())
+            def flatten_h3_indices(x):
+                all_indices = set()
+                for item in x:
+                    if isinstance(item, list):
+                        all_indices.update(item)
+                    elif pd.notna(item):
+                        all_indices.add(item)
+                return list(all_indices)
+            agg_dict['h3_index'] = flatten_h3_indices
         
         # Node column (required) - convert to regular Python integers
+        # Handles both single values and lists (from H3 aggregation)
         if 'node' in gdf.columns:
             def clean_nodes(x):
                 # Convert numpy integers to regular Python integers
-                nodes = []
-                for node in x.unique():
-                    if pd.notna(node):
-                        # Convert to Python int if it's a numpy type
+                all_nodes = set()
+                for item in x:
+                    if isinstance(item, list):
+                        # Item is already a list of nodes
+                        for node in item:
+                            if pd.notna(node):
+                                try:
+                                    all_nodes.add(int(node))
+                                except (ValueError, TypeError):
+                                    all_nodes.add(node)
+                    elif pd.notna(item):
+                        # Item is a single node
                         try:
-                            nodes.append(int(node))
+                            all_nodes.add(int(item))
                         except (ValueError, TypeError):
-                            nodes.append(node)
-                return nodes
+                            all_nodes.add(item)
+                return list(all_nodes)
             agg_dict['node'] = clean_nodes
         
         # Mode columns

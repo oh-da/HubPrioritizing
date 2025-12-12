@@ -321,6 +321,75 @@ class CompleteHubPipeline:
             logger.info("✓ Step 4 complete (skipped)")
             return
 
+        # First, assign 'area' column from metro/districts if available (needed for area-based demand matching)
+        # Based on HubsCode_to_1_file.ipynb: uses metro shapefile first (METRO_NAME), then districts (MACHOZ)
+        if 'area' not in self.grouped_hubs.columns or self.grouped_hubs['area'].isna().all() or (self.grouped_hubs['area'] == 'Unknown').all():
+            logger.info("Assigning area from spatial layers for demand matching...")
+
+            # Initialize area column
+            self.grouped_hubs['area'] = None
+
+            # Try metro shapefile first (has METRO_NAME column)
+            if self.metro_areas is not None:
+                try:
+                    logger.info("  Trying metro layer...")
+                    hubs_wgs = self.grouped_hubs.to_crs('EPSG:4326')
+                    metro_wgs = self.metro_areas.to_crs('EPSG:4326')
+
+                    # Find metro name column
+                    metro_col = None
+                    for col in ['METRO_NAME', 'MetroName', 'metro_name', 'NAME', 'name']:
+                        if col in metro_wgs.columns:
+                            metro_col = col
+                            break
+
+                    if metro_col:
+                        joined = gpd.sjoin(hubs_wgs, metro_wgs[[metro_col, 'geometry']],
+                                         how='left', predicate='intersects')
+                        if joined.index.duplicated().any():
+                            joined = joined[~joined.index.duplicated(keep='first')]
+                        self.grouped_hubs['area'] = joined[metro_col].values
+                        n_tagged = self.grouped_hubs['area'].notna().sum()
+                        logger.info(f"  ✓ Tagged {n_tagged}/{len(self.grouped_hubs)} hubs from metro layer")
+                except Exception as e:
+                    logger.warning(f"  Metro tagging failed: {e}")
+
+            # Fall back to districts for untagged hubs (has MACHOZ column)
+            if self.districts is not None:
+                try:
+                    nan_mask = self.grouped_hubs['area'].isna()
+                    if nan_mask.any():
+                        logger.info(f"  Trying districts layer for {nan_mask.sum()} untagged hubs...")
+                        hubs_wgs = self.grouped_hubs[nan_mask].to_crs('EPSG:4326')
+                        districts_wgs = self.districts.to_crs('EPSG:4326')
+
+                        # Find district name column
+                        district_col = None
+                        for col in ['MACHOZ', 'SHEM_MACHOZ', 'SHEM_NAFA', 'District', 'NAME']:
+                            if col in districts_wgs.columns:
+                                district_col = col
+                                break
+
+                        if district_col:
+                            joined = gpd.sjoin(hubs_wgs, districts_wgs[[district_col, 'geometry']],
+                                             how='left', predicate='within')
+                            if joined.index.duplicated().any():
+                                joined = joined[~joined.index.duplicated(keep='first')]
+
+                            # Update only the NaN rows
+                            for idx in joined.index:
+                                if pd.notna(joined.loc[idx, district_col]):
+                                    self.grouped_hubs.loc[idx, 'area'] = joined.loc[idx, district_col]
+
+                            n_tagged_district = self.grouped_hubs['area'].notna().sum() - (~nan_mask).sum()
+                            logger.info(f"  ✓ Tagged {n_tagged_district} additional hubs from districts layer")
+                except Exception as e:
+                    logger.warning(f"  District tagging failed: {e}")
+
+            # Fill remaining NaN with 'Unknown'
+            self.grouped_hubs['area'] = self.grouped_hubs['area'].fillna('Unknown')
+            logger.info(f"  Areas found: {self.grouped_hubs['area'].unique().tolist()}")
+
         # Sheet name mapping: technical names to region names
         SHEET_NAME_MAPPING = {
             '5040_Daily': 'Haifa',

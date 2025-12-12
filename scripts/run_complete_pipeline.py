@@ -398,6 +398,16 @@ class CompleteHubPipeline:
                 # Get list of nodes in this hub group
                 nodes_in_group = row.get('node', [])
 
+                # Handle string representation of list from CSV (e.g., "[123, 456]")
+                if isinstance(nodes_in_group, str):
+                    # Try to parse as Python literal (list)
+                    import ast
+                    try:
+                        nodes_in_group = ast.literal_eval(nodes_in_group)
+                    except (ValueError, SyntaxError):
+                        # If it's a single value as string, make it a list
+                        nodes_in_group = [nodes_in_group]
+
                 # Handle if it's a single value or list
                 if not isinstance(nodes_in_group, list):
                     nodes_in_group = [nodes_in_group]

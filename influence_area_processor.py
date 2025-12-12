@@ -225,15 +225,15 @@ class InfluenceAreaProcessor:
     def create_buffer_zones(self, gdf: gpd.GeoDataFrame) -> Dict[str, gpd.GeoSeries]:
         """
         Create concentric buffer zones around hub centroids.
-        
+
         Creates rings:
         - Zone 1: 0-600m
         - Zone 2: 600-1000m (ring only, excluding zone 1)
         - Zone 3: 1000-1200m (ring only, excluding zones 1 and 2)
-        
+
         Args:
             gdf: Hub GeoDataFrame
-            
+
         Returns:
             Dictionary of zone name to GeoSeries of buffer polygons
         """
@@ -241,113 +241,186 @@ class InfluenceAreaProcessor:
         print(f"  Zone 1: {self.buffer_zones['zone1'][0]}-{self.buffer_zones['zone1'][1]}m")
         print(f"  Zone 2: {self.buffer_zones['zone2'][0]}-{self.buffer_zones['zone2'][1]}m")
         print(f"  Zone 3: {self.buffer_zones['zone3'][0]}-{self.buffer_zones['zone3'][1]}m")
-        
+
         # Convert to projected CRS for meter-based operations
         gdf_proj = gdf.to_crs(self.crs_projected)
-        
+
+        # Debug: Print CRS and bounds
+        print(f"  Input CRS: {gdf.crs}")
+        print(f"  Projected CRS: {gdf_proj.crs}")
+        print(f"  Projected bounds: {gdf_proj.total_bounds}")
+
+        # Reset index to ensure sequential integers
+        gdf_proj = gdf_proj.reset_index(drop=True)
+
         # Calculate centroids
         centroids = gdf_proj.geometry.centroid
-        
+
+        # Debug: Check centroids
+        valid_centroids = centroids[~centroids.is_empty].count()
+        print(f"  Valid centroids: {valid_centroids}/{len(centroids)}")
+
+        if valid_centroids == 0:
+            print("  ERROR: No valid centroids found!")
+            print(f"  Sample geometries: {gdf_proj.geometry.head()}")
+
         # Create full circles at each distance
         buffer_600 = centroids.buffer(600)
         buffer_1000 = centroids.buffer(1000)
         buffer_1200 = centroids.buffer(1200)
-        
+
         # Create rings by subtraction
         # Zone 1: 0-600m (full circle)
         zone1 = buffer_600
-        
+
         # Zone 2: 600-1000m (ring only)
         zone2 = buffer_1000.difference(buffer_600)
-        
+
         # Zone 3: 1000-1200m (ring only)
         zone3 = buffer_1200.difference(buffer_1000)
-        
+
+        # Debug: Check for empty buffers
+        empty_z1 = zone1[zone1.is_empty].count() if hasattr(zone1, 'is_empty') else 0
+        empty_z2 = zone2[zone2.is_empty].count() if hasattr(zone2, 'is_empty') else 0
+        empty_z3 = zone3[zone3.is_empty].count() if hasattr(zone3, 'is_empty') else 0
+        print(f"  Empty buffers - Zone1: {empty_z1}, Zone2: {empty_z2}, Zone3: {empty_z3}")
+
+        # Sample buffer bounds for debugging
+        if len(zone1) > 0 and not zone1.iloc[0].is_empty:
+            print(f"  Sample zone1 bounds: {zone1.iloc[0].bounds}")
+
         buffers = {
             'zone1': zone1,
             'zone2': zone2,
             'zone3': zone3
         }
-        
+
         print(f"✓ Created buffer zones for {len(gdf)} hubs")
-        
+
         return buffers
     
-    def calculate_zone_statistics(self, gdf: gpd.GeoDataFrame, 
+    def calculate_zone_statistics(self, gdf: gpd.GeoDataFrame,
                                   taz_gdf: gpd.GeoDataFrame,
                                   buffers: Dict[str, gpd.GeoSeries]) -> pd.DataFrame:
         """
         Calculate population and employment for each buffer zone using proportional allocation.
-        
+
         For each hub and each zone:
         1. Clip TAZ polygons to the buffer zone
         2. Calculate intersection area
         3. Allocate population/employment proportionally based on area
-        
+
         Args:
             gdf: Hub GeoDataFrame
             taz_gdf: TAZ GeoDataFrame with POP_2050 and EMPL_2050
             buffers: Dictionary of buffer zones
-            
+
         Returns:
             DataFrame with statistics for each hub and zone
         """
         print("\nCalculating population and employment statistics...")
         print("  This may take a few minutes for large datasets...")
-        
-        # Convert to projected CRS
+
+        # Convert to projected CRS for accurate spatial operations
         gdf_proj = gdf.to_crs(self.crs_projected)
-        
-        # Pre-calculate TAZ areas for efficiency
+
+        # Debug: Print CRS info
+        print(f"  Hub CRS: {gdf_proj.crs}")
+        print(f"  TAZ CRS: {taz_gdf.crs}")
+        print(f"  Hub bounds: {gdf_proj.total_bounds}")
+        print(f"  TAZ bounds: {taz_gdf.total_bounds}")
+
+        # Pre-calculate TAZ areas for efficiency (avoid division by zero)
+        taz_gdf = taz_gdf.copy()  # Avoid modifying original
         taz_gdf['taz_area'] = taz_gdf.geometry.area
-        
+
+        # Debug: Check TAZ data
+        print(f"  TAZ total population: {taz_gdf['POP_2050'].sum():,.0f}")
+        print(f"  TAZ total employment: {taz_gdf['EMPL_2050'].sum():,.0f}")
+        print(f"  TAZ with zero area: {(taz_gdf['taz_area'] == 0).sum()}")
+
         results = []
-        
-        for idx in gdf_proj.index:
-            if (idx + 1) % 100 == 0:
-                print(f"  Processed {idx + 1}/{len(gdf_proj)} hubs...")
-            
+        intersections_found = 0
+
+        # Reset index to ensure proper alignment
+        gdf_proj = gdf_proj.reset_index(drop=True)
+
+        # Reset buffer indices to match
+        buffers_aligned = {}
+        for zone_name, buffer_series in buffers.items():
+            buffers_aligned[zone_name] = buffer_series.reset_index(drop=True)
+
+        for pos, (idx, row) in enumerate(gdf_proj.iterrows()):
+            if (pos + 1) % 100 == 0:
+                print(f"  Processed {pos + 1}/{len(gdf_proj)} hubs...")
+
             hub_stats = {'index': idx}
-            
+
             # Process each buffer zone
-            for zone_name, buffer_series in buffers.items():
-                buffer_geom = buffer_series.iloc[idx]
-                
-                # Find intersecting TAZ polygons
-                possible_matches_idx = list(taz_gdf.sindex.intersection(buffer_geom.bounds))
+            for zone_name, buffer_series in buffers_aligned.items():
+                buffer_geom = buffer_series.iloc[pos]  # Use position, not index label
+
+                # Skip if buffer geometry is empty or invalid
+                if buffer_geom is None or buffer_geom.is_empty:
+                    hub_stats[f'pop_{zone_name}'] = 0
+                    hub_stats[f'emp_{zone_name}'] = 0
+                    continue
+
+                # Find intersecting TAZ polygons using spatial index
+                try:
+                    possible_matches_idx = list(taz_gdf.sindex.intersection(buffer_geom.bounds))
+                except Exception as e:
+                    print(f"  Warning: Spatial index query failed for hub {pos}: {e}")
+                    hub_stats[f'pop_{zone_name}'] = 0
+                    hub_stats[f'emp_{zone_name}'] = 0
+                    continue
+
+                if not possible_matches_idx:
+                    hub_stats[f'pop_{zone_name}'] = 0
+                    hub_stats[f'emp_{zone_name}'] = 0
+                    continue
+
                 possible_matches = taz_gdf.iloc[possible_matches_idx]
-                
+
                 # Calculate actual intersections
                 intersections = possible_matches[possible_matches.intersects(buffer_geom)]
-                
+
                 if len(intersections) == 0:
                     hub_stats[f'pop_{zone_name}'] = 0
                     hub_stats[f'emp_{zone_name}'] = 0
                     continue
-                
+
+                intersections_found += 1
+
                 # Calculate proportional allocation for each TAZ
                 pop_total = 0
                 emp_total = 0
-                
+
                 for _, taz in intersections.iterrows():
+                    # Skip TAZ with zero area (avoid division by zero)
+                    if taz['taz_area'] <= 0:
+                        continue
+
                     intersection = buffer_geom.intersection(taz.geometry)
                     intersection_area = intersection.area
-                    
-                    # Calculate proportion
-                    proportion = intersection_area / taz['taz_area']
-                    
+
+                    # Calculate proportion (capped at 1.0 to handle floating point issues)
+                    proportion = min(intersection_area / taz['taz_area'], 1.0)
+
                     # Allocate population and employment
                     pop_allocated = taz['POP_2050'] * proportion
                     emp_allocated = taz['EMPL_2050'] * proportion
-                    
+
                     pop_total += pop_allocated
                     emp_total += emp_allocated
-                
+
                 hub_stats[f'pop_{zone_name}'] = pop_total
                 hub_stats[f'emp_{zone_name}'] = emp_total
-            
+
             results.append(hub_stats)
-        
+
+        print(f"  Total zone-hub intersections found: {intersections_found}")
+
         # Convert to DataFrame
         stats_df = pd.DataFrame(results)
         stats_df = stats_df.set_index('index')

@@ -100,6 +100,25 @@ MONTE_CARLO_RANDOM_SEED = 42  # For reproducibility
 MAX_CRITERION_WEIGHT = 0.5  # Maximum weight for any single criterion (50%)
 MIN_CRITERION_WEIGHT = 0.0  # Minimum weight
 
+# AHP (Analytic Hierarchy Process) parameters
+AHP_ENABLED = False  # Set to True to enable AHP scoring alongside Monte Carlo
+AHP_CONSISTENCY_RATIO_THRESHOLD = 0.10  # Maximum acceptable CR (Saaty recommends 0.10)
+AHP_AGGREGATION_METHOD = 'geometric_mean'  # How to combine expert weights: 'geometric_mean', 'arithmetic_mean', 'median'
+AHP_EXPERT_CSV_PATH = DATA_DIR / "ahp_expert_comparisons.csv"  # Path to expert pairwise comparisons
+
+# Saaty Scale for AHP pairwise comparisons
+AHP_SAATY_SCALE = {
+    1: 'Equal importance',
+    2: 'Weak or slight',
+    3: 'Moderate importance',
+    4: 'Moderate plus',
+    5: 'Strong importance',
+    6: 'Strong plus',
+    7: 'Very strong importance',
+    8: 'Very, very strong',
+    9: 'Extreme importance',
+}
+
 # ============================================================================
 # SCORING CRITERIA CONFIGURATION
 # ============================================================================

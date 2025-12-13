@@ -22,34 +22,86 @@ logger = get_logger(__name__)
 
 def classify_hub_tier(
     total_demand: float,
+    modes: list,
+    num_lines: int,
     tier_national: str = TIER_NATIONAL,
     tier_metro: str = TIER_METRO,
     tier_local: str = TIER_LOCAL,
 ) -> str:
     """
-    Classify a single hub into hierarchy tier based on ridership.
+    Classify a single hub into hierarchy tier based on modes, lines, and ridership.
 
-    Tier classification:
-    - National (ארצי): >= 50,000 passengers/day
-    - Metropolitan (מטרופוליני): 5,000-50,000 passengers/day
-    - Local (עירוני): < 5,000 passengers/day
+    Classification logic (from notebook):
+    1. National (ארצי):
+       - Has HighSpeed Rail OR Interurban Rail
+       - AND ≥3 lines
+       - AND ≥50,000 passengers/day
+
+    2. Regional (מטרופוליני):
+       - Has Suburban Rail OR Metro OR Interurban Rail OR HighSpeed Rail
+       - AND ≥3 lines
+
+    3. Local (עירוני):
+       - Has BRT OR LRT
+       - AND ≥3 lines
+       - AND ≥1,000 passengers/day
+
+    4. Train Station:
+       - Has rail modes (Interurban/HighSpeed/Suburban)
+       - BUT ≤2 lines
+
+    5. Not Hub:
+       - Everything else
 
     Args:
         total_demand: Total daily passengers
+        modes: List of transport modes
+        num_lines: Number of unique lines
         tier_national: National tier label
         tier_metro: Metropolitan tier label
         tier_local: Local tier label
 
     Returns:
-        Tier name (Hebrew)
+        Tier name (Hebrew) or "Train Station" or "Not Hub"
     """
-    return get_tier_from_ridership(total_demand)
+    if not isinstance(modes, list):
+        modes = [modes] if pd.notna(modes) else []
+
+    # Check for each mode type
+    has_highspeed = 'HighSpeed Rail' in modes or 'HighSpeed' in modes
+    has_interurban = 'Interurban Rail' in modes or 'Interurban' in modes
+    has_suburban = 'Suburban Rail' in modes or 'Suburban' in modes
+    has_metro = 'Metro' in modes
+    has_brt = 'BRT' in modes
+    has_lrt = 'LRT' in modes
+    has_rail = 'Rail' in modes  # Generic rail
+
+    # National: (HighSpeed OR Interurban) AND ≥3 lines AND ≥50k demand
+    if (has_highspeed or has_interurban or (has_rail and num_lines >= 3)) and (num_lines >= 3) and (total_demand >= 50000):
+        return tier_national
+
+    # Regional: (Suburban OR Metro OR Interurban OR HighSpeed) AND ≥3 lines
+    elif (has_suburban or has_metro or has_interurban or has_highspeed or has_rail) and (num_lines >= 3):
+        return tier_metro
+
+    # Local: (BRT OR LRT) AND ≥3 lines AND ≥1000 demand
+    elif (has_brt or has_lrt) and (num_lines >= 3) and (total_demand >= 1000):
+        return tier_local
+
+    # Train Station: Has rail modes but ≤2 lines
+    elif (has_interurban or has_highspeed or has_suburban or has_rail) and (num_lines <= 2):
+        return 'Train Station'
+
+    else:
+        return 'Not Hub'
 
 
 def assign_hub_tiers(
     gdf: gpd.GeoDataFrame,
     demand_column: str = 'TotalDemand',
-    tier_column: str = 'tier',
+    modes_column: str = 'Mode_Planned',
+    lines_column: str = 'Total_Unique_Lines',
+    tier_column: str = 'HubType',
 ) -> gpd.GeoDataFrame:
     """
     Assign hierarchy tiers to all hubs.
@@ -57,7 +109,9 @@ def assign_hub_tiers(
     Args:
         gdf: GeoDataFrame with hub groups
         demand_column: Column name for total demand
-        tier_column: Column name for tier assignment
+        modes_column: Column name for modes list
+        lines_column: Column name for number of unique lines
+        tier_column: Column name for tier assignment (default: 'HubType')
 
     Returns:
         GeoDataFrame with added tier column
@@ -71,8 +125,25 @@ def assign_hub_tiers(
         gdf_copy[tier_column] = TIER_LOCAL
         return gdf_copy
 
+    if modes_column not in gdf_copy.columns:
+        logger.warning(f"Modes column '{modes_column}' not found, using default tier")
+        gdf_copy[tier_column] = TIER_LOCAL
+        return gdf_copy
+
+    if lines_column not in gdf_copy.columns:
+        logger.warning(f"Lines column '{lines_column}' not found, using default tier")
+        gdf_copy[tier_column] = TIER_LOCAL
+        return gdf_copy
+
     # Classify each hub
-    gdf_copy[tier_column] = gdf_copy[demand_column].apply(classify_hub_tier)
+    gdf_copy[tier_column] = gdf_copy.apply(
+        lambda row: classify_hub_tier(
+            total_demand=row[demand_column],
+            modes=row[modes_column],
+            num_lines=row[lines_column]
+        ),
+        axis=1
+    )
 
     # Log tier distribution
     tier_counts = gdf_copy[tier_column].value_counts()

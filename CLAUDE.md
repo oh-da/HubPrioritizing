@@ -204,20 +204,40 @@ Classify remaining hubs into hierarchy based on:
 Apply all scoring criteria (see Section 7)
 
 #### Step 7: Aggregation
-- Monte-Carlo simulation (10,000 iterations)
-- Random weight sets (each criterion 0–50%)
+
+Two complementary methods are available:
+
+**Option A: Monte Carlo Simulation (Default)**
+- 10,000 iterations with random weight sets
+- Each criterion 0–50% per iteration
 - Final score = weighted mean across simulations
+- Prevents single-criterion dominance
+- Robust to weighting uncertainty
+
+**Option B: AHP (Analytic Hierarchy Process)**
+- Expert-driven pairwise comparisons
+- Systematic weight derivation via eigenvector method
+- Built-in consistency checking (CR < 0.10)
+- Multiple expert aggregation (geometric mean)
+- Transparent, reproducible weighting
+
+**Usage**: Both methods can run simultaneously for comparative analysis. AHP is optional and disabled by default.
 
 #### Step 8: Validation
 - Expert review
 - Sensitivity analysis
+- Method comparison (Monte Carlo vs AHP)
 - Update with new data/plans
 
 ---
 
 ## 7. Scoring Criteria
 
-Each hub receives a **normalized score (1–10)** for each criterion. Final weight is derived through **Monte-Carlo weighted scoring** to prevent any single criterion from dominating.
+Each hub receives a **normalized score (1–10)** for each criterion. Final weights are derived through either:
+- **Monte Carlo weighted scoring** (default): Random weight simulation to prevent single-criterion dominance
+- **AHP (Analytic Hierarchy Process)**: Expert-driven pairwise comparisons for systematic weight derivation
+
+Both methods can be used simultaneously for comparative analysis.
 
 ### 7.1 Passenger Activity Score
 
@@ -352,6 +372,82 @@ normalized to 1–10
 - Terminal proximity indicates planned integration
 - Larger terminals indicate higher importance
 
+### 7.6 AHP Scoring Methodology (Optional)
+
+**What it is**: Analytic Hierarchy Process - expert-driven alternative to Monte Carlo
+
+**How it works**:
+
+1. **Expert Pairwise Comparisons**
+   - Domain experts compare criteria two at a time
+   - Use Saaty scale (1-9): 1=Equal, 3=Moderate, 5=Strong, 7=Very Strong, 9=Extreme
+   - Example: "Is passenger activity more important than location?" → Answer: 5 (Strong)
+
+2. **Priority Weight Calculation**
+   - Construct pairwise comparison matrix from expert input
+   - Calculate weights using principal eigenvector method
+   - Normalize weights to sum to 1.0
+
+3. **Consistency Validation**
+   - Calculate Consistency Ratio (CR) for each expert
+   - CR < 0.10 indicates acceptable logical consistency
+   - High CR (≥0.10) flags contradictory judgments
+
+4. **Multi-Expert Aggregation**
+   - Combine multiple expert opinions using geometric mean
+   - Alternative methods: arithmetic mean, median
+   - Produces single set of aggregated weights
+
+5. **AHP Score Calculation**
+   - Apply aggregated weights to normalized criterion scores
+   - Calculate final AHP score per hub
+   - Compare with Monte Carlo results for validation
+
+**Saaty Scale Reference**:
+```
+1 = Equal importance
+3 = Moderate importance
+5 = Strong importance
+7 = Very strong importance
+9 = Extreme importance
+(2, 4, 6, 8 are intermediate values)
+```
+
+**When to use AHP**:
+- ✅ Expert knowledge should drive weighting
+- ✅ Stakeholder transparency is critical
+- ✅ Systematic, reproducible weights are needed
+- ✅ Validation against Monte Carlo is desired
+
+**When to use Monte Carlo**:
+- ✅ Expert consensus is difficult
+- ✅ Robustness to weighting is priority
+- ✅ Sensitivity analysis is needed
+- ✅ Avoiding single-weight bias is important
+
+**Best Practice**: Run both methods and compare. Agreement indicates robust results; disagreement highlights weight-sensitive hubs.
+
+**Configuration**:
+```python
+# In src/config.py
+AHP_ENABLED = True  # Set to True to enable
+AHP_CONSISTENCY_RATIO_THRESHOLD = 0.10  # Saaty's recommendation
+AHP_AGGREGATION_METHOD = 'geometric_mean'  # Recommended
+AHP_EXPERT_CSV_PATH = DATA_DIR / "ahp_expert_comparisons.csv"
+```
+
+**Output**: When AHP is enabled, hubs receive both:
+- `final_score`: Monte Carlo aggregated score
+- `ahp_score`: AHP weighted score
+- `rank`: Monte Carlo ranking
+- `ahp_rank`: AHP ranking
+
+**Documentation**: See `docs/AHP_SCORING_GUIDE.md` and `AHP_QUICKSTART.md` for full details.
+
+**References**:
+- Saaty, T.L. (1980). The Analytic Hierarchy Process. McGraw-Hill.
+- Saaty, T.L. (2008). Decision making with the analytic hierarchy process. IJSSCI 1(1), 83-98.
+
 ---
 
 ## 8. Technical Implementation
@@ -376,15 +472,29 @@ This framework should be implemented using:
 - **SciPy**: Statistical functions
 
 #### Scoring & Simulation
-- **Monte Carlo Simulation**:
-  - 10,000 iterations
-  - Random weight generation (0–50% per criterion)
-  - Aggregation across simulations
 
-- **Normalization**:
-  - Min-max scaling to 1–10
-  - Per-category normalization
-  - Log transformation for skewed distributions
+**Monte Carlo Method (Default)**:
+- 10,000 iterations
+- Random weight generation (0–50% per criterion)
+- Aggregation across simulations
+- Prevents single-criterion dominance
+
+**AHP Method (Optional)**:
+- Expert pairwise comparison matrix
+- Eigenvector weight calculation
+- Consistency ratio validation (CR < 0.10)
+- Multi-expert aggregation (geometric mean)
+- Transparent, systematic weighting
+
+**Normalization**:
+- Min-max scaling to 1–10
+- Per-category normalization
+- Log transformation for skewed distributions
+
+**Comparison Tools**:
+- Correlation analysis between methods
+- Rank overlap assessment
+- Disagreement identification
 
 #### Visualization
 - **Interactive Maps**:
@@ -463,7 +573,8 @@ HubPrioritizing/
 │   │   ├── demographics.py      # Population & jobs score
 │   │   ├── terminals.py         # Bus terminal score
 │   │   ├── normalization.py     # Scoring normalization
-│   │   └── monte_carlo.py       # Weight simulation & aggregation
+│   │   ├── monte_carlo.py       # Weight simulation & aggregation
+│   │   └── ahp.py               # AHP expert-driven weighting (optional)
 │   ├── visualization/           # Visualization components
 │   │   ├── __init__.py
 │   │   ├── maps.py              # Interactive maps
@@ -491,12 +602,21 @@ HubPrioritizing/
 │   ├── methodology.md
 │   ├── data_dictionary.md
 │   ├── api_reference.md
-│   └── user_guide.md
+│   ├── user_guide.md
+│   └── AHP_SCORING_GUIDE.md     # AHP methodology guide
+│
+├── AHP_QUICKSTART.md            # AHP quick-start guide
 │
 ├── scripts/                     # Execution scripts
 │   ├── run_pipeline.py          # Main workflow
 │   ├── update_data.py           # Data refresh
-│   └── export_results.py        # Output generation
+│   ├── export_results.py        # Output generation
+│   └── test_ahp_scoring.py      # AHP scoring test suite
+│
+├── data/                        # Data files
+│   ├── ahp_expert_comparisons_TEMPLATE.csv  # Blank AHP template
+│   ├── ahp_expert_comparisons_example.csv   # Example with 3 experts
+│   └── ahp_expert_comparisons.csv           # Actual expert input (user-provided)
 │
 └── app/                         # Web application (optional)
     ├── app.py                   # Main app file
@@ -529,10 +649,12 @@ HubPrioritizing/
 - Handle edge cases
 
 #### `src/scoring/`
-- Implement each scoring criterion
+- Implement each scoring criterion (activity, service, location, demographics, terminals)
 - Normalize scores to 1–10 scale
-- Run Monte Carlo simulation
-- Aggregate final scores
+- **Monte Carlo**: Random weight simulation (10,000 iterations)
+- **AHP**: Expert pairwise comparisons, eigenvector weights, consistency checking
+- Aggregate final scores using selected method(s)
+- Compare Monte Carlo vs AHP results
 
 #### `src/visualization/`
 - Generate interactive maps

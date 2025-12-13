@@ -110,13 +110,17 @@ ACTIVITY_SCORE_USE_LOG = True  # Apply log10 transformation
 ACTIVITY_SCORE_LOG_BASE = 10
 
 # 2. SERVICE & HIERARCHY OF MODES SCORE
-# Modal weights (higher capacity = higher weight)
+# Modal weights (based on notebook implementation)
 MODE_WEIGHTS = {
-    'Rail': 10.0,  # Highest capacity
-    'HighSpeed Rail': 10.0,
-    'Metro': 9.0,
-    'LRT': 7.0,  # Light Rail
-    'BRT': 5.0,  # Bus Rapid Transit
+    'Funicular': 1.0,
+    'Cable Line': 2.0,
+    'BRT': 3.0,
+    'LRT': 4.0,
+    'Metro': 5.0,
+    'Suburban Rail': 6.0,
+    'Interurban Rail': 7.0,
+    'HighSpeed Rail': 8.0,
+    'Rail': 7.0,  # Generic rail (treat as Interurban)
     'Express Bus': 3.0,
     'Bus': 2.0,  # Regular bus (lowest weight)
 }
@@ -130,37 +134,53 @@ MODE_LINE_DIMINISHING_RETURNS = True
 MODE_DIVERSITY_BONUS_PCT = 0.10  # 10% bonus per additional mode
 
 # 3. LOCATION SCORE (GEOGRAPHIC & METROPOLITAN)
-# Regional weights (for national equity)
+# Regional weights (for national equity) - based on notebook 'area' field
+# Tel Aviv = 0 (lower priority), Others = 1 (higher priority for periphery)
 REGION_WEIGHTS = {
-    'Center': 0,  # Tel Aviv region (inverted: 0 = prioritize less)
+    'תל אביב': 0,  # Tel Aviv
     'Tel Aviv': 0,
-    'Haifa': 1,  # Periphery (inverted: 1 = prioritize more)
+    'Center': 0,
+    'צפון': 1,  # North
     'North': 1,
+    'חיפה': 1,  # Haifa
+    'Haifa': 1,
+    'דרום': 1,  # South
     'South': 1,
+    'באר שבע': 1,  # Beer Sheva
     'Jerusalem': 1,
+    'ירושלים': 1,
 }
 
-# Metropolitan position weights
+# Metropolitan position weights - based on notebook 'location' field
+# גלעין (Core) = 3, טבעת (Ring) = 2, Periphery = 1
 METRO_POSITION_WEIGHTS = {
-    'Core': 3,  # City center
-    'First Ring': 2,  # Inner suburbs
-    'Outer': 1,  # Outer suburbs/periphery
+    'גלעין': 3,  # Core
+    'Core': 3,
+    'טבעת': 2,  # Ring (First Ring)
+    'טבעת חיצונית': 2,  # Outer Ring
+    'טבעת תיכונה': 2,  # Middle Ring
+    'First Ring': 2,
+    'צפון': 1,  # North (periphery)
+    'חיפה': 1,  # Haifa (periphery)
+    'דרום': 1,  # South (periphery)
+    'Outer': 1,
 }
 
 # 4. POPULATION & JOBS SCORE
-# Catchment area rings (in meters)
+# Catchment area rings (in meters) - based on notebook columns
+# pop_0_500, emp_0_500, pop_500_1000, emp_500_1000, pop_1000_1500, emp_1000_1500
 CATCHMENT_RINGS = [
-    (0, 400),  # Ring 1: 0-400m
-    (400, 800),  # Ring 2: 400-800m
-    (800, 1500),  # Ring 3: 800-1500m
+    (0, 500),  # Ring 1: 0-500m
+    (500, 1000),  # Ring 2: 500-1000m
+    (1000, 1500),  # Ring 3: 1000-1500m
 ]
 
-# Distance decay weights for rings
-RING_WEIGHTS = {
-    0: 1.0,  # 0-400m: full weight
-    1: 0.7,  # 400-800m: 70% weight
-    2: 0.4,  # 800-1500m: 40% weight
-}
+# Distance decay beta parameter (used in notebook scoring function)
+# Formula: decay = midpoint^beta
+DISTANCE_DECAY_BETA = 1.5
+
+# Ring midpoints (meters) - calculated from rings
+RING_MIDPOINTS = [250, 750, 1250]  # Midpoint of each ring
 
 # Population vs Employment mix by tier
 POP_JOB_MIX = {
@@ -172,8 +192,14 @@ POP_JOB_MIX = {
 # 5. BUS TERMINAL PROXIMITY SCORE
 TERMINAL_PROXIMITY_DISTANCE_M = 200  # Maximum distance to terminal
 
-# Terminal classification weights
+# Terminal classification weights - based on notebook 'term_type' field
 TERMINAL_WEIGHTS = {
+    'חניון לילה': 1.0,  # Night parking
+    'מסוף קטן': 2.0,  # Small terminal
+    'מסוף בינוני': 2.0,  # Medium terminal
+    'מסוף גדול': 3.0,  # Large terminal
+    'מתקן משולב': 3.0,  # Integrated facility
+    # English equivalents
     'National': 3.0,
     'Regional': 2.5,
     'Metropolitan': 2.0,

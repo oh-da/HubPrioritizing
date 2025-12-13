@@ -20,6 +20,13 @@ s # CLAUDE.md
 12. [Key Conventions](#12-key-conventions)
 13. [Design Principles](#13-design-principles)
 14. [AI Assistant Guidelines](#14-ai-assistant-guidelines)
+15. [Results Overview](#15-results-overview-current-state)
+16. [Future Directions](#16-future-directions)
+17. [References & Sources](#17-references--sources)
+18. [Code Quality & Architecture](#18-code-quality--architecture)
+19. [Document Maintenance](#19-document-maintenance)
+20. [Quick Reference](#20-quick-reference)
+21. [Contact & Support](#21-contact--support)
 
 ---
 
@@ -1051,9 +1058,52 @@ Full spatial visualization should be available via interactive interface.
 
 ---
 
-## 18. Document Maintenance
+## 18. Code Quality & Architecture
+
+### SOLID Principles Review
+
+The codebase has been comprehensively reviewed for adherence to SOLID design principles. See [docs/SOLID_PRINCIPLES_REVIEW.md](docs/SOLID_PRINCIPLES_REVIEW.md) and [docs/EXECUTIVE_SUMMARY.md](docs/EXECUTIVE_SUMMARY.md) for detailed findings.
+
+**Overall Assessment: GOOD (Grade: B+)**
+
+#### Strengths
+- ✅ **Single Responsibility Principle** - Excellent (Grade: A)
+  - Clear module boundaries
+  - Focused functions
+  - Strong separation of concerns
+
+- ✅ **Interface Segregation Principle** - Good (Grade: A-)
+  - Minimal function parameters
+  - No "god functions"
+  - Separation of data and configuration
+
+#### Improvement Opportunities
+- ⚠️ **Open/Closed Principle** - Partial (Grade: B-)
+  - Currently requires code changes to add new scoring criteria
+  - Recommended: Implement Strategy Pattern with scorer registry
+
+- ⚠️ **Dependency Inversion Principle** - Needs Work (Grade: C+)
+  - Direct dependencies on concrete implementations
+  - Recommended: Use Protocol classes and dependency injection
+
+#### Implementation Recommendations
+
+**HIGH PRIORITY:**
+1. **Strategy Pattern for Scoring** - Enable adding new scorers without modifying existing code
+2. **Abstract Interfaces** - Use Protocol classes for loose coupling
+
+**MEDIUM PRIORITY:**
+3. **Configuration-Driven Pipeline** - Make pipeline behavior configurable
+4. **Dependency Injection** - Improve testability and flexibility
+
+See the full review documents for detailed code examples and implementation guidance.
+
+---
+
+## 19. Document Maintenance
 
 ### Version History
+- **v1.1** (2025-12-13): Added SOLID principles review section
 - **v1.0** (2024-12-30): Initial creation based on framework documentation
 
 ### Update Process
@@ -1063,6 +1113,7 @@ This document should be updated when:
 - Code structure evolves
 - New findings emerge
 - Thresholds or parameters adjusted
+- Architecture patterns change
 
 ### Maintainers
 - Project leads responsible for methodology
@@ -1071,7 +1122,7 @@ This document should be updated when:
 
 ---
 
-## 19. Quick Reference
+## 20. Quick Reference
 
 ### Key Thresholds
 - **Hub eligibility**: ≥1,000 passengers/day + ≥2 mass-transit modes
@@ -1094,16 +1145,17 @@ This document should be updated when:
 
 ---
 
-## 20. Contact & Support
+## 21. Contact & Support
 
 For questions about:
 - **Methodology**: Refer to original planning documents
 - **Code**: Check inline documentation and tests
 - **Data**: See data dictionary in `docs/`
 - **Issues**: Use GitHub issue tracker
+- **Code Quality**: See SOLID review in `docs/SOLID_PRINCIPLES_REVIEW.md`
 
 ---
 
-**Last Updated**: 2024-12-30
-**Document Version**: 1.0
-**Status**: Initial Framework Definition
+**Last Updated**: 2025-12-13
+**Document Version**: 1.1
+**Status**: Framework with Architecture Review

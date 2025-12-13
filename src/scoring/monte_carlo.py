@@ -16,6 +16,10 @@ from ..config import (
     MONTE_CARLO_RANDOM_SEED,
     MAX_CRITERION_WEIGHT,
     MIN_CRITERION_WEIGHT,
+    AHP_ENABLED,
+    AHP_EXPERT_CSV_PATH,
+    AHP_CONSISTENCY_RATIO_THRESHOLD,
+    AHP_AGGREGATION_METHOD,
 )
 from ..utils.logging import get_logger
 
@@ -281,16 +285,22 @@ def get_score_summary(gdf: gpd.GeoDataFrame, tier_column: str = 'tier') -> pd.Da
 def run_complete_scoring_pipeline(
     gdf: gpd.GeoDataFrame,
     tier_column: str = 'tier',
+    enable_ahp: Optional[bool] = None,
+    ahp_expert_csv: Optional[str] = None,
 ) -> gpd.GeoDataFrame:
     """
     Run the complete scoring pipeline: calculate all criteria + Monte Carlo aggregation.
 
+    Optionally also runs AHP scoring if enabled.
+
     Args:
         gdf: GeoDataFrame with hubs (must have tier column)
         tier_column: Column with tier classification
+        enable_ahp: Enable AHP scoring (if None, uses config.AHP_ENABLED)
+        ahp_expert_csv: Path to expert comparisons CSV (if None, uses config.AHP_EXPERT_CSV_PATH)
 
     Returns:
-        GeoDataFrame with all scores and final ranking
+        GeoDataFrame with all scores and final ranking (includes ahp_score if AHP enabled)
     """
     logger.info("="*80)
     logger.info("SCORING PIPELINE")
@@ -299,9 +309,49 @@ def run_complete_scoring_pipeline(
     # Calculate all individual scores
     gdf_scored = calculate_all_scores(gdf, tier_column=tier_column)
 
-    # Calculate final aggregated scores
-    logger.info("\nCalculating final aggregated scores...")
+    # Calculate final aggregated scores (Monte Carlo)
+    logger.info("\nCalculating final aggregated scores (Monte Carlo)...")
     gdf_final = calculate_final_scores(gdf_scored)
+
+    # Optionally run AHP scoring
+    if enable_ahp is None:
+        enable_ahp = AHP_ENABLED
+
+    if enable_ahp:
+        logger.info("\n" + "="*80)
+        logger.info("AHP SCORING ENABLED")
+        logger.info("="*80)
+
+        # Import AHP module (only if needed)
+        try:
+            from .ahp import run_ahp_scoring_pipeline, compare_monte_carlo_vs_ahp
+
+            # Use provided path or default
+            expert_csv = ahp_expert_csv if ahp_expert_csv is not None else AHP_EXPERT_CSV_PATH
+
+            # Check if expert CSV exists
+            from pathlib import Path
+            if not Path(expert_csv).exists():
+                logger.warning(f"AHP expert CSV not found: {expert_csv}")
+                logger.warning("Skipping AHP scoring. Use create_expert_template_csv() to create template.")
+            else:
+                # Run AHP scoring
+                gdf_final, ahp_diagnostics = run_ahp_scoring_pipeline(
+                    gdf_final,
+                    expert_csv_path=expert_csv,
+                    consistency_threshold=AHP_CONSISTENCY_RATIO_THRESHOLD,
+                    aggregation_method=AHP_AGGREGATION_METHOD,
+                )
+
+                # Compare methods
+                logger.info("\n" + "="*80)
+                logger.info("COMPARING MONTE CARLO vs AHP")
+                logger.info("="*80)
+                comparison_df = compare_monte_carlo_vs_ahp(gdf_final)
+
+        except Exception as e:
+            logger.error(f"Error running AHP scoring: {e}")
+            logger.warning("Continuing with Monte Carlo scores only")
 
     # Log summary
     logger.info("\n" + "="*80)
@@ -309,13 +359,23 @@ def run_complete_scoring_pipeline(
     logger.info("="*80)
     logger.info(f"\n{len(gdf_final)} hubs scored and ranked")
 
-    # Top 10 hubs
+    # Top 10 hubs (Monte Carlo)
     top_10 = gdf_final.nlargest(10, 'final_score')
-    logger.info("\nTop 10 Hubs by Final Score:")
+    logger.info("\nTop 10 Hubs by Monte Carlo Final Score:")
     for i, (idx, row) in enumerate(top_10.iterrows(), 1):
         hub_id = row.get('group', idx)
         score = row['final_score']
         tier = row.get(tier_column, 'Unknown')
         logger.info(f"  {i}. Hub {hub_id} ({tier}): {score:.2f}")
+
+    # Top 10 hubs (AHP, if available)
+    if 'ahp_score' in gdf_final.columns:
+        top_10_ahp = gdf_final.nlargest(10, 'ahp_score')
+        logger.info("\nTop 10 Hubs by AHP Score:")
+        for i, (idx, row) in enumerate(top_10_ahp.iterrows(), 1):
+            hub_id = row.get('group', idx)
+            score = row['ahp_score']
+            tier = row.get(tier_column, 'Unknown')
+            logger.info(f"  {i}. Hub {hub_id} ({tier}): {score:.2f}")
 
     return gdf_final

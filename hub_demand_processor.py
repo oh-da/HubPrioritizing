@@ -498,7 +498,7 @@ class DemandDataProcessor:
             agg_dict['TotalTransfers'] = 'sum'
         
         # Spatial/categorical columns - take first value
-        for col in ['address', 'area', 'district', 'metro_area']:
+        for col in ['address', 'area', 'district', 'metro_area', 'location']:
             if col in gdf.columns:
                 agg_dict[col] = 'first'
         
@@ -511,12 +511,113 @@ class DemandDataProcessor:
             print(f"  Aggregation dict: {agg_dict}")
             raise
         
-        # Calculate number of modes if Mode_Planned exists
-        if 'Mode_Planned' in grouped.columns:
-            grouped['Num_Modes'] = grouped['Mode_Planned'].apply(
-                lambda x: len(x) if isinstance(x, list) else 1
-            )
-        
+        # MODE WEIGHTS for scoring (from CLAUDE.md)
+        MODE_WEIGHTS = {
+            'Funicular': 1.0,
+            'Cable Line': 2.0,
+            'BRT': 3.0,
+            'LRT': 4.0,
+            'Metro': 5.0,
+            'Suburban Rail': 6.0,
+            'Interurban Rail': 7.0,
+            'HighSpeed Rail': 8.0,
+            'Rail': 7.0,
+            'Express Bus': 3.0,
+            'Bus': 2.0,
+        }
+
+        # MODE LINE COLUMNS to check
+        MODE_LINE_COLS = [
+            'BRT Lines', 'Cable Line Lines', 'Funicular Lines',
+            'HighSpeed Rail Lines', 'Interurban Rail Lines', 'LRT Lines',
+            'Metro Lines', 'Suburban Rail Lines'
+        ]
+
+        def count_positive_mode_lines(row):
+            """Count how many mode-specific line columns have values > 0."""
+            count = 0
+            for col in MODE_LINE_COLS:
+                if col in row.index and pd.notna(row[col]) and row[col] > 0:
+                    count += 1
+            return count
+
+        def calculate_mode_score(row):
+            """Calculate mode service score with mode weights and diversity bonus."""
+            score = 0.0
+            alpha = 0.1  # Diversity bonus factor (10% per additional mode)
+
+            # Calculate score for each mode
+            for mode, weight in MODE_WEIGHTS.items():
+                column_name = f'{mode} Lines'
+                if column_name in row.index and pd.notna(row[column_name]) and row[column_name] > 0:
+                    # Multiply line count by mode weight
+                    score += row[column_name] * weight
+
+            # Apply diversity bonus based on number of modes
+            n_modes = row.get('Num_Modes', 1)
+            if pd.notna(n_modes) and n_modes > 0:
+                score = score * (1 + alpha * (n_modes - 1))
+
+            return score
+
+        def get_region_category(area):
+            """
+            Map area to region category.
+            0 = Tel Aviv/Center (lower priority for national equity)
+            1 = Periphery (higher priority for national equity)
+            """
+            if pd.isna(area):
+                return 1  # Default to periphery
+            area_str = str(area).strip()
+            # Check for Tel Aviv / Center
+            if any(keyword in area_str for keyword in ['תל אביב', 'Tel Aviv', 'תל-אביב', 'מרכז', 'Center']):
+                return 0
+            return 1
+
+        def get_location_category(location):
+            """
+            Map location to metropolitan position category.
+            3 = Core (גלעין)
+            2 = Ring (טבעת)
+            1 = Periphery / Other
+            """
+            if pd.isna(location):
+                return 1  # Default to periphery
+            location_str = str(location).strip()
+            if 'גלעין' in location_str or 'Core' in location_str:
+                return 3
+            elif 'טבעת' in location_str or 'Ring' in location_str:
+                return 2
+            else:
+                return 1
+
+        # Calculate Num_Modes (count of mode-specific line columns > 0)
+        grouped['Num_Modes'] = grouped.apply(count_positive_mode_lines, axis=1)
+
+        # Calculate mode service score
+        grouped['score'] = grouped.apply(calculate_mode_score, axis=1)
+
+        # Calculate Region and Location categories
+        if 'area' in grouped.columns:
+            grouped['Region_category'] = grouped['area'].apply(get_region_category)
+        else:
+            grouped['Region_category'] = 1  # Default to periphery
+
+        if 'location' in grouped.columns:
+            grouped['Location_category'] = grouped['location'].apply(get_location_category)
+        else:
+            grouped['Location_category'] = 1  # Default to periphery
+
+        # Calculate RegionLocation score (product of region and location categories)
+        grouped['RegionLocation'] = grouped['Region_category'] * grouped['Location_category']
+
+        # Print summary statistics for debugging
+        print(f"  ✓ Calculated scoring columns:")
+        print(f"     Num_Modes: min={grouped['Num_Modes'].min()}, max={grouped['Num_Modes'].max()}, mean={grouped['Num_Modes'].mean():.2f}")
+        print(f"     score: min={grouped['score'].min():.2f}, max={grouped['score'].max():.2f}, mean={grouped['score'].mean():.2f}")
+        print(f"     RegionLocation: min={grouped['RegionLocation'].min()}, max={grouped['RegionLocation'].max()}, mean={grouped['RegionLocation'].mean():.2f}")
+        print(f"     Hubs by Num_Modes: {grouped['Num_Modes'].value_counts().sort_index().to_dict()}")
+
         # Dissolve geometries by group
         try:
             dissolved = gdf.dissolve(by='group', as_index=False)

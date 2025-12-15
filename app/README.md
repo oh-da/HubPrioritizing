@@ -49,3 +49,50 @@ expert_name,activity_score,service_score,3
 ```
 
 This file can be placed in `data/ahp_expert_comparisons.csv` for use with the scoring pipeline.
+
+## Saaty Scale Reference
+
+The application uses the Saaty scale (1-9) for pairwise comparisons:
+
+| Value | Meaning |
+|-------|---------|
+| 1 | Equal importance |
+| 3 | Moderate importance |
+| 5 | Strong importance |
+| 7 | Very strong importance |
+| 9 | Extreme importance |
+
+Values 2, 4, 6, 8 represent intermediate levels.
+
+## Integration with Scoring Pipeline
+
+After collecting expert comparisons:
+
+1. Place the exported CSV in `data/ahp_expert_comparisons.csv`
+2. Enable AHP in `src/config.py`: `AHP_ENABLED = True`
+3. Run the scoring pipeline - both Monte Carlo and AHP scores will be calculated
+
+## Screenshots
+
+The app provides:
+- **Criteria Overview Tab**: Descriptions of all 5 scoring criteria
+- **Pairwise Comparisons Tab**: Interactive sliders for each comparison
+- **Results & Export Tab**: Weight visualization and CSV download
+
+## Requirements
+
+- Python >= 3.9
+- streamlit
+- plotly
+- pandas
+- numpy
+
+## Related Documentation
+
+- [AHP_QUICKSTART.md](../AHP_QUICKSTART.md) - Quick start guide
+- [docs/AHP_SCORING_GUIDE.md](../docs/AHP_SCORING_GUIDE.md) - Full methodology guide
+- [CLAUDE.md](../CLAUDE.md) - Framework specification (Section 7.6)
+
+---
+
+*Part of the Hub Prioritization Framework*

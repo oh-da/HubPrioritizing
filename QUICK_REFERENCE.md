@@ -1,19 +1,98 @@
-# Quick Reference Card - Final Solution
+# Quick Reference Card - Hub Prioritization Framework
 
-## What's Fixed ✅
+## Key Commands
 
-1. **CRS Assignment** - CSV properly loads with EPSG:2039
-2. **Grouping Algorithm** - No more cascading buffer expansion
-3. **Distance Measurement** - Uses centroid-to-centroid (not edge-to-edge)
+### Run Scoring Pipeline
+```bash
+python scripts/run_complete_pipeline.py
+```
 
-## Current Behavior
+### Run AHP Expert Questionnaire
+```bash
+streamlit run app/ahp_questionnaire.py
+```
 
-**Grouping Logic:**
-- Measures distance between hexagon **centers** (centroids)
-- Hexagons grouped if centroids within 120m
-- Transitive grouping: A↔B↔C means A, B, C all in same group
+### Run Tests
+```bash
+pytest tests/
+```
 
-## H3 Resolution 10 (~15m diameter hexagons)
+---
+
+## Key Thresholds
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| Min Passengers | 1,000/day | Hub eligibility threshold |
+| Min Modes | 2 | Required mass-transit modes |
+| National Tier | >= 50,000/day | ארצי classification |
+| Metro Tier | 5,000-50,000/day | מטרופוליני classification |
+| Local Tier | < 5,000/day | עירוני classification |
+
+---
+
+## Spatial Parameters
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| H3 Resolution | 10 | ~15m hexagon diameter |
+| Buffer Distance | 120m | Hub grouping threshold (centroid-to-centroid) |
+| Terminal Proximity | 200m | Bus terminal scoring radius |
+| Catchment Rings | 0, 500, 1000, 1500m | Population/jobs distance decay |
+
+---
+
+## Scoring Criteria
+
+| # | Criterion | Method |
+|---|-----------|--------|
+| 1 | **Passenger Activity** | log₁₀(passengers), per-tier normalization |
+| 2 | **Service & Modes** | mode_weight × √lines × diversity_bonus |
+| 3 | **Location** | region_weight × metro_position |
+| 4 | **Population & Jobs** | Ring-weighted catchment (tier-specific mix) |
+| 5 | **Bus Terminal** | 200m proximity × terminal_weight |
+
+**Score Range**: 1-10 (normalized per tier)
+
+---
+
+## Aggregation Methods
+
+### Monte Carlo (Default)
+- 10,000 iterations
+- Random weights: 0-50% per criterion
+- Output: `final_score`, `rank`
+
+### AHP (Optional)
+- Expert pairwise comparisons (Saaty scale 1-9)
+- Consistency ratio < 0.10 required
+- Output: `ahp_score`, `ahp_rank`
+
+---
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/config.py` | All configuration parameters |
+| `scripts/run_complete_pipeline.py` | Main pipeline runner |
+| `app/ahp_questionnaire.py` | AHP Streamlit app |
+| `notebooks/complete_hub_scoring_pipeline.ipynb` | End-to-end scoring |
+| `notebooks/hub_data_postprocess.ipynb` | Post-processing |
+
+---
+
+## Output Files
+
+| File | Description |
+|------|-------------|
+| `hub_prioritization_results_{timestamp}.csv` | Full results |
+| `hub_prioritization_results_{timestamp}.geojson` | Spatial data |
+| `hub_map_{timestamp}.html` | Interactive map |
+
+---
+
+## H3 Hexagon Grouping
 
 ### What 120m Buffer Captures
 
@@ -26,97 +105,69 @@
 
 🟢 = Center hexagon
 🟦 = Grouped (within 120m centroid distance)
-     = ~4-5 rings of hexagons
 ```
 
-### Distance Reference
+### Distance Reference (Resolution 10)
 
-| Hexagons Apart | Centroid Distance | Grouped (120m)? |
-|----------------|-------------------|-----------------|
-| Touching       | ~26m              | ✓ Yes          |
-| 1 gap          | ~52m              | ✓ Yes          |
-| 2 gaps         | ~78m              | ✓ Yes          |
-| 3 gaps         | ~104m             | ✓ Yes          |
-| 4 gaps         | ~130m             | ✗ No           |
+| Hexagons Apart | Centroid Distance | Grouped? |
+|----------------|-------------------|----------|
+| Touching | ~26m | Yes |
+| 1 gap | ~52m | Yes |
+| 2 gaps | ~78m | Yes |
+| 3 gaps | ~104m | Yes |
+| 4 gaps | ~130m | No |
 
-## Recommended Buffer Distances
+---
 
-| Use Case | Buffer Distance | What It Captures |
-|----------|----------------|------------------|
-| **Very Strict** | 40m | Only touching hexagons (1 ring) |
-| **Tight Clusters** | 80m | Small groups (~3 rings) |
-| **Standard (Recommended)** | **120m** | **Interchange areas (~4-5 rings)** |
-| **Large Hubs** | 200m | Major stations (~7-8 rings) |
-| **Catchment Area** | 400m | Metro station service area (~15 rings) |
-
-## Configuration
-
-Update these parameters in your code:
+## Quick Configuration
 
 ```python
-# In Python script or notebook
-H3_RESOLUTION = 10        # 10 = ~15m hexagons
-BUFFER_DISTANCE = 120     # Centroid-to-centroid distance in meters
-CRS_PROJECTED = "EPSG:2039"  # Israel TM Grid
+# src/config.py key settings
+
+# Enable/disable AHP
+AHP_ENABLED = False  # Set True to enable
+
+# Monte Carlo
+MONTE_CARLO_ITERATIONS = 10000
+MAX_CRITERION_WEIGHT = 0.5
+
+# Spatial
+H3_RESOLUTION = 10
+HUB_MERGE_THRESHOLD_M = 120
+
+# AHP consistency
+AHP_CONSISTENCY_RATIO_THRESHOLD = 0.10
 ```
 
-## Expected Results (for 120m buffer)
-
-### Good Results ✓
-- 60-80% single hexagon groups
-- Average group size: 2-8 hexagons
-- Largest group: 20-200 hexagons
-- Touching hexagons in same group
-
-### Problem Indicators ✗
-- Average < 1.5: Too strict, increase buffer
-- Largest > 1000: Bug, check code
-- All singles: Buffer too small
-
-## Quick Test
-
-```python
-# After running
-group_sizes = result['group'].value_counts()
-print(f"Groups: {len(group_sizes)}")
-print(f"Average size: {group_sizes.mean():.2f}")
-print(f"Largest: {group_sizes.max()}")
-print(f"Single-hex groups: {(group_sizes == 1).sum()}")
-```
-
-## Files to Use
-
-- **process_transit_nodes_to_h3.py** - Standalone script
-- **process_transit_nodes_to_h3.ipynb** - Interactive notebook
-
-Both are updated and ready!
-
-## Documentation
-
-- **README.md** - Full documentation
-- **CENTROID_DISTANCE_FIX.md** - Details on distance measurement
-- **GROUPING_ALGORITHM_FIX.md** - Algorithm explanation
-- **VERIFICATION_GUIDE.md** - How to verify results
+---
 
 ## Common Adjustments
 
 **Too many single groups?**
-→ Increase `BUFFER_DISTANCE` to 150 or 200
+→ Increase `HUB_MERGE_THRESHOLD_M` to 150 or 200
 
 **Groups too large?**
-→ Decrease `BUFFER_DISTANCE` to 80 or 100
+→ Decrease `HUB_MERGE_THRESHOLD_M` to 80 or 100
 
 **Different hexagon size?**
-→ Adjust `H3_RESOLUTION` (8, 9, 10, 11)
+→ Adjust `H3_RESOLUTION` (8=larger, 11=smaller)
 
-## Key Principle
-
-**Centroid distance = "How far apart are the centers?"**
-- ✓ Consistent and predictable
-- ✓ Not affected by edge precision
-- ✓ Standard spatial analysis approach
-- ✓ Touching hexagons (~26m apart) always grouped with 120m buffer
+**Enable expert weighting?**
+→ Set `AHP_ENABLED = True` and provide `data/ahp_expert_comparisons.csv`
 
 ---
 
-**Bottom Line:** The code now correctly groups hexagons whose centers are within 120m of each other, using transitive connections to identify transit interchange areas. This is the standard and correct approach! 🎉
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| `CLAUDE.md` | Complete specification |
+| `README.md` | Project overview |
+| `AHP_QUICKSTART.md` | AHP quick start |
+| `FINAL_DELIVERABLES_SUMMARY.md` | Deliverables summary |
+| `docs/AHP_SCORING_GUIDE.md` | Full AHP guide |
+| `docs/SCORING_CRITERIA_EXECUTIVE_SUMMARY.md` | Scoring criteria |
+
+---
+
+*Last Updated: 2025-12-15*

@@ -1,278 +1,327 @@
-# Complete Transit Pipeline - Final Deliverables
+# Hub Prioritization Framework - Final Deliverables Summary
 
-## 🎉 All Files Ready!
-
-You now have a complete, production-ready transit processing pipeline that combines H3 hexagon processing with demand data analysis.
-
-## 📦 Files Delivered
-
-### Main Pipeline Notebook
-**[COMPLETE_TRANSIT_PIPELINE.ipynb](computer:///mnt/user-data/outputs/COMPLETE_TRANSIT_PIPELINE.ipynb)** (23 KB)
-- Integrated notebook combining all three parts
-- Part 1: H3 hexagon processing (fully implemented)
-- Part 2: Demand data processing (ready to use)
-- Part 3: Influence area processing (template included)
-
-### Python Modules
-1. **[hub_demand_processor.py](computer:///mnt/user-data/outputs/hub_demand_processor.py)** (20 KB) ✅ NEW!
-   - Complete demand processing module
-   - Loads from 8 regional models
-   - 3.7x faster than original
-   - Ready to use with Part 2
-
-2. **[process_transit_nodes_to_h3.py](computer:///mnt/user-data/outputs/process_transit_nodes_to_h3.py)** (15 KB)
-   - Standalone H3 processing module
-   - Can be imported or run standalone
-
-### Individual Notebooks
-3. **[process_transit_nodes_to_h3.ipynb](computer:///mnt/user-data/outputs/process_transit_nodes_to_h3.ipynb)** (20 KB)
-   - Part 1 only (H3 processing)
-   - Use if you don't need demand data
-
-### Documentation
-4. **[COMPLETE_PIPELINE_README.md](computer:///mnt/user-data/outputs/COMPLETE_PIPELINE_README.md)** (8.6 KB)
-   - Complete usage guide
-   - Configuration examples
-   - Troubleshooting
-
-5. **[EDGE_TO_EDGE_BUFFER_FINAL.md](computer:///mnt/user-data/outputs/EDGE_TO_EDGE_BUFFER_FINAL.md)** (6.9 KB)
-   - Edge-to-edge distance explanation
-   - Why 120m buffer works correctly
-
-6. **[QUICK_REFERENCE.md](computer:///mnt/user-data/outputs/QUICK_REFERENCE.md)** (3.6 KB)
-   - Quick reference card
-   - Parameter recommendations
-
-7. **[VERIFICATION_GUIDE.md](computer:///mnt/user-data/outputs/VERIFICATION_GUIDE.md)** (8.3 KB)
-   - How to verify your results
-   - Visual inspection methods
-
-## 🚀 How to Use
-
-### Option 1: H3 Processing Only (No Dependencies)
-
-```bash
-Open: COMPLETE_TRANSIT_PIPELINE.ipynb
-Run: Part 1 cells only (Steps 1.1 - 1.7)
-Output: H3 hexagons with 120m groups
-Time: ~2 minutes
-```
-
-**Perfect for:** Basic hexagon grouping and spatial organization
-
-### Option 2: H3 + Demand Data (Recommended)
-
-```bash
-Open: COMPLETE_TRANSIT_PIPELINE.ipynb
-Configure: Update paths in Steps 1.2 and 2.1
-Run: Parts 1 + 2 (Steps 1.1 - 2.3)
-Output: Hubs with daily demand statistics
-Time: ~5 minutes
-```
-
-**Perfect for:** Transit planning with demand analysis
-
-### Option 3: Complete Analysis (With Demographics)
-
-```bash
-Open: COMPLETE_TRANSIT_PIPELINE.ipynb
-Note: Requires influence_area_processor.py (from other chat)
-Configure: All three parts
-Run: All cells
-Output: Complete hub data with demand + demographics
-Time: ~8-10 minutes
-```
-
-**Perfect for:** Comprehensive hub prioritization
-
-## ✅ What's Fixed and Working
-
-### Part 1: H3 Hexagon Processing
-✅ **CRS properly assigned** from CSV  
-✅ **Edge-to-edge distance** (120m from borders, not centers)  
-✅ **0.1m tolerance** for touching hexagons  
-✅ **Transitive grouping** for interchange areas  
-✅ **Spatial indexing** for performance  
-✅ **Optional geocoding**  
-
-### Part 2: Demand Data Processing
-✅ **hub_demand_processor.py included** (was missing!)  
-✅ **8 regional models** supported  
-✅ **Automatic column standardization**  
-✅ **3.7x faster** than original  
-✅ **Spatial tagging** with metro/districts  
-✅ **Group aggregation** with demand summation  
-
-### Part 3: Influence Area Processing
-⚠️ **Template included** in notebook  
-⚠️ **Requires influence_area_processor.py** from other chat  
-⚠️ **Optional** - can skip if not needed  
-
-## 📊 Expected Outputs
-
-### After Part 1
-File: `transit_h3_hexagons.csv`
-
-Columns:
-- `h3_index` - H3 hexagon ID
-- `node` - Transit stop ID
-- `Mode_Planned` - Transportation mode
-- `Line_Nunique` - Number of lines
-- `Line_Unique` - List of lines
-- `geometry` - Hexagon polygon
-- `group` - Proximity group ID
-- `address` - Geocoded address
-
-### After Part 2
-Files: 
-- `groups_hubs_with_demand.csv` (ungrouped)
-- `Grouped_Hubs_Final.csv` (grouped)
-
-Additional columns:
-- `TotalDemand` - Daily boardings + alightings
-- `TotalTransfers` - Daily transfers
-- `area` - Geographic region
-- `metro_area` - Metro line proximity
-- `district` - Administrative district
-
-### After Part 3 (if available)
-File: `hubs_with_complete_data.csv`
-
-Additional columns:
-- `pop_zone1/2/3` - Population by buffer zone
-- `emp_zone1/2/3` - Employment by buffer zone
-- `total_pop_influence` - Total population
-- `total_emp_influence` - Total employment
-- `near_bus_terminal` - Terminal proximity flag
-
-## 🔧 Configuration Quick Reference
-
-### H3 Resolution
-```python
-H3_RESOLUTION = 10  # ~15m hexagons (recommended for transit)
-```
-
-### Buffer Distance
-```python
-BUFFER_DISTANCE = 120  # meters, edge-to-edge
-```
-
-Recommendations:
-- 60m: Very tight clusters
-- 120m: Standard interchange ✅ **Recommended**
-- 200m: Large hubs
-
-### What 120m Captures
-For resolution 10 hexagons:
-- Touching hexagons: ✓ Grouped
-- Hexagons 50m apart: ✓ Grouped
-- Hexagons 120m apart: ✓ Grouped
-- Hexagons 130m apart: ✗ Not grouped
-
-Result: ~4-5 rings of hexagons
-
-## 📈 Performance
-
-| Part | Process | Time | Memory |
-|------|---------|------|---------|
-| 1 | H3 & Grouping | ~2 min | ~500 MB |
-| 2 | Demand Data | ~3 min | ~1 GB |
-| 3 | Demographics | ~2-3 min | ~1.5 GB |
-| **Total** | | **~7-8 min** | **~1.5 GB** |
-
-For 1000-2000 hexagons, typical dataset
-
-## 🎯 Key Improvements
-
-From your original code:
-
-1. ✅ **Fixed CRS** - Properly assigns EPSG:2039
-2. ✅ **Fixed Grouping** - Edge-to-edge, not cascading buffers
-3. ✅ **3.7x Faster** - Demand processing optimized
-4. ✅ **Modular** - Clean, reusable code
-5. ✅ **Documented** - Every step explained
-6. ✅ **Integrated** - One notebook, multiple parts
-
-## 🐛 Common Issues Resolved
-
-### Issue: Missing hub_demand_processor
-**Status:** ✅ FIXED - File now included!
-
-### Issue: CRS not assigned
-**Status:** ✅ FIXED - Automatically assigns from CSV
-
-### Issue: Touching hexagons not grouped
-**Status:** ✅ FIXED - Uses edge-to-edge with tolerance
-
-### Issue: Groups too large
-**Status:** ✅ FIXED - No more cascading buffer expansion
-
-### Issue: Slow processing
-**Status:** ✅ FIXED - Spatial indexing, vectorized operations
-
-## 📚 Documentation Files
-
-All documentation included:
-- **COMPLETE_PIPELINE_README.md** - Main guide
-- **EDGE_TO_EDGE_BUFFER_FINAL.md** - Distance explanation
-- **QUICK_REFERENCE.md** - Quick tips
-- **VERIFICATION_GUIDE.md** - How to verify results
-- **CRS_FIX_GUIDE.md** - CRS handling
-- **GROUPING_ALGORITHM_FIX.md** - Algorithm details
-
-## 🎓 Next Steps
-
-1. **Configure Paths**
-   - Update file paths in notebook
-   - Set your coordinate system if not Israel
-
-2. **Run Part 1**
-   - Test with your transit nodes CSV
-   - Verify H3 hexagons and groups
-
-3. **Add Demand Data**
-   - Prepare demand Excel with model sheets
-   - Run Part 2 with hub_demand_processor
-
-4. **Analyze Results**
-   - Identify high-demand hubs
-   - Plan service improvements
-   - Prioritize investments
-
-## 💡 Pro Tips
-
-1. **Test First** - Run with small dataset to verify configuration
-2. **Skip Geocoding** - Set `SKIP_GEOCODING = True` for faster testing
-3. **Adjust Buffer** - Try 80m or 150m if 120m doesn't fit your needs
-4. **Check Groups** - Visualize in QGIS to verify grouping makes sense
-5. **Save Checkpoints** - Export after each part for debugging
-
-## 📞 Support
-
-All files include comprehensive inline documentation:
-- Method docstrings explain what each function does
-- Comments explain complex logic
-- Examples show typical usage
-- Error messages are clear and helpful
-
-Check documentation files for:
-- Detailed explanations
-- Troubleshooting guides
-- Usage examples
-- Configuration options
+**Complete Multi-Criteria Decision Analysis System for Israeli Transit Hubs**
 
 ---
 
-## ✨ Summary
+## Project Overview
 
-You now have everything needed for a complete transit processing pipeline:
+This framework provides a comprehensive, production-ready system for identifying, classifying, scoring, and prioritizing integrated transport hubs (מתח"מים) across Israel. The system combines spatial analysis, multi-criteria decision making, and interactive visualization tools.
 
-✅ H3 hexagon grouping (Part 1) - **Fully functional**  
-✅ Demand data processing (Part 2) - **hub_demand_processor.py included**  
-⚠️ Influence area demographics (Part 3) - **Template ready**  
+---
 
-**The pipeline is production-ready and optimized for performance!**
+## Core Components
 
-All files are in: `/mnt/user-data/outputs/`
+### 1. Scoring Pipeline
 
-Download and start processing your transit data! 🚀
+**Location:** `src/scoring/`
+
+| Module | Description |
+|--------|-------------|
+| `activity.py` | Passenger activity scoring (log-transformed 2050 forecasts) |
+| `service.py` | Service & modes scoring (mode weights + diversity bonus) |
+| `location.py` | Location scoring (region + metro position weights) |
+| `demographics.py` | Population & jobs scoring (ring-weighted catchment) |
+| `terminals.py` | Bus terminal proximity scoring (200m threshold) |
+| `monte_carlo.py` | Monte Carlo aggregation (10,000 iterations, 0-50% weights) |
+| `ahp.py` | AHP expert-driven weighting (optional, runs alongside Monte Carlo) |
+| `normalization.py` | Score normalization to 1-10 scale |
+
+### 2. Spatial Processing
+
+**Location:** `src/spatial/`
+
+| Module | Description |
+|--------|-------------|
+| `h3_operations.py` | H3 hexagon creation and aggregation |
+| `merging.py` | Hub area grouping (120m edge-to-edge) |
+| `geometry.py` | Geometric calculations and buffer operations |
+
+### 3. Classification
+
+**Location:** `src/classification/`
+
+| Module | Description |
+|--------|-------------|
+| `eligibility.py` | Hub eligibility filtering (>=1,000 passengers, >=2 modes) |
+| `hierarchy.py` | Tier assignment (National/Metropolitan/Local) |
+
+---
+
+## Interactive Applications
+
+### AHP Expert Questionnaire (Streamlit App)
+
+**Location:** `app/ahp_questionnaire.py`
+
+A professional web application for collecting expert pairwise comparisons:
+
+- Interactive slider-based comparisons
+- Real-time weight calculation and visualization
+- Consistency ratio validation (CR < 0.10)
+- CSV export for pipeline integration
+- Bilingual support (English/Hebrew)
+
+**Run with:**
+```bash
+streamlit run app/ahp_questionnaire.py
+```
+
+---
+
+## Analysis Notebooks
+
+### Primary Pipeline Notebooks
+
+| Notebook | Description |
+|----------|-------------|
+| `notebooks/complete_hub_scoring_pipeline.ipynb` | End-to-end scoring pipeline |
+| `notebooks/hub_data_postprocess.ipynb` | Post-processing with name mapping and ranking tables |
+| `notebooks/map_hub_results.ipynb` | Interactive map visualization |
+
+### AHP & Expert Analysis
+
+| Notebook | Description |
+|----------|-------------|
+| `notebooks/ahp_expert_questionnaire.ipynb` | AHP questionnaire in notebook format |
+
+### Legacy/Reference Notebooks
+
+| Notebook | Description |
+|----------|-------------|
+| `src/COMPLETE_TRANSIT_PIPELINE.ipynb` | Combined H3 + demand processing |
+| `notebooks/HubsScoring_vAugust2025.ipynb` | Hub scoring reference implementation |
+| `notebooks/Group_n_Filter_Hubs.ipynb` | Hub grouping and filtering logic |
+
+---
+
+## Scoring Methodology
+
+### Five Scoring Criteria
+
+1. **Passenger Activity** - 2050 demand forecasts (log-transformed)
+2. **Service & Modes** - Transit service quality with diversity bonus
+3. **Location** - Strategic geographic importance
+4. **Population & Jobs** - Catchment area potential (tier-specific mix)
+5. **Bus Terminal Proximity** - Network integration
+
+### Aggregation Methods
+
+#### Monte Carlo Simulation (Default)
+- 10,000 iterations with random weights (0-50% per criterion)
+- Prevents single-criterion dominance
+- Robust to weighting uncertainty
+
+#### AHP (Analytic Hierarchy Process) - Optional
+- Expert pairwise comparisons using Saaty scale (1-9)
+- Eigenvector weight calculation
+- Consistency ratio validation
+- Multiple expert aggregation (geometric mean)
+
+**Both methods produce:**
+- `final_score` / `ahp_score` - Weighted aggregate score
+- `rank` / `ahp_rank` - Hub ranking within tier
+- Distribution metrics for robustness analysis
+
+---
+
+## Hub Hierarchy
+
+| Tier | Hebrew | Daily Ridership | Description |
+|------|--------|-----------------|-------------|
+| National | ארצי | >= 50,000 | Top-tier metropolitan connectors |
+| Metropolitan | מטרופוליני | 5,000 - 50,000 | Regional transit nodes |
+| Local | עירוני | < 5,000 | Neighborhood gateways |
+
+**Metropolitan Areas:**
+- Tel Aviv + Center (29 hubs)
+- Haifa + North (14 hubs)
+- South (3 hubs)
+
+---
+
+## Output Files
+
+### Scoring Results
+
+| File | Description |
+|------|-------------|
+| `data/results/hub_prioritization_results_{timestamp}.csv` | Full results with all scores |
+| `data/results/hub_prioritization_results_{timestamp}.geojson` | Spatial data for mapping |
+| `data/results/hub_map_{timestamp}.html` | Interactive web map |
+
+### AHP Outputs
+
+| File | Description |
+|------|-------------|
+| `data/ahp_expert_comparisons.csv` | Expert pairwise comparison input |
+| `data/ahp_weights_{expert}_{timestamp}.csv` | Calculated expert weights |
+
+---
+
+## Key Features
+
+### Recent Additions (2024-2025)
+
+- **AHP Streamlit App** - Professional UI for expert questionnaires
+- **Monte Carlo Distribution Reporting** - Rank robustness metrics
+- **Tier-Specific Ranking** - Rankings per hub type and area
+- **Hub Data Post-Processing** - Name mapping and ranking tables
+- **Transit Hub Classification** - Optional non-rail mode requirements
+- **Executive Summary Documentation** - Comprehensive scoring criteria guide
+
+### Core Capabilities
+
+- **H3 Hexagon Grouping** - Edge-to-edge distance (120m default)
+- **Per-Tier Normalization** - Fair comparison within categories
+- **Diminishing Returns** - Logarithmic scaling for demand
+- **Diversity Bonus** - Reward for multimodal integration
+- **Consistency Validation** - AHP consistency ratio checking
+
+---
+
+## Quick Start
+
+### Option 1: Run Scoring Pipeline
+
+```python
+from scripts.run_pipeline import HubPrioritizationPipeline
+
+pipeline = HubPrioritizationPipeline()
+results = pipeline.run_complete_pipeline(
+    nodes_csv="data/raw/All_nodes+lines.csv",
+    lines_modes_csv="data/raw/Lines_and_Planned_Mode.csv"
+)
+```
+
+### Option 2: Use AHP Questionnaire
+
+```bash
+streamlit run app/ahp_questionnaire.py
+```
+
+### Option 3: Run Notebooks
+
+Open and run:
+- `notebooks/complete_hub_scoring_pipeline.ipynb`
+- `notebooks/hub_data_postprocess.ipynb`
+
+---
+
+## Configuration
+
+All parameters in `src/config.py`:
+
+```python
+# Eligibility thresholds
+ELIGIBILITY_MIN_PASSENGERS = 1000
+ELIGIBILITY_MIN_MODES = 2
+
+# Hierarchy thresholds
+NATIONAL_HUB_MIN_PASSENGERS = 50000
+METRO_HUB_MIN_PASSENGERS = 5000
+
+# Spatial parameters
+H3_RESOLUTION = 10          # ~15m hexagons
+HUB_MERGE_THRESHOLD_M = 120 # Edge-to-edge grouping
+
+# Scoring
+MONTE_CARLO_ITERATIONS = 10000
+MAX_CRITERION_WEIGHT = 0.5
+
+# AHP (optional)
+AHP_ENABLED = False  # Set to True to enable
+AHP_CONSISTENCY_RATIO_THRESHOLD = 0.10
+```
+
+---
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| `CLAUDE.md` | Complete framework specification |
+| `README.md` | Project overview and quick start |
+| `INSTALL.md` | Installation instructions |
+| `QUICK_REFERENCE.md` | Quick reference card |
+| `AHP_QUICKSTART.md` | AHP scoring quick start |
+| `docs/AHP_SCORING_GUIDE.md` | Full AHP methodology guide |
+| `docs/SCORING_CRITERIA_EXECUTIVE_SUMMARY.md` | Scoring criteria summary |
+| `docs/SOLID_PRINCIPLES_REVIEW.md` | Code quality assessment |
+| `docs/DATA_CONFIGURATION.md` | Data file configuration |
+
+---
+
+## Testing
+
+```bash
+# Run all tests
+pytest tests/
+
+# Run with coverage
+pytest tests/ --cov=src --cov-report=html
+
+# Test AHP scoring
+python scripts/test_ahp_scoring.py
+```
+
+---
+
+## Requirements
+
+**Core Dependencies:**
+- Python >= 3.9
+- pandas >= 2.0.0
+- geopandas >= 0.13.0
+- h3 >= 3.7.0
+- numpy >= 1.24.0
+- shapely >= 2.0.0
+
+**Optional (for AHP app):**
+- streamlit
+- plotly
+
+Install with:
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## Architecture
+
+```
+HubPrioritizing/
+├── src/                    # Source code
+│   ├── config.py           # Configuration
+│   ├── scoring/            # Scoring modules
+│   ├── spatial/            # Spatial operations
+│   ├── classification/     # Hub classification
+│   └── visualization/      # Maps and charts
+├── app/                    # Streamlit applications
+│   └── ahp_questionnaire.py
+├── scripts/                # Pipeline scripts
+├── notebooks/              # Analysis notebooks
+├── data/                   # Data files
+├── tests/                  # Unit tests
+└── docs/                   # Documentation
+```
+
+---
+
+## Summary
+
+The Hub Prioritization Framework provides:
+
+- **Complete scoring pipeline** with 5 criteria and dual aggregation methods
+- **Interactive AHP application** for expert weight determination
+- **Tier-specific ranking** for fair hub comparison
+- **Comprehensive documentation** and test coverage
+- **Production-ready architecture** following SOLID principles
+
+**Code Quality: Grade B+** (See `docs/SOLID_PRINCIPLES_REVIEW.md`)
+
+---
+
+*Last Updated: 2025-12-15*
+*Version: 2.0*

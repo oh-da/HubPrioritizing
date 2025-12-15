@@ -91,6 +91,12 @@ HubPrioritizing/
 │
 ├── tests/                        # Unit tests
 ├── notebooks/                    # Analysis notebooks
+│   ├── complete_hub_scoring_pipeline.ipynb
+│   ├── hub_data_postprocess.ipynb
+│   ├── ahp_expert_questionnaire.ipynb
+│   └── map_hub_results.ipynb
+├── app/                          # Streamlit applications
+│   └── ahp_questionnaire.py      # AHP Expert Questionnaire
 ├── docs/                         # Documentation
 │
 ├── requirements.txt              # Python dependencies
@@ -129,6 +135,17 @@ HubPrioritizing/
 5. **Bus Terminal Proximity** (200m buffer, weighted by terminal type)
 
 **Final Score**: Monte Carlo aggregation ensures balanced weighting (no criterion >50%)
+
+### Alternative: AHP (Expert-Driven Weighting)
+
+An optional AHP (Analytic Hierarchy Process) method is available for expert-driven weight determination:
+
+```bash
+# Run the AHP Expert Questionnaire (Streamlit app)
+streamlit run app/ahp_questionnaire.py
+```
+
+See **[AHP_QUICKSTART.md](AHP_QUICKSTART.md)** for details.
 
 ---
 

@@ -28,6 +28,12 @@ Or install just the core packages:
 pip install h3>=3.7.0 geopandas>=0.13.0 pandas>=2.0.0 numpy>=1.24.0 shapely>=2.0.0
 ```
 
+### Optional: AHP Expert Questionnaire App
+```bash
+pip install streamlit plotly
+streamlit run app/ahp_questionnaire.py
+```
+
 ## Running the Pipeline
 
 After installation, configure your data paths and run:

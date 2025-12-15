@@ -424,9 +424,16 @@ def run_ahp_scoring_pipeline(
     score_columns: Optional[List[str]] = None,
     consistency_threshold: float = AHP_CONSISTENCY_RATIO_THRESHOLD,
     aggregation_method: str = AHP_AGGREGATION_METHOD,
+    tier_column: str = 'tier',
+    area_column: str = 'area',
 ) -> Tuple[gpd.GeoDataFrame, Dict]:
     """
     Run complete AHP scoring pipeline from expert comparisons to final scores.
+
+    Ranking logic:
+    - ארצי (National): All national hubs ranked together globally
+    - מטרופוליני (Metropolitan): Ranked within their area
+    - עירוני (Local): Ranked within their area
 
     Args:
         gdf: GeoDataFrame with individual criterion scores already calculated
@@ -434,6 +441,8 @@ def run_ahp_scoring_pipeline(
         score_columns: List of score column names (if None, uses defaults)
         consistency_threshold: Maximum acceptable CR
         aggregation_method: How to aggregate multiple experts
+        tier_column: Column name for hub tier classification
+        area_column: Column name for geographic area
 
     Returns:
         Tuple of (GeoDataFrame with ahp_score column, diagnostics dictionary)
@@ -477,9 +486,16 @@ def run_ahp_scoring_pipeline(
     # 4. Add to GeoDataFrame
     gdf_ahp = gdf.copy()
     gdf_ahp['ahp_score'] = ahp_scores
-    gdf_ahp['ahp_rank'] = ahp_scores.rank(ascending=False, method='min')
 
-    # 5. Create diagnostics summary
+    # 5. Add tier-based ranking (same logic as Monte Carlo)
+    gdf_ahp['ahp_rank'] = _calculate_tier_based_ahp_ranking(
+        gdf_ahp,
+        tier_column=tier_column,
+        area_column=area_column,
+        score_column='ahp_score'
+    )
+
+    # 6. Create diagnostics summary
     diagnostics = {
         'expert_diagnostics': expert_diagnostics,
         'aggregated_weights': {col: w for col, w in zip(score_columns, ahp_weights)},
@@ -510,6 +526,84 @@ def run_ahp_scoring_pipeline(
         logger.info(f"  {i}. Hub {hub_id} ({tier}): {score:.2f}")
 
     return gdf_ahp, diagnostics
+
+
+def _calculate_tier_based_ahp_ranking(
+    gdf: gpd.GeoDataFrame,
+    tier_column: str = 'tier',
+    area_column: str = 'area',
+    score_column: str = 'ahp_score',
+) -> pd.Series:
+    """
+    Calculate ranking based on hub type and area for AHP scores.
+
+    Ranking logic:
+    - ארצי (National): All national hubs ranked together globally
+    - מטרופוליני (Metropolitan): Ranked within their area
+    - עירוני (Local): Ranked within their area
+
+    Args:
+        gdf: GeoDataFrame with scores and tier/area columns
+        tier_column: Column name for hub tier
+        area_column: Column name for area
+        score_column: Column name for score to rank by
+
+    Returns:
+        Series with ranking values
+    """
+    from ..config import TIER_NATIONAL, TIER_METRO, TIER_LOCAL
+
+    # Initialize rank column with NaN
+    ranks = pd.Series(index=gdf.index, dtype=float)
+
+    # Check if required columns exist
+    has_tier = tier_column in gdf.columns
+    has_area = area_column in gdf.columns
+
+    if not has_tier:
+        logger.warning(f"Tier column '{tier_column}' not found. Using global ranking.")
+        return gdf[score_column].rank(ascending=False, method='min')
+
+    # ארצי (National): All ranked together globally
+    national_mask = gdf[tier_column] == TIER_NATIONAL
+    if national_mask.any():
+        national_hubs = gdf[national_mask]
+        ranks.loc[national_mask] = national_hubs[score_column].rank(ascending=False, method='min')
+        logger.info(f"  AHP: Ranked {national_mask.sum()} ארצי (National) hubs globally")
+
+    # מטרופוליני (Metropolitan) and עירוני (Local): Ranked within area
+    for tier in [TIER_METRO, TIER_LOCAL]:
+        tier_mask = gdf[tier_column] == tier
+
+        if not tier_mask.any():
+            continue
+
+        if has_area:
+            # Rank within each area
+            tier_hubs = gdf[tier_mask]
+            areas = tier_hubs[area_column].unique()
+
+            for area in areas:
+                area_mask = tier_mask & (gdf[area_column] == area)
+                if area_mask.any():
+                    area_hubs = gdf[area_mask]
+                    ranks.loc[area_mask] = area_hubs[score_column].rank(ascending=False, method='min')
+
+            logger.info(f"  AHP: Ranked {tier_mask.sum()} {tier} hubs within {len(areas)} areas")
+        else:
+            # No area column - rank all hubs of this tier together
+            tier_hubs = gdf[tier_mask]
+            ranks.loc[tier_mask] = tier_hubs[score_column].rank(ascending=False, method='min')
+            logger.warning(f"  AHP: No area column - ranked {tier_mask.sum()} {tier} hubs globally")
+
+    # Handle any remaining unranked hubs (e.g., "Not Hub", "Train Station")
+    unranked_mask = ranks.isna()
+    if unranked_mask.any():
+        unranked_hubs = gdf[unranked_mask]
+        ranks.loc[unranked_mask] = unranked_hubs[score_column].rank(ascending=False, method='min')
+        logger.info(f"  AHP: Ranked {unranked_mask.sum()} other hubs globally")
+
+    return ranks.astype(int)
 
 
 # ============================================================================

@@ -184,19 +184,30 @@ def calculate_final_scores(
     score_columns: Optional[List[str]] = None,
     n_iterations: int = MONTE_CARLO_ITERATIONS,
     random_seed: int = MONTE_CARLO_RANDOM_SEED,
+    tier_column: str = 'tier',
+    area_column: str = 'area',
 ) -> gpd.GeoDataFrame:
     """
     Calculate final aggregated scores using Monte Carlo simulation.
+
+    Ranking logic:
+    - ארצי (National): All national hubs ranked together globally
+    - מטרופוליני (Metropolitan): Ranked within their area
+    - עירוני (Local): Ranked within their area
 
     Args:
         gdf: GeoDataFrame with individual score columns
         score_columns: List of score column names (if None, uses defaults)
         n_iterations: Number of Monte Carlo iterations
         random_seed: Random seed
+        tier_column: Column name for hub tier classification
+        area_column: Column name for geographic area
 
     Returns:
-        GeoDataFrame with final_score column added
+        GeoDataFrame with final_score and rank columns added
     """
+    from ..config import TIER_NATIONAL, TIER_METRO, TIER_LOCAL
+
     if score_columns is None:
         score_columns = [
             'activity_score',
@@ -225,10 +236,93 @@ def calculate_final_scores(
     gdf_final = gdf.copy()
     gdf_final['final_score'] = final_scores
 
-    # Add ranking
-    gdf_final['rank'] = gdf_final['final_score'].rank(ascending=False, method='min')
+    # Add tier-based ranking
+    gdf_final['rank'] = _calculate_tier_based_ranking(
+        gdf_final,
+        tier_column=tier_column,
+        area_column=area_column,
+        score_column='final_score'
+    )
 
     return gdf_final
+
+
+def _calculate_tier_based_ranking(
+    gdf: gpd.GeoDataFrame,
+    tier_column: str = 'tier',
+    area_column: str = 'area',
+    score_column: str = 'final_score',
+) -> pd.Series:
+    """
+    Calculate ranking based on hub type and area.
+
+    Ranking logic:
+    - ארצי (National): All national hubs ranked together globally
+    - מטרופוליני (Metropolitan): Ranked within their area
+    - עירוני (Local): Ranked within their area
+
+    Args:
+        gdf: GeoDataFrame with scores and tier/area columns
+        tier_column: Column name for hub tier
+        area_column: Column name for area
+        score_column: Column name for score to rank by
+
+    Returns:
+        Series with ranking values
+    """
+    from ..config import TIER_NATIONAL, TIER_METRO, TIER_LOCAL
+
+    # Initialize rank column with NaN
+    ranks = pd.Series(index=gdf.index, dtype=float)
+
+    # Check if required columns exist
+    has_tier = tier_column in gdf.columns
+    has_area = area_column in gdf.columns
+
+    if not has_tier:
+        logger.warning(f"Tier column '{tier_column}' not found. Using global ranking.")
+        return gdf[score_column].rank(ascending=False, method='min')
+
+    # ארצי (National): All ranked together globally
+    national_mask = gdf[tier_column] == TIER_NATIONAL
+    if national_mask.any():
+        national_hubs = gdf[national_mask]
+        ranks.loc[national_mask] = national_hubs[score_column].rank(ascending=False, method='min')
+        logger.info(f"  Ranked {national_mask.sum()} ארצי (National) hubs globally")
+
+    # מטרופוליני (Metropolitan) and עירוני (Local): Ranked within area
+    for tier in [TIER_METRO, TIER_LOCAL]:
+        tier_mask = gdf[tier_column] == tier
+
+        if not tier_mask.any():
+            continue
+
+        if has_area:
+            # Rank within each area
+            tier_hubs = gdf[tier_mask]
+            areas = tier_hubs[area_column].unique()
+
+            for area in areas:
+                area_mask = tier_mask & (gdf[area_column] == area)
+                if area_mask.any():
+                    area_hubs = gdf[area_mask]
+                    ranks.loc[area_mask] = area_hubs[score_column].rank(ascending=False, method='min')
+
+            logger.info(f"  Ranked {tier_mask.sum()} {tier} hubs within {len(areas)} areas")
+        else:
+            # No area column - rank all hubs of this tier together
+            tier_hubs = gdf[tier_mask]
+            ranks.loc[tier_mask] = tier_hubs[score_column].rank(ascending=False, method='min')
+            logger.warning(f"  No area column - ranked {tier_mask.sum()} {tier} hubs globally")
+
+    # Handle any remaining unranked hubs (e.g., "Not Hub", "Train Station")
+    unranked_mask = ranks.isna()
+    if unranked_mask.any():
+        unranked_hubs = gdf[unranked_mask]
+        ranks.loc[unranked_mask] = unranked_hubs[score_column].rank(ascending=False, method='min')
+        logger.info(f"  Ranked {unranked_mask.sum()} other hubs globally")
+
+    return ranks.astype(int)
 
 
 def get_score_summary(gdf: gpd.GeoDataFrame, tier_column: str = 'tier') -> pd.DataFrame:

@@ -125,6 +125,13 @@ MONTE_CARLO_RANDOM_SEED = 42  # For reproducibility
 MAX_CRITERION_WEIGHT = 0.5  # Maximum weight for any single criterion (50%)
 MIN_CRITERION_WEIGHT = 0.0  # Minimum weight
 
+# Monte Carlo Distribution Reporting parameters
+MC_DIST_TOP_N_HUBS = 30  # Number of hubs for portfolio-level plots
+MC_DIST_HISTOGRAM_BINS = 50  # Number of bins for per-hub histograms
+MC_DIST_EXPORT_RAW_SCORES = True  # Whether to export raw scores in long format
+MC_DIST_PRECISION = 6  # Decimal precision for exported statistics
+MC_DIST_MAX_HUB_HISTOGRAMS = None  # None = all hubs, or set a number to limit
+
 # AHP (Analytic Hierarchy Process) parameters
 AHP_ENABLED = False  # Set to True to enable AHP scoring alongside Monte Carlo
 AHP_CONSISTENCY_RATIO_THRESHOLD = 0.10  # Maximum acceptable CR (Saaty recommends 0.10)

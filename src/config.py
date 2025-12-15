@@ -67,6 +67,31 @@ NON_MASS_TRANSIT_MODES = {
 }
 
 # ============================================================================
+# OPTIONAL: RAIL-ONLY HUB FILTERING
+# ============================================================================
+# When enabled, a hub is only eligible if it has at least one non-rail
+# mass-transit mode (Metro, LRT, BRT). Hubs with only rail modes
+# (Suburban Rail, Interurban Rail, HighSpeed Rail, Rail) are excluded.
+
+# Set to True to require at least one non-rail transit mode
+REQUIRE_NON_RAIL_MODE = False
+
+# Rail-only modes (rail infrastructure without urban transit integration)
+RAIL_ONLY_MODES = {
+    'Rail',              # רכבת - Generic rail
+    'Suburban Rail',     # רכבת פרברית
+    'Interurban Rail',   # רכבת בין-עירונית
+    'HighSpeed Rail',    # רכבת מהירה
+}
+
+# Non-rail mass-transit modes (urban transit modes that qualify hubs)
+NON_RAIL_TRANSIT_MODES = {
+    'Metro',  # מטרו
+    'LRT',    # רק"ל (Light Rail Transit)
+    'BRT',    # מטרונית (Bus Rapid Transit)
+}
+
+# ============================================================================
 # HUB HIERARCHY THRESHOLDS
 # ============================================================================
 

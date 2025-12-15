@@ -34,3 +34,7 @@ flake8>=6.0.0
 
 # Documentation (development)
 sphinx>=6.0.0
+
+# Streamlit App
+streamlit>=1.28.0
+plotly>=5.18.0

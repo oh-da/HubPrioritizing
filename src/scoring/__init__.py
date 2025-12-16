@@ -21,7 +21,6 @@ from .service import calculate_service_score
 from .location import calculate_location_score
 from .demographics import calculate_pop_jobs_score
 from .terminals import calculate_terminal_score
-from .normalization import normalize_score
 
 # Monte Carlo scoring
 from .monte_carlo import (
@@ -69,7 +68,6 @@ __all__ = [
     'calculate_location_score',
     'calculate_pop_jobs_score',
     'calculate_terminal_score',
-    'normalize_score',
 
     # Monte Carlo
     'monte_carlo_scoring',

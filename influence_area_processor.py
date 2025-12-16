@@ -72,8 +72,8 @@ class InfluenceAreaProcessor:
         """
         print(f"Loading grouped hubs from {filepath}...")
 
-        # Try windows-1255 first for Hebrew, then others
-        encodings_to_try = ['windows-1255', 'utf-8-sig', 'utf-8', 'cp1252', 'latin1']
+        # Try UTF-8 encodings first (consistent with step 2.8 output), then others
+        encodings_to_try = ['utf-8-sig', 'utf-8', 'windows-1255', 'cp1252', 'latin1']
 
         df = None
         for encoding in encodings_to_try:

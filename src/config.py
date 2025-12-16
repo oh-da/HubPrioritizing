@@ -233,6 +233,17 @@ DISTANCE_DECAY_BETA = 1.5
 # Ring midpoints (meters) - calculated from rings
 RING_MIDPOINTS = [250, 750, 1250]  # Midpoint of each ring
 
+# Ring weights for distance decay (inverse decay: closer rings weighted higher)
+# Calculated as: weight_i = (1 / midpoint_i^beta) normalized to sum to 1
+# With beta=1.5, midpoints=[250, 750, 1250]:
+#   Ring 0 (0-500m):    1/250^1.5  = 0.000253 → normalized: 0.78
+#   Ring 1 (500-1000m): 1/750^1.5  = 0.000049 → normalized: 0.15
+#   Ring 2 (1000-1500m):1/1250^1.5 = 0.000023 → normalized: 0.07
+_raw_weights = [1.0 / (mid ** DISTANCE_DECAY_BETA) for mid in RING_MIDPOINTS]
+_weight_sum = sum(_raw_weights)
+_normalized_weights = [w / _weight_sum for w in _raw_weights]
+RING_WEIGHTS = {i: weight for i, weight in enumerate(_normalized_weights)}
+
 # Population vs Employment mix by tier
 POP_JOB_MIX = {
     TIER_NATIONAL: {'jobs': 0.8, 'population': 0.2},  # National hubs serve employment

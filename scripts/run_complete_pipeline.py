@@ -125,6 +125,9 @@ from src.config import (
     MC_DIST_TOP_N_HUBS,
     MONTE_CARLO_ITERATIONS,
     MONTE_CARLO_RANDOM_SEED,
+    REQUIRE_NON_RAIL_MODE,
+    RAIL_ONLY_MODES,
+    NON_RAIL_TRANSIT_MODES,
 )
 from src.utils.logging import setup_logger
 from src.data import loaders, validators
@@ -1061,6 +1064,16 @@ class CompleteHubPipeline:
         logger.info("\n" + "="*80)
         logger.info("STEP 8: FILTER BY ELIGIBILITY")
         logger.info("="*80)
+
+        # Show non-rail filtering status
+        if REQUIRE_NON_RAIL_MODE:
+            logger.info(f"Non-rail mode filtering: ENABLED")
+            logger.info(f"  Rail-only modes: {RAIL_ONLY_MODES}")
+            logger.info(f"  Non-rail transit modes: {NON_RAIL_TRANSIT_MODES}")
+            logger.info(f"  Hubs must have at least one non-rail transit mode (Metro/LRT/BRT)")
+        else:
+            logger.info(f"Non-rail mode filtering: DISABLED")
+            logger.info(f"  All hubs with 2+ mass-transit modes are eligible")
 
         # Filter eligible hubs
         self.eligible_hubs = eligibility.filter_eligible_hubs(

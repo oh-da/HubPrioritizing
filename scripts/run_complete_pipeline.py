@@ -118,7 +118,14 @@ import geopandas as gpd
 import pandas as pd
 from datetime import datetime
 
-from src.config import RAW_DATA_DIR, PROCESSED_DATA_DIR, RESULTS_DIR, print_config_summary
+from src.config import (
+    RAW_DATA_DIR, PROCESSED_DATA_DIR, RESULTS_DIR,
+    print_config_summary,
+    MC_DIST_EXPORT_RAW_SCORES,
+    MC_DIST_TOP_N_HUBS,
+    MONTE_CARLO_ITERATIONS,
+    MONTE_CARLO_RANDOM_SEED,
+)
 from src.utils.logging import setup_logger
 from src.data import loaders, validators
 from src.spatial import h3_operations, merging
@@ -196,6 +203,7 @@ class CompleteHubPipeline:
         self.eligible_hubs = None
         self.classified_hubs = None
         self.scored_hubs = None
+        self.mc_dist_results = None
 
         logger.info("="*80)
         logger.info("COMPLETE HUB PRIORITIZATION PIPELINE")
@@ -1090,7 +1098,7 @@ class CompleteHubPipeline:
         logger.info("STEP 10: CALCULATE SCORES & RANKING")
         logger.info("="*80)
 
-        # Run scoring pipeline
+        # Run scoring pipeline (includes Monte Carlo and optionally AHP)
         self.scored_hubs = monte_carlo.run_complete_scoring_pipeline(
             self.classified_hubs,
             tier_column='tier'
@@ -1098,10 +1106,82 @@ class CompleteHubPipeline:
 
         logger.info("✓ Step 10 complete")
 
-    def step_11_export_results(self):
-        """Step 11: Export final results."""
+    def step_11_run_mc_distribution(self):
+        """Step 11: Run Monte Carlo distribution analysis (optional)."""
         logger.info("\n" + "="*80)
-        logger.info("STEP 11: EXPORT RESULTS")
+        logger.info("STEP 11: MONTE CARLO DISTRIBUTION ANALYSIS (OPTIONAL)")
+        logger.info("="*80)
+
+        # Check if user wants to run MC distribution
+        run_mc_dist = os.environ.get('RUN_MC_DISTRIBUTION', 'false').lower() == 'true'
+
+        if not run_mc_dist:
+            logger.info("⊘ Skipping MC distribution analysis (not requested)")
+            logger.info("  To enable: Set environment variable RUN_MC_DISTRIBUTION=true")
+            logger.info("  or modify this script to set run_mc_dist = True")
+            logger.info("✓ Step 11 complete (skipped)")
+            return
+
+        try:
+            from src.scoring.mc_distribution import run_mc_distribution_analysis
+
+            logger.info("Running Monte Carlo distribution analysis...")
+            logger.info("This may take a few minutes...")
+
+            # Extract score columns
+            score_columns = [
+                'activity_score',
+                'service_score',
+                'location_score',
+                'pop_jobs_score',
+                'terminal_score'
+            ]
+
+            # Check all columns exist
+            missing_cols = [col for col in score_columns if col not in self.scored_hubs.columns]
+            if missing_cols:
+                logger.warning(f"Missing score columns: {missing_cols}")
+                logger.warning("Skipping MC distribution analysis")
+                logger.info("✓ Step 11 complete (missing data)")
+                return
+
+            # Extract score matrix
+            score_matrix = self.scored_hubs[score_columns].copy()
+            score_matrix.index = self.scored_hubs.index
+
+            # Run distribution analysis
+            mc_dist_dir = RESULTS_DIR / f'mc_distribution_{self.timestamp}'
+            mc_results = run_mc_distribution_analysis(
+                score_matrix=score_matrix,
+                output_dir=str(mc_dist_dir),
+                n_iterations=MONTE_CARLO_ITERATIONS,
+                random_seed=MONTE_CARLO_RANDOM_SEED,
+                export_raw_scores=MC_DIST_EXPORT_RAW_SCORES,
+                create_visualizations=True,
+                top_n_for_plots=MC_DIST_TOP_N_HUBS,
+            )
+
+            logger.info(f"\n✓ MC Distribution Analysis complete!")
+            logger.info(f"  Results saved to: {mc_dist_dir}")
+            logger.info(f"  Files: mc_hub_stats.csv + visualizations (PNG)")
+
+            # Store results
+            self.mc_dist_results = mc_results
+
+            logger.info("✓ Step 11 complete")
+
+        except ImportError:
+            logger.warning("mc_distribution module not found - skipping")
+            logger.info("✓ Step 11 complete (module unavailable)")
+        except Exception as e:
+            logger.error(f"MC distribution analysis failed: {e}", exc_info=True)
+            logger.warning("Continuing without MC distribution results")
+            logger.info("✓ Step 11 complete (error - continued)")
+
+    def step_12_export_results(self):
+        """Step 12: Export final results."""
+        logger.info("\n" + "="*80)
+        logger.info("STEP 12: EXPORT RESULTS")
         logger.info("="*80)
 
         # CSV
@@ -1124,7 +1204,7 @@ class CompleteHubPipeline:
         except Exception as e:
             logger.warning(f"Could not create map: {e}")
 
-        logger.info("✓ Step 11 complete")
+        logger.info("✓ Step 12 complete")
 
     def run(self):
         """Run complete pipeline."""
@@ -1139,7 +1219,8 @@ class CompleteHubPipeline:
             self.step_8_filter_eligibility()
             self.step_9_classify_hierarchy()
             self.step_10_calculate_scores()
-            self.step_11_export_results()
+            self.step_11_run_mc_distribution()
+            self.step_12_export_results()
 
             logger.info("\n" + "="*80)
             logger.info("✅ PIPELINE COMPLETE!")

@@ -74,7 +74,7 @@ NON_MASS_TRANSIT_MODES = {
 # (Suburban Rail, Interurban Rail, HighSpeed Rail, Rail) are excluded.
 
 # Set to True to require at least one non-rail transit mode
-REQUIRE_NON_RAIL_MODE = False
+REQUIRE_NON_RAIL_MODE = True
 
 # Rail-only modes (rail infrastructure without urban transit integration)
 RAIL_ONLY_MODES = {

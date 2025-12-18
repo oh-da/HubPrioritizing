@@ -10,12 +10,53 @@ Two-dimensional scoring:
 
 import geopandas as gpd
 import pandas as pd
+import re
 
 from ..config import REGION_WEIGHTS, METRO_POSITION_WEIGHTS
 from .normalization import normalize_minmax
 from ..utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def fix_truncated_hebrew(text: str) -> str:
+    """
+    Fix truncated Hebrew text by restoring missing final letters.
+
+    Common truncations in the data:
+    - 'גלעי' -> 'גלעין' (Core)
+    - 'טבעת פנימי' -> 'טבעת פנימית' (Inner Ring)
+    - 'טבעת חיצוני' -> 'טבעת חיצונית' (Outer Ring)
+
+    Args:
+        text: Hebrew text that may be truncated
+
+    Returns:
+        Fixed text with proper final letters
+    """
+    if not isinstance(text, str) or not text:
+        return text
+
+    # Known truncation fixes
+    fixes = {
+        'גלעי': 'גלעין',
+        'טבעת פנימי': 'טבעת פנימית',
+        'טבעת חיצוני': 'טבעת חיצונית',
+        'טבעת תיכונ': 'טבעת תיכונה',
+    }
+
+    text_stripped = text.strip()
+
+    # Check for exact matches first
+    if text_stripped in fixes:
+        return fixes[text_stripped]
+
+    # Check for pattern matches (word boundaries)
+    for truncated, fixed in fixes.items():
+        if re.search(r'\b' + re.escape(truncated) + r'\b', text_stripped):
+            text_stripped = re.sub(r'\b' + re.escape(truncated) + r'\b', fixed, text_stripped)
+
+    return text_stripped
 
 
 def get_region_weight(region: str) -> float:
@@ -35,6 +76,9 @@ def get_region_weight(region: str) -> float:
         return 0.5  # Default
 
     region_clean = str(region).strip()
+
+    # Fix any truncated Hebrew text
+    region_clean = fix_truncated_hebrew(region_clean)
 
     for key, weight in REGION_WEIGHTS.items():
         if key.lower() in region_clean.lower():
@@ -61,6 +105,9 @@ def get_metro_position_weight(position: str) -> float:
         return 1.5  # Default
 
     position_clean = str(position).strip()
+
+    # Fix any truncated Hebrew text
+    position_clean = fix_truncated_hebrew(position_clean)
 
     for key, weight in METRO_POSITION_WEIGHTS.items():
         if key.lower() in position_clean.lower():

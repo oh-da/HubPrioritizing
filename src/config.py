@@ -208,9 +208,13 @@ METRO_POSITION_WEIGHTS = {
     'גלעין': 3,  # Core
     'Core': 3,
     'טבעת': 2,  # Ring (First Ring)
+    'טבעת פנימית': 2,  # Inner Ring
     'טבעת חיצונית': 2,  # Outer Ring
     'טבעת תיכונה': 2,  # Middle Ring
     'First Ring': 2,
+    'Inner Ring': 2,
+    'Outer Ring': 2,
+    'Middle Ring': 2,
     'צפון': 1,  # North (periphery)
     'חיפה': 1,  # Haifa (periphery)
     'דרום': 1,  # South (periphery)

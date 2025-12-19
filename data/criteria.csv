@@ -1,0 +1,6 @@
+criterion_id,label_en,label_he,description,icon
+activity_score,Passenger Activity,ציון פעילות,Forecasted passenger demand for 2050 (log-transformed to prevent mega-station dominance),👥
+service_score,Service & Modes,ציון שירות,Quality of transit service including mode types frequencies and multimodal diversity,🚇
+location_score,Location,ציון מיקום,Strategic geographic importance (periphery vs. center core vs. outer ring),📍
+pop_jobs_score,Population & Jobs,אוכלוסייה ותעסוקה,Population and employment density within walking distance (catchment area),🏘️
+terminal_score,Bus Terminal,ציון מסוף,Integration with bus network through proximity to bus terminals,🚌

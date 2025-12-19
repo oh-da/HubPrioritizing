@@ -5,6 +5,8 @@ AHP Expert Questionnaire for Hub Prioritization
 A professional Streamlit application for collecting expert pairwise comparisons
 using the Analytic Hierarchy Process (AHP) methodology.
 
+Streamlit Cloud Compatible - Saves results to CSV automatically.
+
 Run with: streamlit run app/ahp_questionnaire.py
 """
 
@@ -15,9 +17,10 @@ from pathlib import Path
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
+import os
 
 # =============================================================================
-# Configuration
+# Configuration & Data Loading
 # =============================================================================
 
 # Page configuration
@@ -28,46 +31,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Criteria definitions
-CRITERIA = [
-    'activity_score',
-    'service_score',
-    'location_score',
-    'pop_jobs_score',
-    'terminal_score'
-]
+# Paths
+PROJECT_ROOT = Path(__file__).parent.parent
+DATA_DIR = PROJECT_ROOT / "data"
+CRITERIA_FILE = DATA_DIR / "criteria.csv"
+RESULTS_FILE = DATA_DIR / "ahp_results.csv"
 
-CRITERIA_LABELS = {
-    'activity_score': 'Passenger Activity',
-    'service_score': 'Service & Modes',
-    'location_score': 'Location',
-    'pop_jobs_score': 'Population & Jobs',
-    'terminal_score': 'Bus Terminal'
-}
-
-CRITERIA_LABELS_HEB = {
-    'activity_score': 'ציון פעילות',
-    'service_score': 'ציון שירות',
-    'location_score': 'ציון מיקום',
-    'pop_jobs_score': 'אוכלוסייה ותעסוקה',
-    'terminal_score': 'ציון מסוף'
-}
-
-CRITERIA_DESCRIPTIONS = {
-    'activity_score': 'Forecasted passenger demand for 2050 (log-transformed to prevent mega-station dominance)',
-    'service_score': 'Quality of transit service including mode types, frequencies, and multimodal diversity',
-    'location_score': 'Strategic geographic importance (periphery vs. center, core vs. outer ring)',
-    'pop_jobs_score': 'Population and employment density within walking distance (catchment area)',
-    'terminal_score': 'Integration with bus network through proximity to bus terminals'
-}
-
-CRITERIA_ICONS = {
-    'activity_score': '👥',
-    'service_score': '🚇',
-    'location_score': '📍',
-    'pop_jobs_score': '🏘️',
-    'terminal_score': '🚌'
-}
+# Ensure data directory exists
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Random Index values for consistency ratio (Saaty, 1980)
 RANDOM_INDEX = {
@@ -87,6 +58,113 @@ SAATY_SCALE = {
     2: "Slight importance",
     1: "Equal importance"
 }
+
+
+# =============================================================================
+# Load Criteria from CSV
+# =============================================================================
+
+@st.cache_data
+def load_criteria():
+    """Load criteria definitions from CSV file."""
+    try:
+        if not CRITERIA_FILE.exists():
+            st.error(f"Criteria file not found: {CRITERIA_FILE}")
+            st.stop()
+
+        df = pd.read_csv(CRITERIA_FILE)
+
+        # Validate required columns
+        required_cols = ['criterion_id', 'label_en', 'label_he', 'description', 'icon']
+        missing = [col for col in required_cols if col not in df.columns]
+        if missing:
+            st.error(f"Missing required columns in criteria.csv: {missing}")
+            st.stop()
+
+        # Create dictionaries
+        criteria = df['criterion_id'].tolist()
+        labels = dict(zip(df['criterion_id'], df['label_en']))
+        labels_heb = dict(zip(df['criterion_id'], df['label_he']))
+        descriptions = dict(zip(df['criterion_id'], df['description']))
+        icons = dict(zip(df['criterion_id'], df['icon']))
+
+        return criteria, labels, labels_heb, descriptions, icons
+
+    except Exception as e:
+        st.error(f"Error loading criteria: {e}")
+        st.stop()
+
+
+# Load criteria
+CRITERIA, CRITERIA_LABELS, CRITERIA_LABELS_HEB, CRITERIA_DESCRIPTIONS, CRITERIA_ICONS = load_criteria()
+
+
+# =============================================================================
+# Results Persistence Functions
+# =============================================================================
+
+def save_results_to_csv(expert_name: str, comparisons: dict, results: dict):
+    """
+    Save expert results to CSV file (append mode).
+
+    Creates one row per expert submission with all comparisons and weights.
+    """
+    try:
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        # Build the result row
+        row_data = {
+            'timestamp': timestamp,
+            'expert_name': expert_name or 'anonymous',
+            'consistency_ratio': results['cr'],
+            'lambda_max': results['lambda_max'],
+            'is_consistent': results['is_consistent']
+        }
+
+        # Add weights
+        for i, crit in enumerate(CRITERIA):
+            row_data[f'weight_{crit}'] = results['weights'][i]
+
+        # Add comparisons
+        for (crit_a, crit_b), value in comparisons.items():
+            row_data[f'comp_{crit_a}_vs_{crit_b}'] = value
+
+        # Create DataFrame
+        result_df = pd.DataFrame([row_data])
+
+        # Append to file or create new
+        if RESULTS_FILE.exists():
+            # Read existing and append
+            existing_df = pd.read_csv(RESULTS_FILE)
+            combined_df = pd.concat([existing_df, result_df], ignore_index=True)
+            combined_df.to_csv(RESULTS_FILE, index=False)
+        else:
+            # Create new file
+            result_df.to_csv(RESULTS_FILE, index=False)
+
+        return True, "Results saved successfully!"
+
+    except PermissionError:
+        # Streamlit Cloud may have read-only filesystem
+        return False, "Cannot write to file system (Streamlit Cloud limitation). Please use the download button instead."
+
+    except Exception as e:
+        return False, f"Error saving results: {str(e)}"
+
+
+def get_results_summary():
+    """Load and summarize all submitted results."""
+    try:
+        if not RESULTS_FILE.exists():
+            return None
+
+        df = pd.read_csv(RESULTS_FILE)
+        return df
+
+    except Exception as e:
+        st.warning(f"Could not load results history: {e}")
+        return None
+
 
 # =============================================================================
 # Custom CSS Styling
@@ -146,43 +224,6 @@ def apply_custom_css():
         margin: 1rem 0;
     }
 
-    .comparison-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 1rem;
-    }
-
-    .criterion-label {
-        font-weight: 600;
-        color: #1e3a5f;
-        font-size: 1.1rem;
-    }
-
-    .vs-badge {
-        background: #e9ecef;
-        color: #6c757d;
-        padding: 0.25rem 0.75rem;
-        border-radius: 15px;
-        font-weight: 500;
-    }
-
-    /* Scale visualization */
-    .scale-container {
-        background: #f8f9fa;
-        border-radius: 8px;
-        padding: 1rem;
-        margin: 1rem 0;
-    }
-
-    .scale-labels {
-        display: flex;
-        justify-content: space-between;
-        font-size: 0.8rem;
-        color: #6c757d;
-        margin-top: 0.5rem;
-    }
-
     /* Results styling */
     .results-card {
         background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
@@ -198,51 +239,6 @@ def apply_custom_css():
 
     .results-card.danger {
         border-color: #dc3545;
-    }
-
-    /* Consistency indicator */
-    .consistency-badge {
-        display: inline-block;
-        padding: 0.5rem 1rem;
-        border-radius: 20px;
-        font-weight: 600;
-        margin: 0.5rem 0;
-    }
-
-    .consistency-badge.success {
-        background: #d4edda;
-        color: #155724;
-    }
-
-    .consistency-badge.warning {
-        background: #fff3cd;
-        color: #856404;
-    }
-
-    .consistency-badge.danger {
-        background: #f8d7da;
-        color: #721c24;
-    }
-
-    /* Progress bar */
-    .progress-container {
-        background: #e9ecef;
-        border-radius: 10px;
-        height: 10px;
-        margin: 1rem 0;
-        overflow: hidden;
-    }
-
-    .progress-bar {
-        background: linear-gradient(90deg, #1e3a5f 0%, #28a745 100%);
-        height: 100%;
-        border-radius: 10px;
-        transition: width 0.3s ease;
-    }
-
-    /* Sidebar styling */
-    .sidebar .sidebar-content {
-        background: #f8f9fa;
     }
 
     /* Button styling */
@@ -261,53 +257,14 @@ def apply_custom_css():
         box-shadow: 0 4px 12px rgba(30, 58, 95, 0.3);
     }
 
-    /* Info boxes */
-    .info-box {
-        background: #e7f3ff;
-        border-left: 4px solid #1e3a5f;
-        padding: 1rem;
-        border-radius: 0 8px 8px 0;
-        margin: 1rem 0;
-    }
-
-    /* Step indicator */
-    .step-indicator {
-        display: flex;
-        justify-content: center;
-        gap: 1rem;
-        margin: 2rem 0;
-    }
-
-    .step {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: 600;
-        background: #e9ecef;
-        color: #6c757d;
-    }
-
-    .step.active {
-        background: #1e3a5f;
-        color: white;
-    }
-
-    .step.completed {
-        background: #28a745;
-        color: white;
+    /* Success button */
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #28a745 0%, #34ce57 100%);
     }
 
     /* Hide Streamlit branding */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-
-    /* Slider styling */
-    .stSlider > div > div > div > div {
-        background: linear-gradient(90deg, #dc3545 0%, #ffc107 50%, #28a745 100%);
-    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -359,14 +316,6 @@ def slider_to_saaty(value: int) -> float:
         return 1.0 / (abs(value) + 1)
 
 
-def saaty_to_slider(saaty_value: float) -> int:
-    """Convert Saaty scale value to slider value."""
-    if saaty_value >= 1:
-        return int(saaty_value - 1)
-    else:
-        return -int(1.0 / saaty_value - 1)
-
-
 # =============================================================================
 # UI Components
 # =============================================================================
@@ -391,7 +340,7 @@ def render_sidebar():
             "Your Name / ID",
             value=st.session_state.get('expert_name', ''),
             placeholder="e.g., transport_planner",
-            help="This will identify your responses in the output file"
+            help="This will identify your responses in the results file"
         )
         st.session_state.expert_name = expert_name
 
@@ -402,7 +351,7 @@ def render_sidebar():
         1. **Enter your name** above
         2. **Compare criteria pairs** using the sliders
         3. **Review your weights** and consistency
-        4. **Export results** to CSV
+        4. **Submit results** to save automatically
         """)
 
         st.divider()
@@ -497,13 +446,10 @@ def render_comparison_slider(crit_a: str, crit_b: str, idx: int) -> float:
 
             # Display current value
             if slider_value == 0:
-                intensity_text = "Equal importance"
-                direction_text = "Both criteria are equally important"
+                direction_text = "Equal importance"
             elif slider_value > 0:
-                intensity_text = SAATY_SCALE.get(slider_value + 1, "")
                 direction_text = f"{CRITERIA_LABELS[crit_a]} is {saaty_value:.0f}× more important"
             else:
-                intensity_text = SAATY_SCALE.get(abs(slider_value) + 1, "")
                 direction_text = f"{CRITERIA_LABELS[crit_b]} is {1/saaty_value:.0f}× more important"
 
             st.markdown(f"""
@@ -663,19 +609,33 @@ def render_results(comparisons: dict, criteria: list):
     }
 
 
-def render_export_section(comparisons: dict, results: dict, expert_name: str):
-    """Render the export section."""
+def render_submit_section(comparisons: dict, results: dict, expert_name: str):
+    """Render the submission section with save and download options."""
 
     if not results:
         return
 
-    st.subheader("💾 Export Results")
+    st.subheader("💾 Submit & Export Results")
 
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([1, 1])
 
     with col1:
-        st.markdown("**Export Pairwise Comparisons**")
-        st.markdown("CSV file compatible with the AHP scoring module.")
+        st.markdown("### Save Results to Database")
+        st.markdown("Click below to save your responses to the central results file.")
+
+        if st.button("✅ Submit Results", type="primary", use_container_width=True):
+            success, message = save_results_to_csv(expert_name, comparisons, results)
+
+            if success:
+                st.success(message)
+                st.balloons()
+            else:
+                st.warning(message)
+                st.info("💡 **Tip:** Use the download button instead to save your results locally.")
+
+    with col2:
+        st.markdown("### Download Results (Backup)")
+        st.markdown("Download your responses as a CSV file for backup.")
 
         # Prepare comparison CSV data
         rows = []
@@ -694,47 +654,20 @@ def render_export_section(comparisons: dict, results: dict, expert_name: str):
         filename = f"ahp_comparisons_{expert_name or 'expert'}_{timestamp}.csv"
 
         st.download_button(
-            label="📥 Download Comparisons CSV",
+            label="📥 Download Backup CSV",
             data=csv_comparisons,
             file_name=filename,
             mime='text/csv',
             use_container_width=True
         )
 
-    with col2:
-        st.markdown("**Export Weights Summary**")
-        st.markdown("Summary of calculated weights for reference.")
-
-        # Prepare weights summary
-        weights_df = pd.DataFrame({
-            'criterion': CRITERIA,
-            'weight': results['weights'],
-            'percentage': [f"{w*100:.2f}%" for w in results['weights']]
-        })
-        # Add metadata rows
-        meta_rows = pd.DataFrame([
-            {'criterion': '_consistency_ratio', 'weight': results['cr'], 'percentage': f"CR={results['cr']:.4f}"},
-            {'criterion': '_lambda_max', 'weight': results['lambda_max'], 'percentage': f"λ={results['lambda_max']:.4f}"},
-            {'criterion': '_expert', 'weight': 0, 'percentage': expert_name or 'expert1'}
-        ])
-        weights_df = pd.concat([weights_df, meta_rows], ignore_index=True)
-
-        csv_weights = weights_df.to_csv(index=False)
-
-        st.download_button(
-            label="📥 Download Weights CSV",
-            data=csv_weights,
-            file_name=f"ahp_weights_{expert_name or 'expert'}_{timestamp}.csv",
-            mime='text/csv',
-            use_container_width=True
-        )
-
     st.divider()
 
-    # Preview of exportable data
-    with st.expander("👁️ Preview Export Data"):
-        st.markdown("**Pairwise Comparisons:**")
-        st.dataframe(comparisons_df, use_container_width=True)
+    # Show results summary if available
+    results_summary = get_results_summary()
+    if results_summary is not None and len(results_summary) > 0:
+        with st.expander(f"📊 View All Submissions ({len(results_summary)} total)"):
+            st.dataframe(results_summary, use_container_width=True)
 
 
 def render_progress_bar(completed: int, total: int):
@@ -778,7 +711,7 @@ def main():
             all_comparisons.append((CRITERIA[i], CRITERIA[j]))
 
     # Create tabs
-    tab1, tab2, tab3 = st.tabs(["📋 Criteria Overview", "⚖️ Pairwise Comparisons", "📊 Results & Export"])
+    tab1, tab2, tab3 = st.tabs(["📋 Criteria Overview", "⚖️ Pairwise Comparisons", "📊 Results & Submit"])
 
     # Tab 1: Criteria Overview
     with tab1:
@@ -792,7 +725,7 @@ def main():
         2. **Go to the Comparisons tab** to make your pairwise judgments
         3. **Use the sliders** to indicate which criterion is more important
         4. **Check the Results tab** for your calculated weights and consistency
-        5. **Export your responses** to CSV for use in the scoring pipeline
+        5. **Submit your responses** to save them to the central database
 
         **Remember:** Your consistency ratio (CR) should be below 0.10 for valid results.
         """)
@@ -827,7 +760,7 @@ def main():
         # Store comparisons in session state
         st.session_state.comparisons = comparisons
 
-    # Tab 3: Results & Export
+    # Tab 3: Results & Submit
     with tab3:
         comparisons = st.session_state.get('comparisons', {})
 
@@ -836,7 +769,7 @@ def main():
 
             if results:
                 st.divider()
-                render_export_section(comparisons, results, expert_name)
+                render_submit_section(comparisons, results, expert_name)
         else:
             st.warning("Please complete the pairwise comparisons in the previous tab first.")
 

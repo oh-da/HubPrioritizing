@@ -1,0 +1,9 @@
+# Streamlit AHP Questionnaire Requirements
+# For deployment on Streamlit Cloud
+#
+# Install with: pip install -r requirements_streamlit.txt
+
+streamlit>=1.28.0
+pandas>=2.0.0
+numpy>=1.24.0
+plotly>=5.17.0

@@ -77,11 +77,11 @@ NON_MASS_TRANSIT_MODES = {
 REQUIRE_NON_RAIL_MODE = True
 
 # Rail-only modes (rail infrastructure without urban transit integration)
+# 22/12/2025 - Updated to exclude HighSpeed Rail.
 RAIL_ONLY_MODES = {
     'Rail',              # רכבת - Generic rail
     'Suburban Rail',     # רכבת פרברית
-    'Interurban Rail',   # רכבת בין-עירונית
-    'HighSpeed Rail',    # רכבת מהירה
+    'Interurban Rail'   # רכבת בין-עירונית
 }
 
 # Non-rail mass-transit modes (urban transit modes that qualify hubs)
@@ -89,6 +89,7 @@ NON_RAIL_TRANSIT_MODES = {
     'Metro',  # מטרו
     'LRT',    # רק"ל (Light Rail Transit)
     'BRT',    # מטרונית (Bus Rapid Transit)
+    'HighSpeed Rail'    #  רכבת מהירה
 }
 
 # ============================================================================
@@ -162,18 +163,19 @@ ACTIVITY_SCORE_LOG_BASE = 10
 
 # 2. SERVICE & HIERARCHY OF MODES SCORE
 # Modal weights (based on notebook implementation)
+# 22/12/2025 Updated in a new order - Metro and Suburban leveled to 6.0, all mode under were upped by 1.0
 MODE_WEIGHTS = {
-    'Funicular': 1.0,
-    'Cable Line': 2.0,
-    'BRT': 3.0,
-    'LRT': 4.0,
-    'Metro': 5.0,
+    'Funicular': 2.0,
+    'Cable Line': 3.0,
+    'BRT': 4.0,
+    'LRT': 5.0,
+    'Metro': 6.0,
     'Suburban Rail': 6.0,
     'Interurban Rail': 7.0,
     'HighSpeed Rail': 8.0,
     'Rail': 7.0,  # Generic rail (treat as Interurban)
     'Express Bus': 3.0,
-    'Bus': 2.0,  # Regular bus (lowest weight)
+    'Bus': 1.0,  # Regular bus (lowest weight)
 }
 
 # Diminishing returns for multiple lines of same mode

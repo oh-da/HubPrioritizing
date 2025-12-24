@@ -192,6 +192,7 @@ MODE_DIVERSITY_BONUS_PCT = 0.10  # 10% bonus per additional mode
 REGION_WEIGHTS = {
     'תל אביב': 0,  # Tel Aviv
     'Tel Aviv': 0,
+    'מרכז': 0,  # Center (Hebrew)
     'Center': 0,
     'צפון': 1,  # North
     'North': 1,

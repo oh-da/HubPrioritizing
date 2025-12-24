@@ -27,6 +27,8 @@ def fix_truncated_hebrew(text: str) -> str:
     - 'גלעי' -> 'גלעין' (Core)
     - 'טבעת פנימי' -> 'טבעת פנימית' (Inner Ring)
     - 'טבעת חיצוני' -> 'טבעת חיצונית' (Outer Ring)
+    - 'תל אבי' -> 'תל אביב' (Tel Aviv - area name)
+    - 'מרכ' -> 'מרכז' (Center - area name)
 
     Args:
         text: Hebrew text that may be truncated
@@ -39,10 +41,19 @@ def fix_truncated_hebrew(text: str) -> str:
 
     # Known truncation fixes
     fixes = {
+        # Location/position truncations
         'גלעי': 'גלעין',
         'טבעת פנימי': 'טבעת פנימית',
         'טבעת חיצוני': 'טבעת חיצונית',
         'טבעת תיכונ': 'טבעת תיכונה',
+        # Area/region name truncations
+        'תל אבי': 'תל אביב',  # Tel Aviv
+        'מרכ': 'מרכז',  # Center
+        'צפו': 'צפון',  # North (if truncated)
+        'דרו': 'דרום',  # South (if truncated)
+        'חיפ': 'חיפה',  # Haifa (if truncated)
+        'ירושלי': 'ירושלים',  # Jerusalem (if truncated)
+        'באר שב': 'באר שבע',  # Beer Sheva (if truncated)
     }
 
     text_stripped = text.strip()

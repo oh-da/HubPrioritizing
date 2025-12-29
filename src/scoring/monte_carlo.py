@@ -4,6 +4,14 @@ Monte Carlo Weighted Scoring
 Aggregates multiple scoring criteria using Monte Carlo simulation with random weights.
 
 This approach prevents any single criterion from dominating the final score.
+
+IMPORTANT IMPLEMENTATION NOTES:
+- Monte Carlo simulation runs on ALL hubs together (single simulation across entire dataset)
+- Ranking is done AFTER Monte Carlo:
+  - National (ארצי): Ranked globally
+  - Metropolitan (מטרופוליני): Ranked within their geographic area
+  - Local (עירוני): Ranked within their geographic area
+- Normalization of individual criteria is done per TIER (not per metro area)
 """
 
 import numpy as np

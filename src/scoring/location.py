@@ -6,6 +6,10 @@ Score hubs based on strategic location importance.
 Two-dimensional scoring:
 1. National Region: Periphery prioritization (equity)
 2. Metropolitan Position: Core prioritization (efficiency)
+
+NORMALIZATION: GLOBAL (not per tier)
+- All hubs normalized together across all tiers
+- This maintains consistent geographic signals across the entire dataset
 """
 
 import geopandas as gpd

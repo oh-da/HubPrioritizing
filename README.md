@@ -122,13 +122,18 @@ HubPrioritizing/
 
 ### Scoring Criteria
 
-1. **Passenger Activity** (log₁₀ normalized per tier)
-2. **Service & Modes** (weighted by mode quality + diversity bonus)
-3. **Location** (region weight × metro position)
-4. **Population & Jobs** (2050 catchment with distance decay)
-5. **Bus Terminal Proximity** (200m buffer, weighted by terminal type)
+| # | Criterion | Normalization |
+|---|-----------|---------------|
+| 1 | **Passenger Activity** (log₁₀ + min-max) | Per tier |
+| 2 | **Service & Modes** (mode weights × √lines × diversity bonus) | Per tier |
+| 3 | **Location** (region × metro position) | **Global** |
+| 4 | **Population & Jobs** (2050 catchment with distance decay) | Per tier |
+| 5 | **Bus Terminal** (200m proximity × terminal weight) | **Global** |
 
-**Final Score**: Monte Carlo aggregation ensures balanced weighting (no criterion >50%)
+**Important Notes:**
+- **Per-tier normalization**: All hubs of the same tier (ארצי/מטרופוליני/עירוני) are normalized together, regardless of geographic area
+- **Monte Carlo**: Simulation runs on **all hubs together** (single simulation across entire dataset)
+- **Ranking**: National hubs ranked globally; Metropolitan/Local hubs ranked within their geographic area
 
 ---
 

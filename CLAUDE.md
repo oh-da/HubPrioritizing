@@ -217,6 +217,7 @@ Two complementary methods are available:
 **Option A: Monte Carlo Simulation (Default)**
 - 10,000 iterations with random weight sets
 - Each criterion 0–50% per iteration
+- **Runs on all hubs together** (single simulation across the entire dataset)
 - Final score = weighted mean across simulations
 - Prevents single-criterion dominance
 - Robust to weighting uncertainty
@@ -230,7 +231,17 @@ Two complementary methods are available:
 
 **Usage**: Both methods can run simultaneously for comparative analysis. AHP is optional and disabled by default.
 
-#### Step 8: Validation
+#### Step 8: Ranking
+
+After Monte Carlo scoring, hubs are ranked based on their tier and geographic area:
+
+- **National (ארצי)**: All national hubs ranked **globally** together
+- **Metropolitan (מטרופוליני)**: Ranked **within their geographic area** (e.g., Tel Aviv area, Haifa area, South area)
+- **Local (עירוני)**: Ranked **within their geographic area**
+
+This ensures hubs compete within comparable geographic contexts while national hubs are ranked nationwide.
+
+#### Step 9: Validation
 - Expert review
 - Sensitivity analysis
 - Method comparison (Monte Carlo vs AHP)
@@ -240,7 +251,29 @@ Two complementary methods are available:
 
 ## 7. Scoring Criteria
 
-Each hub receives a **normalized score (1–10)** for each criterion. Final weights are derived through either:
+Each hub receives a **normalized score (1–10)** for each criterion.
+
+### Normalization Approach
+
+**Important**: Normalization is performed **per hub tier** (ארצי/מטרופוליני/עירוני), NOT per metro area within each tier:
+
+| Criterion | Normalization Method |
+|-----------|---------------------|
+| Passenger Activity | Per tier (log₁₀ + min-max to 1-10) |
+| Service & Modes | Per tier (min-max to 1-10) |
+| Location | **Global** (all hubs together) |
+| Population & Jobs | Per tier (min-max to 1-10) |
+| Bus Terminal | **Global** (all hubs together) |
+
+This means:
+- All Metropolitan hubs (regardless of geographic area) are normalized together
+- All Local hubs are normalized together
+- National hubs are normalized together
+- Location and Terminal scores use global normalization across all tiers
+
+### Aggregation Methods
+
+Final weights are derived through either:
 - **Monte Carlo weighted scoring** (default): Random weight simulation to prevent single-criterion dominance
 - **AHP (Analytic Hierarchy Process)**: Expert-driven pairwise comparisons for systematic weight derivation
 
@@ -253,17 +286,17 @@ Both methods can be used simultaneously for comparative analysis.
 **Methodology**:
 - Based on 2050 passenger forecasts
 - **Log₁₀ transformation** to avoid extreme skew from mega-stations
-- Separate normalization per hub category (ארצי/מטרופוליני/עירוני)
+- **Per-tier normalization**: All hubs within the same tier (ארצי/מטרופוליני/עירוני) are normalized together, regardless of geographic area
 
 **Formula**:
 ```
-activity_score = normalize(log10(passengers_2050))
+activity_score = normalize_by_tier(log10(passengers_2050))
 ```
 
 **Rationale**:
 - A station with 100,000 passengers should not score 10× higher than 10,000
 - Logarithmic scale reflects diminishing marginal impact
-- Per-category normalization ensures fair comparison within tier
+- Per-tier normalization ensures fair comparison within tier (NOT per metro area)
 
 ### 7.2 Service & Hierarchy of Modes Score
 
@@ -288,9 +321,10 @@ activity_score = normalize(log10(passengers_2050))
 
 **Formula**:
 ```
-service_score = Σ(mode_weight × line_count_with_diminishing_returns) × diversity_bonus
-normalized to 1–10 per hub type
+service_score = normalize_by_tier(Σ(mode_weight × line_count_with_diminishing_returns) × diversity_bonus)
 ```
+
+**Normalization**: Per tier (all hubs of the same tier normalized together, regardless of metro area)
 
 **Rationale**:
 - More modes = better connectivity and resilience
@@ -315,14 +349,16 @@ normalized to 1–10 per hub type
 
 **Formula**:
 ```
-location_score = region_weight × ring_score
-normalized to 1–10
+location_score = normalize_global(region_weight × ring_score)
 ```
+
+**Normalization**: **Global** (all hubs normalized together, across all tiers)
 
 **Rationale**:
 - Balances national equity (periphery boost) with metropolitan efficiency (core importance)
 - Recognizes different strategic value of locations
 - Prevents over-concentration in center
+- Global normalization ensures consistent geographic signals across tiers
 
 ### 7.4 Population & Jobs Score (2050)
 
@@ -344,9 +380,10 @@ normalized to 1–10
 
 **Formula**:
 ```
-pop_jobs_score = Σ(ring_weight × (job_mix × jobs + pop_mix × population))
-normalized to 1–10 per hub type
+pop_jobs_score = normalize_by_tier(Σ(ring_weight × (job_mix × jobs + pop_mix × population)))
 ```
+
+**Normalization**: Per tier (all hubs of the same tier normalized together, regardless of metro area)
 
 **Rationale**:
 - Higher-tier hubs serve employment centers
@@ -370,9 +407,10 @@ normalized to 1–10 per hub type
 
 **Formula**:
 ```
-terminal_score = Σ(terminal_weight × proximity_factor)
-normalized to 1–10
+terminal_score = normalize_global(Σ(terminal_weight × proximity_factor))
 ```
+
+**Normalization**: **Global** (all hubs normalized together, across all tiers)
 
 **Rationale**:
 - Bus integration critical for first/last mile
@@ -1239,6 +1277,11 @@ See the full review documents for detailed code examples and implementation guid
 ## 19. Document Maintenance
 
 ### Version History
+- **v1.3** (2025-12-29): Clarified scoring methodology documentation
+  - Documented that normalization is per TIER only (not per metro+tier)
+  - Documented that Monte Carlo runs on ALL hubs together
+  - Added ranking step clarification (National: global, Metropolitan/Local: per area)
+  - Updated scoring criteria formulas to show normalization method
 - **v1.2** (2025-12-17): Updated SOLID review status and progress tracking
 - **v1.1** (2025-12-13): Added SOLID principles review section
 - **v1.0** (2024-12-30): Initial creation based on framework documentation
@@ -1293,6 +1336,6 @@ For questions about:
 
 ---
 
-**Last Updated**: 2025-12-17
-**Document Version**: 1.2
-**Status**: Framework with Updated Architecture Review
+**Last Updated**: 2025-12-29
+**Document Version**: 1.3
+**Status**: Framework with Clarified Scoring Methodology

@@ -2,6 +2,10 @@
 Bus Terminal Proximity Score
 =============================
 Score hubs based on proximity to bus terminals and terminal importance.
+
+NORMALIZATION: GLOBAL (not per tier)
+- All hubs normalized together across all tiers
+- This ensures consistent terminal integration signals across the entire dataset
 """
 
 import geopandas as gpd

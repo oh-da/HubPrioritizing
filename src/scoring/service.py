@@ -7,6 +7,11 @@ Considers:
 1. Number of lines per mode (with diminishing returns)
 2. Modal weights (Rail > Metro > LRT > BRT > Bus)
 3. Diversity bonus for multiple modes
+
+NORMALIZATION: Per TIER only (not per metro area)
+- All National (ארצי) hubs normalized together
+- All Metropolitan (מטרופוליני) hubs normalized together (regardless of area)
+- All Local (עירוני) hubs normalized together (regardless of area)
 """
 
 import geopandas as gpd

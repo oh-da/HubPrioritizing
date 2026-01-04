@@ -16,6 +16,17 @@ The AHP (Analytic Hierarchy Process) scoring methodology provides a structured, 
 ✅ **Complementary**: Works alongside Monte Carlo for comparative analysis
 ✅ **Expert-Driven**: Incorporates domain knowledge and strategic priorities
 
+### Important Implementation Details
+
+| Aspect | Current Behavior |
+|--------|-----------------|
+| **Normalization** | Per **tier** only (not per metro area) |
+| **Monte Carlo** | Runs on **all hubs together** (single simulation) |
+| **AHP** | Applies weights to the same normalized scores |
+| **Ranking** | National: global; Metropolitan/Local: per area |
+
+**Note**: Both AHP and Monte Carlo operate on the same normalized criterion scores. The difference is only in how the final weighted aggregation is performed (expert weights vs random weights).
+
 ---
 
 ## How AHP Works

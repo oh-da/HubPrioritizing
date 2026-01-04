@@ -6,7 +6,15 @@
 
 ## Overview
 
-The Hub Prioritization Framework uses **5 scoring criteria** to evaluate and rank integrated transport hubs across Israel. Each criterion produces a normalized score from **1 to 10**, which are then aggregated using Monte Carlo simulation (10,000 iterations with random weights 0-50% per criterion) to produce final rankings.
+The Hub Prioritization Framework uses **5 scoring criteria** to evaluate and rank integrated transport hubs across Israel. Each criterion produces a normalized score from **1 to 10**, which are then aggregated using Monte Carlo simulation (10,000 iterations with random weights 0-50% per criterion) to produce final scores.
+
+### Important Implementation Details
+
+| Aspect | Current Implementation |
+|--------|----------------------|
+| **Normalization** | Per **tier** only (ארצי/מטרופוליני/עירוני), NOT per metro area |
+| **Monte Carlo** | Runs on **all hubs together** (single simulation) |
+| **Ranking** | National: global; Metropolitan/Local: per geographic area |
 
 ---
 
@@ -25,7 +33,7 @@ Activity Score = normalize(log₁₀(daily_passengers_2050))
 - Uses **log₁₀ transformation** to prevent mega-stations from dominating
   - Example: 100,000 passengers scores ~1.25× higher than 10,000 (not 10×)
   - This reflects diminishing marginal impact at very high volumes
-- **Per-tier normalization** ensures fair comparison within each hub category
+- **Per-tier normalization**: All hubs of the same tier normalized together (NOT per metro area)
 - Based on 2050 passenger forecasts (boardings + alightings)
 
 **Why It Matters:** Passenger volume directly indicates the strategic importance and utilization potential of a hub.
@@ -61,7 +69,7 @@ Where:
 **Key Features:**
 - **Diminishing returns**: Uses √n for line counts (2nd/3rd lines matter more than 9th)
 - **Diversity bonus**: +10% per additional mode (2 modes = +10%, 3 modes = +20%, etc.)
-- Normalized to 1-10 scale per tier
+- **Per-tier normalization**: All hubs of the same tier normalized together (NOT per metro area)
 
 **Why It Matters:** Multiple modes and high-capacity services indicate better connectivity, resilience, and network integration.
 
@@ -94,7 +102,7 @@ Location Score = normalize(region_weight × metro_position_weight)
 **Key Features:**
 - **Inverted regional scoring**: Periphery receives higher weight to promote national equity
 - **Core prioritization**: Within metropolitan areas, central locations score higher
-- Combined score normalized to 1-10
+- **Global normalization**: All hubs normalized together across all tiers (NOT per tier)
 
 **Why It Matters:** Ensures investment considers both regional equity and metropolitan efficiency.
 
@@ -129,7 +137,7 @@ Total Score = Σ(Ring Scores for all rings)
 - **Distance decay**: Closer rings weighted more heavily
 - **Tier-specific mix**: Higher-tier hubs weighted toward employment; local hubs toward population
 - Uses **2050 forecasts** to capture Transit-Oriented Development (TOD) potential
-- Normalized to 1-10 scale per tier
+- **Per-tier normalization**: All hubs of the same tier normalized together (NOT per metro area)
 
 **Why It Matters:** Reflects actual demand potential and alignment with land use patterns.
 
@@ -166,6 +174,7 @@ Final Score = normalize(Raw Score)
 - **200m proximity threshold**: Binary check for terminal proximity
 - **Terminal classification**: Larger/more important terminals score higher
 - Based on 2050 terminal strategy plans
+- **Global normalization**: All hubs normalized together across all tiers (NOT per tier)
 - Hubs not near terminals receive minimum score (1)
 
 **Why It Matters:** Bus integration is critical for first/last mile access and overall network connectivity.
@@ -182,11 +191,22 @@ The final score is calculated using **Monte Carlo simulation**:
 2. Each iteration assigns **random weights (0-50%)** to each criterion
 3. Calculate weighted average score per iteration
 4. Final score = mean across all simulations
+5. **Important**: Simulation runs on **all hubs together** (single simulation)
 
 **Benefits:**
 - Prevents any single criterion from dominating
 - Robust to weighting uncertainty
 - Avoids arbitrary weight selection
+
+### Ranking (After Monte Carlo)
+
+After scoring, hubs are ranked based on tier and geographic area:
+
+| Hub Tier | Ranking Scope |
+|----------|---------------|
+| **National (ארצי)** | Ranked **globally** (all national hubs together) |
+| **Metropolitan (מטרופוליני)** | Ranked **within geographic area** (e.g., Tel Aviv, Haifa, South) |
+| **Local (עירוני)** | Ranked **within geographic area** |
 
 ### Alternative: AHP (Analytic Hierarchy Process)
 
@@ -200,27 +220,29 @@ An optional expert-driven weighting method is also available:
 
 ## Summary Table
 
-| # | Criterion | What It Measures | Key Method | Output |
-|---|-----------|------------------|------------|--------|
-| 1 | **Passenger Activity** | Demand importance | log₁₀ transform, per-tier normalization | 1-10 |
-| 2 | **Service & Modes** | Transit service quality | Mode weights × √lines × diversity bonus | 1-10 |
-| 3 | **Location** | Strategic position | Region × metro position weights | 1-10 |
-| 4 | **Population & Jobs** | Catchment potential | Ring-weighted pop/job mix (tier-specific) | 1-10 |
-| 5 | **Bus Terminal** | Network integration | 200m proximity × terminal weight | 1-10 |
+| # | Criterion | What It Measures | Key Method | Normalization | Output |
+|---|-----------|------------------|------------|---------------|--------|
+| 1 | **Passenger Activity** | Demand importance | log₁₀ transform | Per tier | 1-10 |
+| 2 | **Service & Modes** | Transit service quality | Mode weights × √lines × diversity bonus | Per tier | 1-10 |
+| 3 | **Location** | Strategic position | Region × metro position weights | **Global** | 1-10 |
+| 4 | **Population & Jobs** | Catchment potential | Ring-weighted pop/job mix (tier-specific) | Per tier | 1-10 |
+| 5 | **Bus Terminal** | Network integration | 200m proximity × terminal weight | **Global** | 1-10 |
 
 ---
 
 ## Key Design Principles
 
 1. **Logarithmic scaling** prevents extreme values from dominating
-2. **Per-tier normalization** ensures fair comparison within hub categories
-3. **Diminishing returns** reflect real-world network effects
-4. **Diversity bonuses** reward multimodal integration
-5. **Regional equity** balanced with metropolitan efficiency
-6. **2050 forecasts** capture future development potential
-7. **Monte Carlo aggregation** provides robust, bias-resistant final scores
+2. **Per-tier normalization** ensures fair comparison within hub categories (NOT per metro area)
+3. **Global normalization** for Location and Terminal scores maintains consistent signals across tiers
+4. **Diminishing returns** reflect real-world network effects
+5. **Diversity bonuses** reward multimodal integration
+6. **Regional equity** balanced with metropolitan efficiency
+7. **2050 forecasts** capture future development potential
+8. **Monte Carlo aggregation** (all hubs together) provides robust, bias-resistant final scores
+9. **Tier-based ranking** ensures appropriate comparison contexts (National: global, others: per area)
 
 ---
 
-*Document generated: 2025-12-15*
+*Document updated: 2025-12-29*
 *Source: Hub Prioritization Framework - src/scoring/*

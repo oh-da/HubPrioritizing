@@ -169,6 +169,15 @@ scripts/
 4. **Multiple experts**: Automatically aggregated using geometric mean
 5. **Both scores available**: Use whichever is more appropriate for your analysis
 
+### Implementation Details
+
+| Aspect | Current Behavior |
+|--------|-----------------|
+| **Normalization** | Per **tier** only (not per metro area) |
+| **Monte Carlo** | Runs on **all hubs together** (single simulation) |
+| **AHP** | Applies weights to the same normalized scores |
+| **Ranking** | National: global; Metropolitan/Local: per area |
+
 ---
 
 ## Advanced Options
@@ -259,4 +268,4 @@ Tests include:
 
 ---
 
-*Last updated: 2024-12-13*
+*Last updated: 2025-12-29*

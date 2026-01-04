@@ -4,7 +4,11 @@ Passenger Activity Scoring
 Score hubs based on 2050 forecasted passenger demand.
 
 Uses log10 transformation to prevent extreme skew from mega-stations.
-Normalizes separately per tier for fair comparison within tiers.
+
+NORMALIZATION: Per TIER only (not per metro area)
+- All National (ארצי) hubs normalized together
+- All Metropolitan (מטרופוליני) hubs normalized together (regardless of area)
+- All Local (עירוני) hubs normalized together (regardless of area)
 """
 
 import geopandas as gpd

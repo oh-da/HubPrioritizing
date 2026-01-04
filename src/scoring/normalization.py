@@ -2,6 +2,14 @@
 Score Normalization Functions
 ==============================
 Functions for normalizing scores to 1-10 range.
+
+IMPORTANT IMPLEMENTATION NOTES:
+- Per-tier normalization: All hubs of the same tier (ארצי/מטרופוליני/עירוני) are
+  normalized together, regardless of geographic area (metro).
+- NOT per metro+tier: Metropolitan hubs from Tel Aviv, Haifa, and South are all
+  normalized together (not separately per metro area).
+- Global normalization: Location and Terminal scores use global normalization
+  across all tiers (not per tier).
 """
 
 import pandas as pd

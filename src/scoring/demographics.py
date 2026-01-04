@@ -4,6 +4,11 @@ Population & Jobs Score (2050)
 Score hubs based on catchment area population and employment.
 
 Uses concentric rings with distance decay and different pop/job mixes by tier.
+
+NORMALIZATION: Per TIER only (not per metro area)
+- All National (ארצי) hubs normalized together
+- All Metropolitan (מטרופוליני) hubs normalized together (regardless of area)
+- All Local (עירוני) hubs normalized together (regardless of area)
 """
 
 import geopandas as gpd

@@ -11,21 +11,43 @@ Main Components:
 """
 
 from .version_store import VersionStore
-from .data_version import DataVersion, create_data_version
-from .run_version import RunVersion, create_run_version
-from .model_version import ModelVersion, get_current_model_version
+from .data_version import (
+    DataVersion,
+    create_data_version,
+    get_current_data_versions,
+    update_current_data_link,
+)
+from .run_version import (
+    RunVersion,
+    create_run_version,
+    finalize_run_version,
+)
+from .model_version import (
+    ModelVersion,
+    get_current_model_version,
+    create_model_version,
+    increment_version,
+)
 from .version_compare import compare_data_versions, compare_run_versions
+from .notebook_helper import NotebookVersioning, quick_version
 
 __all__ = [
     'VersionStore',
     'DataVersion',
     'create_data_version',
+    'get_current_data_versions',
+    'update_current_data_link',
     'RunVersion',
     'create_run_version',
+    'finalize_run_version',
     'ModelVersion',
     'get_current_model_version',
+    'create_model_version',
+    'increment_version',
     'compare_data_versions',
     'compare_run_versions',
+    'NotebookVersioning',
+    'quick_version',
 ]
 
 __version__ = '1.0.0'

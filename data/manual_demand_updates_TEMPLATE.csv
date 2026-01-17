@@ -1,4 +1,3 @@
-node,area,total_demand,total_transfers
-400020,Tel Aviv,108409,84490
-400470,Tel Aviv,40628,0
-400460,Tel Aviv,41000,12133
+node,area,total_demand,total_transfers,station_name,data_source,confidence,is_override,last_updated,updated_by,notes
+400020,Tel Aviv,108409,84490,Example Station Name,National Model 2025,High,TRUE,2025-01-17,your.email@example.com,Example note explaining why this update was needed
+400999,Haifa,15000,5000,Another Example Station,Local Planning Study 2024,Medium,TRUE,2025-01-17,your.email@example.com,Another example note with reasoning

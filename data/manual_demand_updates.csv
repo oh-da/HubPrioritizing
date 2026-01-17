@@ -1,0 +1,9 @@
+node,area,total_demand,total_transfers,station_name,data_source,confidence,is_override,last_updated,updated_by,notes
+400020,Tel Aviv,108409,84490,Netanya Central,National Model 2025,High,TRUE,2025-01-17,system,Central station - verified against latest ridership projections from National Model
+400470,Tel Aviv,40628,0,Modiin Merkaz,National Model 2025,High,TRUE,2025-01-17,system,New station - National Model has more accurate local forecast
+400460,Tel Aviv,41000,12133,Modiin West,National Model 2025,Medium,TRUE,2025-01-17,system,Estimated based on similar stations in region
+400424,Tel Aviv,64985,43032,Moshe Dayan (Rishon),National Model 2025,High,TRUE,2025-01-17,system,Major interchange - National Model forecast validated
+400021,Tel Aviv,23083,10140,Netanya Sapir,National Model 2025,High,TRUE,2025-01-17,system,Secondary station in Netanya corridor
+400030,Tel Aviv,14518,6101,Beit Yehoshua Rail,National Model 2025,Medium,TRUE,2025-01-17,system,Small station - forecast adjusted for TOD potential
+511246,Netanya,13601,6101,Beit Yehoshua LRT,National Model 2025,Medium,TRUE,2025-01-17,system,LRT stop co-located with rail station
+511248,Netanya,255.3,0,Shefaim LRT,Local Planning Study 2024,High,TRUE,2024-12-20,system,Corrected forecast from Netanya LRT feasibility study

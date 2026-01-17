@@ -656,12 +656,19 @@ HubPrioritizing/
 │   ├── run_pipeline.py          # Main workflow
 │   ├── update_data.py           # Data refresh
 │   ├── export_results.py        # Output generation
-│   └── test_ahp_scoring.py      # AHP scoring test suite
+│   ├── test_ahp_scoring.py      # AHP scoring test suite
+│   └── migrate_hardcoded_demand_updates.py  # Migrate hardcoded updates to CSV
 │
 ├── data/                        # Data files
 │   ├── ahp_expert_comparisons_TEMPLATE.csv  # Blank AHP template
 │   ├── ahp_expert_comparisons_example.csv   # Example with 3 experts
-│   └── ahp_expert_comparisons.csv           # Actual expert input (user-provided)
+│   ├── ahp_expert_comparisons.csv           # Actual expert input (user-provided)
+│   ├── manual_demand_updates.csv            # Manual demand overrides (v2.0 schema)
+│   ├── manual_demand_updates_TEMPLATE.csv   # Template for demand updates
+│   ├── IsSameGroup.csv                      # Manual group merging corrections
+│   ├── IsSameGroup_TEMPLATE.csv             # Template for group corrections
+│   ├── README_MANUAL_DEMAND_UPDATES.md      # Complete usage guide
+│   └── README_MANUAL_GROUP_CORRECTIONS.md   # Group corrections guide
 │
 └── app/                         # Web application (optional)
     ├── app.py                   # Main app file
@@ -789,6 +796,121 @@ HubPrioritizing/
 - Sensitivity analysis results
 
 **Format**: CSV, Excel, PDF
+
+### 10.4 Manual Updates and Overrides
+
+**Version**: 2.0 (as of v1.3.3, January 2025)
+
+The framework supports **manual overrides** for cases where specialized data sources provide more accurate information than base forecasts. All manual updates are managed through **version-controlled CSV files** for transparency and auditability.
+
+#### 10.4.1 Manual Demand Updates
+
+**Purpose**: Override demand forecasts for specific nodes using more accurate data from specialized models.
+
+**File**: `data/manual_demand_updates.csv`
+
+**Schema** (Enhanced v2.0):
+```csv
+node,area,total_demand,total_transfers,station_name,data_source,confidence,is_override,last_updated,updated_by,notes
+```
+
+**Key Columns**:
+- `node` (required): Node ID to update
+- `total_demand`, `total_transfers` (required): Updated values
+- `station_name` (required): Human-readable name
+- `data_source` (recommended): Source of data (e.g., "National Model 2025")
+- `confidence` (recommended): High/Medium/Low
+- `notes` (recommended): Explanation and reasoning
+
+**Example**:
+```csv
+node,area,total_demand,total_transfers,station_name,data_source,confidence,is_override,last_updated,updated_by,notes
+400424,Tel Aviv,64985,43032,Moshe Dayan (Rishon),National Model 2025,High,TRUE,2025-01-17,planner@mot.gov.il,Major interchange - validated forecast
+511248,Netanya,255.3,0,Shefaim LRT,Local Planning Study 2024,High,TRUE,2024-12-20,hadera.planner@mot.gov.il,Corrected from LRT feasibility study
+```
+
+**Documentation**: See `data/README_MANUAL_DEMAND_UPDATES.md` for complete guide.
+
+#### 10.4.2 Manual Group Corrections
+
+**Purpose**: Force specific nodes to be grouped together, overriding automatic 120m buffer grouping.
+
+**File**: `data/IsSameGroup.csv`
+
+**Schema**:
+```csv
+nodes_in_group,reason,applied_by,date_applied,notes
+```
+
+**Example**:
+```csv
+nodes_in_group,reason,applied_by,date_applied,notes
+"400018, 521063, 523019",Planning decision - same interchange complex,planner@mot.gov.il,2025-01-15,Tel Aviv University - rail and LRT should be same hub
+```
+
+**Documentation**: See `data/README_MANUAL_GROUP_CORRECTIONS.md` for complete guide.
+
+#### 10.4.3 Migration from Hardcoded Updates
+
+**IMPORTANT**: As of v1.3.3 (January 2025), all manual updates must be in CSV files. Hardcoded updates in notebook code are **deprecated**.
+
+**Migration Tool**: `scripts/migrate_hardcoded_demand_updates.py`
+
+**Usage**:
+```bash
+# Check migration status
+python scripts/migrate_hardcoded_demand_updates.py --check
+
+# Migrate notebook (creates automatic backup)
+python scripts/migrate_hardcoded_demand_updates.py --migrate
+```
+
+**Migration Plan**: See `MANUAL_UPDATES_INVENTORY_AND_INTEGRATION_PLAN.md` for complete 4-week integration roadmap.
+
+#### 10.4.4 Best Practices
+
+1. **Always include metadata**:
+   - Data source (where did this come from?)
+   - Confidence level (how reliable is this?)
+   - Notes (why is this override necessary?)
+   - Updated by (who made this change?)
+   - Last updated (when was this changed?)
+
+2. **Use node IDs, not indices**:
+   - ✅ **Correct**: `node=400424` (stable across runs)
+   - ❌ **Wrong**: `gdf.loc[1057, ...]` (indices change with data updates)
+
+3. **Version control all updates**:
+   - Commit CSV files to git
+   - Track changes with meaningful commit messages
+   - Document reasoning in commit messages
+
+4. **Validate before committing**:
+   - Run migration check script
+   - Verify node IDs exist in data
+   - Test pipeline execution
+
+5. **Document the "why"**:
+   - Explain why the override is needed
+   - Reference source documents
+   - Include contact information
+
+**Example workflow**:
+```bash
+# 1. Edit CSV file
+nano data/manual_demand_updates.csv
+
+# 2. Validate
+python scripts/migrate_hardcoded_demand_updates.py --check
+
+# 3. Test
+jupyter nbconvert --to notebook --execute COMPLETE_TRANSIT_PIPELINE.ipynb
+
+# 4. Commit
+git add data/manual_demand_updates.csv
+git commit -m "Update demand for node 400999: Added from local study XYZ"
+git push
+```
 
 ---
 
@@ -1121,14 +1243,32 @@ As an AI assistant working on this project, you should:
 
 ### 14.5 Common Pitfalls to Avoid
 
-1. **Don't hardcode values** → Use config.py
-2. **Don't ignore edge cases** → Test with extreme values
-3. **Don't skip validation** → Always check data quality
-4. **Don't forget normalization** → Scores must be comparable
-5. **Don't use absolute paths** → Use Path objects, relative paths
-6. **Don't commit large data files** → Use .gitignore, DVC
-7. **Don't skip tests** → Every function needs tests
-8. **Don't leave TODO comments** → Either do it or create an issue
+1. **Don't hardcode values** → Use config.py for parameters, CSV files for manual data overrides
+   - ❌ **Wrong**: `gdf.loc[mask, 'TotalDemand'] = 64985` (hardcoded in notebook)
+   - ✅ **Correct**: Add to `data/manual_demand_updates.csv` with metadata
+   - **Migration**: Use `scripts/migrate_hardcoded_demand_updates.py` for existing code
+
+2. **Don't use DataFrame indices** → Use stable node IDs instead
+   - ❌ **Wrong**: `gdf.loc[1057, 'TotalDemand'] = 108409` (indices change with data updates)
+   - ✅ **Correct**: `node=400020` in CSV (stable across runs)
+
+3. **Don't skip metadata for manual updates** → Always document data source, reasoning, and confidence
+   - Include: `data_source`, `confidence`, `notes`, `updated_by`, `last_updated`
+   - Enables auditability and transparency
+
+4. **Don't ignore edge cases** → Test with extreme values
+
+5. **Don't skip validation** → Always check data quality
+
+6. **Don't forget normalization** → Scores must be comparable
+
+7. **Don't use absolute paths** → Use Path objects, relative paths
+
+8. **Don't commit large data files** → Use .gitignore, DVC (but DO commit manual update CSVs)
+
+9. **Don't skip tests** → Every function needs tests
+
+10. **Don't leave TODO comments** → Either do it or create an issue
 
 ### 14.6 Questions to Ask
 
@@ -1277,13 +1417,24 @@ See the full review documents for detailed code examples and implementation guid
 ## 19. Document Maintenance
 
 ### Version History
+- **v1.4** (2025-01-17): Manual updates migration and CSV-based override system
+  - Added Section 10.4: Manual Updates and Overrides (comprehensive guide)
+  - Updated Section 14.5: Enhanced common pitfalls with CSV migration guidance
+  - Updated Section 20: Added manual update files to quick reference
+  - Documented migration from hardcoded updates to CSV format
+  - Added best practices for manual data overrides
+  - Framework version updated to 1.3.3
+
 - **v1.3** (2025-12-29): Clarified scoring methodology documentation
   - Documented that normalization is per TIER only (not per metro+tier)
   - Documented that Monte Carlo runs on ALL hubs together
   - Added ranking step clarification (National: global, Metropolitan/Local: per area)
   - Updated scoring criteria formulas to show normalization method
+
 - **v1.2** (2025-12-17): Updated SOLID review status and progress tracking
+
 - **v1.1** (2025-12-13): Added SOLID principles review section
+
 - **v1.0** (2024-12-30): Initial creation based on framework documentation
 
 ### Update Process
@@ -1323,6 +1474,16 @@ This document should be updated when:
 - `src/config.py`: All parameters and thresholds
 - `notebooks/03_scoring_analysis.ipynb`: Scoring exploration
 
+### Manual Updates Files
+- `data/manual_demand_updates.csv`: Manual demand overrides (8 nodes as of v1.3.3)
+- `data/manual_demand_updates_TEMPLATE.csv`: Template for new updates
+- `data/IsSameGroup.csv`: Manual group merging corrections
+- `data/IsSameGroup_TEMPLATE.csv`: Template for group corrections
+- `data/README_MANUAL_DEMAND_UPDATES.md`: Complete usage guide
+- `data/README_MANUAL_GROUP_CORRECTIONS.md`: Group corrections guide
+- `scripts/migrate_hardcoded_demand_updates.py`: Migration tool for legacy code
+- `MANUAL_UPDATES_INVENTORY_AND_INTEGRATION_PLAN.md`: Complete migration plan
+
 ---
 
 ## 21. Contact & Support
@@ -1331,11 +1492,14 @@ For questions about:
 - **Methodology**: Refer to original planning documents
 - **Code**: Check inline documentation and tests
 - **Data**: See data dictionary in `docs/`
+- **Manual Updates**: See Section 10.4 and `data/README_MANUAL_DEMAND_UPDATES.md`
+- **Migration from Hardcoded Updates**: See `MANUAL_UPDATES_INVENTORY_AND_INTEGRATION_PLAN.md`
 - **Issues**: Use GitHub issue tracker
 - **Code Quality**: See SOLID review in `docs/SOLID_PRINCIPLES_REVIEW.md`
 
 ---
 
-**Last Updated**: 2025-12-29
-**Document Version**: 1.3
-**Status**: Framework with Clarified Scoring Methodology
+**Last Updated**: 2025-01-17
+**Document Version**: 1.4
+**Framework Version**: 1.3.3
+**Status**: CSV-Based Manual Updates System (Week 1 Complete)

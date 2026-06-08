@@ -138,21 +138,21 @@ from src.visualization import maps
 
 # Import existing data processors
 try:
-    from hub_demand_processor import DemandDataProcessor
+    from src.data.hub_demand_processor import DemandDataProcessor
     DEMAND_PROCESSOR_AVAILABLE = True
 except ImportError:
     DEMAND_PROCESSOR_AVAILABLE = False
     logger = setup_logger(__name__)
-    logger.warning("hub_demand_processor.py not found - will use placeholder demand values")
+    logger.warning("src.data.hub_demand_processor not found - will use placeholder demand values")
 
 try:
-    from influence_area_processor import InfluenceAreaProcessor
+    from src.data.influence_area_processor import InfluenceAreaProcessor
     INFLUENCE_PROCESSOR_AVAILABLE = True
 except ImportError:
     INFLUENCE_PROCESSOR_AVAILABLE = False
     if 'logger' not in locals():
         logger = setup_logger(__name__)
-    logger.warning("influence_area_processor.py not found - will use placeholder demographic values")
+    logger.warning("src.data.influence_area_processor not found - will use placeholder demographic values")
 
 if 'logger' not in locals():
     logger = setup_logger(__name__)

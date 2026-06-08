@@ -17,9 +17,6 @@ described where the function is non-trivial.
 HubPrioritizing/
 ├── CLAUDE.md                       # Framework specification
 ├── COMPLETE_TRANSIT_PIPELINE.ipynb # Canonical end-to-end notebook
-├── process_transit_nodes_to_h3.py  # Standalone H3 stage (legacy / utility)
-├── influence_area_processor.py     # Influence-area (Part 3) processor class
-├── hub_demand_processor.py         # Demand-matching (Part 2) processor class
 ├── scripts/
 │   ├── run_complete_pipeline.py    # Full pipeline as a class (CompleteHubPipeline)
 │   ├── run_pipeline.py             # Simplified pipeline (no demand / demographics)
@@ -28,7 +25,9 @@ HubPrioritizing/
 │   ├── config.py                   # ALL constants, thresholds, weights, paths
 │   ├── data/
 │   │   ├── loaders.py
-│   │   └── validators.py
+│   │   ├── validators.py
+│   │   ├── hub_demand_processor.py     # Demand-matching (Part 2) processor class
+│   │   └── influence_area_processor.py # Influence-area (Part 3) processor class
 │   ├── spatial/
 │   │   ├── h3_operations.py
 │   │   └── merging.py
@@ -291,15 +290,7 @@ Defines `HubPrioritizationPipeline` — same shape as
 proximity** (stages 4–7). Useful for rapid prototyping when only the
 H3 + grouping + scoring path needs to be exercised.
 
-### `process_transit_nodes_to_h3.py`
-Standalone script that performs just Part 1 (load → H3 → group →
-geocode → export). Useful for refreshing the H3 layer in isolation.
-
-Public functions: `load_data`, `assign_h3_indices`,
-`create_buffer_groups`, `geocode_addresses`, `export_results`,
-`main`.
-
-### `influence_area_processor.py`
+### `src/data/influence_area_processor.py`
 `class InfluenceAreaProcessor` — the Part-3 (population/employment ring)
 processor, refactored from notebook code for ~3.7× performance. Key
 public methods:
@@ -307,7 +298,7 @@ public methods:
 - `load_taz_data(filepath)`,
 - `process_full_pipeline(hubs_csv, taz_shp, terminals_shp, output_csv)`.
 
-### `hub_demand_processor.py`
+### `src/data/hub_demand_processor.py`
 `class DemandDataProcessor` — Part 2 demand-matching logic refactored
 out of the notebook. Key public methods:
 - `load_gdf_from_csv(filepath)`,

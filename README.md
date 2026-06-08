@@ -72,28 +72,38 @@ python scripts/run_pipeline.py
 
 ```
 HubPrioritizing/
-├── src/                          # Source code
+├── src/                          # Source code (reusable library)
 │   ├── config.py                 # Configuration and constants
-│   ├── utils/                    # Utilities (logging, constants)
-│   ├── data/                     # Data loading and validation
+│   ├── utils/                    # Utilities (logging, constants, encoding)
+│   ├── data/                     # Data loading, validation, and processors
+│   │   ├── loaders.py            #   Input loading
+│   │   ├── validators.py         #   Data quality checks
+│   │   ├── hub_demand_processor.py      # 2050 demand matching & aggregation
+│   │   └── influence_area_processor.py  # Population/employment catchment
 │   ├── spatial/                  # H3 operations and merging
 │   ├── classification/           # Eligibility and hierarchy
-│   ├── scoring/                  # All 5 scoring criteria + Monte Carlo
+│   ├── scoring/                  # 5 scoring criteria + Monte Carlo + AHP
 │   └── visualization/            # Maps and charts
 │
 ├── scripts/                      # Execution scripts
-│   └── run_pipeline.py           # Main pipeline runner
+│   ├── run_complete_pipeline.py  # Full end-to-end pipeline (demand + demographics)
+│   ├── run_pipeline.py           # Simplified pipeline (scoring path only)
+│   ├── install_dependencies.py   # Dependency installer
+│   ├── generate_demo_excel.py    # Demo scoring workbook generator
+│   └── test_ahp_scoring.py       # AHP smoke test
 │
-├── data/                         # Data files (not in git)
-│   ├── raw/                      # Input data
-│   ├── processed/                # Intermediate results
+├── data/                         # Data files (raw/processed/results not in git)
+│   ├── *_TEMPLATE.csv            # Templates for manual inputs & AHP experts
 │   └── results/                  # Final outputs
 │
+├── app/                          # Streamlit AHP questionnaire app
 ├── tests/                        # Unit tests
-├── notebooks/                    # Analysis notebooks
-├── docs/                         # Documentation
+├── notebooks/                    # Analysis & exploration notebooks
+├── docs/                         # Documentation (incl. full_documentation/)
 │
 ├── requirements.txt              # Python dependencies
+├── INSTALL.md                    # Installation guide
+├── AHP_QUICKSTART.md             # AHP feature quick-start
 ├── CLAUDE.md                     # Full framework specification
 └── README.md                     # This file
 ```
@@ -269,7 +279,7 @@ This codebase has been reviewed for adherence to SOLID design principles and sof
 - **Configuration-Driven**: Behavior controlled by `config.py`
 - **Reproducible**: Fixed random seeds, version-controlled parameters
 
-### Overall Assessment: **GOOD (Grade: B+)**
+### Overall Assessment: **VERY GOOD (Grade: A-)**
 
 The framework demonstrates strong engineering practices and is production-ready. See the [SOLID review](docs/SOLID_PRINCIPLES_REVIEW.md) for detailed recommendations to enhance extensibility and testability
 
@@ -288,21 +298,20 @@ The framework demonstrates strong engineering practices and is production-ready.
   - AI assistant instructions
 
 - **[INSTALL.md](INSTALL.md)** - Installation guide and troubleshooting
-- **[QUICK_REFERENCE.md](QUICK_REFERENCE.md)** - Quick reference for common tasks
+- **[AHP_QUICKSTART.md](AHP_QUICKSTART.md)** - Quick-start for the optional AHP expert-weighting workflow
+- **[docs/full_documentation/](docs/full_documentation/)** - End-to-end documentation (overview, inputs, pipeline, step-by-step, scoring, outputs)
+
+### Methodology & Project Summary
+
+- **[docs/PROJECT_EXECUTIVE_SUMMARY.md](docs/PROJECT_EXECUTIVE_SUMMARY.md)** - Project-level executive summary (methodology depth and decision rationale)
+- **[docs/AHP_SCORING_GUIDE.md](docs/AHP_SCORING_GUIDE.md)** - AHP scoring methodology
+- **[docs/SCORING_CRITERIA_EXECUTIVE_SUMMARY.md](docs/SCORING_CRITERIA_EXECUTIVE_SUMMARY.md)** - Scoring criteria overview
+- **[docs/DEMO_SCORING_WALKTHROUGH.md](docs/DEMO_SCORING_WALKTHROUGH.md)** - Worked scoring example
 
 ### Code Quality & Architecture
 
-- **[docs/EXECUTIVE_SUMMARY.md](docs/EXECUTIVE_SUMMARY.md)** - Code quality review executive summary
-  - Overall assessment and scorecard
-  - Key findings and recommendations
-  - Implementation roadmap
-  - Business impact analysis
-
+- **[docs/EXECUTIVE_SUMMARY.md](docs/EXECUTIVE_SUMMARY.md)** - Code quality / SOLID review executive summary
 - **[docs/SOLID_PRINCIPLES_REVIEW.md](docs/SOLID_PRINCIPLES_REVIEW.md)** - Detailed SOLID principles review
-  - Comprehensive analysis of each principle
-  - Code examples and recommendations
-  - Testing strategies
-  - Implementation guidelines
 
 ### Additional Documentation
 
@@ -314,16 +323,27 @@ The framework demonstrates strong engineering practices and is production-ready.
 
 ## Contributing
 
-This is a planning framework for Israeli transport infrastructure. For questions or contributions, please refer to the project documentation.
+This is a proprietary planning framework for Israeli transport infrastructure.
+It is not open to external contribution. For access or collaboration requests,
+contact the author (see below).
 
 ---
 
 ## License
 
-See project documentation for license information.
+**PROPRIETARY AND CONFIDENTIAL** — Copyright © 2026 Ohad Dahan. All Rights Reserved.
+
+This software and all associated materials are proprietary and confidential.
+Unauthorized copying, distribution, modification, or use, in whole or in part,
+is strictly prohibited without prior express written permission. See the
+[LICENSE](LICENSE) file for full terms.
 
 ---
 
 ## Contact
 
-For technical questions about the framework, see CLAUDE.md or project documentation.
+**Author:** Ohad Dahan
+**Email:** [ohad@ayalonhw.co.il](mailto:ohad@ayalonhw.co.il)
+
+For technical questions about the framework, see [CLAUDE.md](CLAUDE.md) and the
+[full documentation](docs/full_documentation/).

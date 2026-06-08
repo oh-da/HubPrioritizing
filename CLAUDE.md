@@ -567,7 +567,7 @@ This framework should be implemented using:
 
 ## 9. Codebase Structure
 Key files for reference:
-@src/COMPLETE_TRANSIT_PIPELINE.ipynb - complete the first 3 parts of the project in a pipeline, needs to be reviewed
+@notebooks/COMPLETE_TRANSIT_PIPELINE.ipynb - complete the first 3 parts of the project in a pipeline, needs to be reviewed
 @src/HubsCode_to_1_file.ipynb - older version of most of the steps in the project
 @src/Create_h3_from_all_nodes.ipynb - the first step in the project
 @src/Group_n_Filter_Hubs.ipynb - how the grouping and the filtering of the transit hubs was made before

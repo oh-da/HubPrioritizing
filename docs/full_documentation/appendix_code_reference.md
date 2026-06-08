@@ -16,7 +16,8 @@ described where the function is non-trivial.
 ```
 HubPrioritizing/
 ├── CLAUDE.md                       # Framework specification
-├── COMPLETE_TRANSIT_PIPELINE.ipynb # Canonical end-to-end notebook
+├── notebooks/
+│   └── COMPLETE_TRANSIT_PIPELINE.ipynb # Canonical end-to-end notebook
 ├── scripts/
 │   ├── run_complete_pipeline.py    # Full pipeline as a class (CompleteHubPipeline)
 │   ├── run_pipeline.py             # Simplified pipeline (no demand / demographics)
@@ -343,7 +344,7 @@ python scripts/run_complete_pipeline.py
 python scripts/run_pipeline.py
 
 # Notebook (canonical, recommended path)
-jupyter nbconvert --to notebook --execute COMPLETE_TRANSIT_PIPELINE.ipynb
+jupyter nbconvert --to notebook --execute notebooks/COMPLETE_TRANSIT_PIPELINE.ipynb
 ```
 
 Both paths read configuration from `src/config.py`; the notebook

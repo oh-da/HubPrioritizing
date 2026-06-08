@@ -111,7 +111,7 @@ This file is **optional**. If it doesn't exist, the pipeline will:
 ### Step 1: Run Initial Pipeline
 ```bash
 # Run the notebook without IsSameGroup.csv
-jupyter nbconvert --to notebook --execute COMPLETE_TRANSIT_PIPELINE.ipynb
+jupyter nbconvert --to notebook --execute notebooks/COMPLETE_TRANSIT_PIPELINE.ipynb
 ```
 
 ### Step 2: Review Groups
@@ -137,7 +137,7 @@ Nodes in group
 ### Step 4: Re-run Pipeline
 ```bash
 # Re-run with corrections
-jupyter nbconvert --to notebook --execute COMPLETE_TRANSIT_PIPELINE.ipynb
+jupyter nbconvert --to notebook --execute notebooks/COMPLETE_TRANSIT_PIPELINE.ipynb
 ```
 
 The pipeline will now apply your manual corrections in Step 1.5.1.

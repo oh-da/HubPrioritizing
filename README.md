@@ -323,16 +323,27 @@ The framework demonstrates strong engineering practices and is production-ready.
 
 ## Contributing
 
-This is a planning framework for Israeli transport infrastructure. For questions or contributions, please refer to the project documentation.
+This is a proprietary planning framework for Israeli transport infrastructure.
+It is not open to external contribution. For access or collaboration requests,
+contact the author (see below).
 
 ---
 
 ## License
 
-See project documentation for license information.
+**PROPRIETARY AND CONFIDENTIAL** — Copyright © 2026 Ohad Dahan. All Rights Reserved.
+
+This software and all associated materials are proprietary and confidential.
+Unauthorized copying, distribution, modification, or use, in whole or in part,
+is strictly prohibited without prior express written permission. See the
+[LICENSE](LICENSE) file for full terms.
 
 ---
 
 ## Contact
 
-For technical questions about the framework, see CLAUDE.md or project documentation.
+**Author:** Ohad Dahan
+**Email:** [ohad@ayalonhw.co.il](mailto:ohad@ayalonhw.co.il)
+
+For technical questions about the framework, see [CLAUDE.md](CLAUDE.md) and the
+[full documentation](docs/full_documentation/).

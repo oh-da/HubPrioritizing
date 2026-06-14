@@ -66,6 +66,18 @@ print(results.nlargest(10, 'final_score'))
 python scripts/run_pipeline.py
 ```
 
+### Interactive GUI (no code)
+
+Run the model from a desktop app with native file pickers — select inputs,
+enter who is running it and any remarks, and get outputs plus a full run log:
+
+```bash
+pip install -r requirements.txt   # includes pywebview
+python app/run_model_gui.py
+```
+
+See **[app/RUN_MODEL_GUI.md](app/RUN_MODEL_GUI.md)** for details.
+
 ---
 
 ## Project Structure

@@ -396,7 +396,9 @@ class DemandDataProcessor:
            (a single area may map to several models - see _get_candidate_models)
         2. For each node, search the candidate models and take the first match
            (avoids double-counting a node found in more than one model)
-        3. Add overlay-model demand (Hadera, Haifa Metronit) on top
+        3. Overlay models (Hadera, Haifa Metronit) are authoritative for their
+           own nodes: when a node appears in an overlay worksheet, that value
+           is used and the base regional model is skipped (update, not add)
 
         Matching by candidate models (instead of an exact area == model lookup)
         ensures southern hubs - tagged with the Southern District 'דרום' /
@@ -460,27 +462,33 @@ class DemandDataProcessor:
 
             district = row['district'] if has_district else None
             area = row['area'] if has_area else None
-            candidates = self._get_candidate_models(district, area)
 
-            # Base demand: first matching (non-overlay) model wins
-            for model_name in candidates:
-                if model_name in self.OVERLAY_MODELS:
-                    continue
-                lookup = model_lookup.get(model_name)
-                if lookup and node_id in lookup:
-                    demand, transfers = lookup[node_id]
-                    gdf_copy.at[idx, 'TotalDemand'] = demand
-                    gdf_copy.at[idx, 'TotalTransfers'] = transfers
-                    matched_nodes += 1
-                    break
+            demand = transfers = None
 
-            # Overlay models add on top of the base demand for every hub
+            # Overlay models (Hadera, Haifa Metronit) are authoritative for
+            # their own nodes: if the node is in an overlay worksheet, use that
+            # value and skip the base model (update, do NOT add on top).
             for overlay in self.OVERLAY_MODELS:
                 lookup = model_lookup.get(overlay)
                 if lookup and node_id in lookup:
                     demand, transfers = lookup[node_id]
-                    gdf_copy.at[idx, 'TotalDemand'] += demand
-                    gdf_copy.at[idx, 'TotalTransfers'] += transfers
+                    break
+
+            # Otherwise fall back to the base regional models for this area,
+            # taking the first matching candidate (avoids double-counting).
+            if demand is None:
+                for model_name in self._get_candidate_models(district, area):
+                    if model_name in self.OVERLAY_MODELS:
+                        continue
+                    lookup = model_lookup.get(model_name)
+                    if lookup and node_id in lookup:
+                        demand, transfers = lookup[node_id]
+                        break
+
+            if demand is not None:
+                gdf_copy.at[idx, 'TotalDemand'] = demand
+                gdf_copy.at[idx, 'TotalTransfers'] = transfers
+                matched_nodes += 1
 
         print(f"  ✓ Assigned demand to {matched_nodes}/{len(gdf_copy)} nodes")
 

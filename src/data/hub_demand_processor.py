@@ -317,85 +317,173 @@ class DemandDataProcessor:
         
         return gdf_final
     
+    # Overlay models add their demand on top of the base regional model.
+    OVERLAY_MODELS = ['Hadera', 'HaifaMetronit']
+
+    def _get_candidate_models(self, district, area=None) -> List[str]:
+        """Map a district/area name to an ordered list of candidate model sheets.
+
+        Uses keyword containment rather than exact matching so it tolerates the
+        'מחוז ' (district) prefix and truncated Hebrew shapefile names
+        (e.g. 'חיפ', 'באר שב', 'תל אבי', 'ירושלי').
+
+        A single administrative area can be served by more than one demand
+        model: the Southern District ('דרום' / 'מחוז דרום') covers the Beer
+        Sheva, Ashdod and Ashkelon models, so all three are returned and tried
+        per node during matching (first match wins, to avoid double-counting).
+
+        Args:
+            district: District name (Hebrew/English, may carry 'מחוז ' prefix)
+            area: Optional already-mapped area name, used as an extra hint
+
+        Returns:
+            Ordered list of candidate model sheet keys (may be empty)
+        """
+        parts = [v for v in (district, area)
+                 if v is not None and not (isinstance(v, float) and pd.isna(v))]
+        text = ' '.join(str(v) for v in parts).strip()
+        if not text:
+            return []
+
+        candidates: List[str] = []
+
+        def add(model: str) -> None:
+            if model not in candidates:
+                candidates.append(model)
+
+        # Haifa metro / Northern District (handles truncated 'חיפ')
+        if any(k in text for k in ['חיפ', 'Haifa', 'צפון', 'North']):
+            add('Haifa')
+        # Tel Aviv / Center (handles truncated 'תל אבי')
+        if any(k in text for k in ['תל אבי', 'תל-אבי', 'Tel Aviv', 'TelAviv', 'מרכז', 'Center']):
+            add('TelAviv')
+        # Jerusalem (handles truncated 'ירושלי')
+        if any(k in text for k in ['ירושלי', 'Jerusalem']):
+            add('Jerusalem')
+        # Southern District -> Beer Sheva, Ashdod and Ashkelon models
+        if any(k in text for k in ['דרום', 'South']):
+            add('BeerSheva')
+            add('Ashdod')
+            add('Ashkelon')
+        # Beer Sheva metro (handles truncated 'באר שב')
+        if any(k in text for k in ['באר שב', 'Beer Sheva', 'BeerSheva']):
+            add('BeerSheva')
+        # Explicit Ashdod / Ashkelon naming
+        if any(k in text for k in ['אשדוד', 'Ashdod']):
+            add('Ashdod')
+        if any(k in text for k in ['אשקלון', 'Ashkelon']):
+            add('Ashkelon')
+
+        return candidates
+
     def _map_district_to_area(self, district: str) -> str:
-        """Map district name to regional model area."""
-        if pd.isna(district):
-            return 'Unknown'
-        
-        district_lower = str(district).lower()
-        
-        if 'חיפה' in district_lower or 'haifa' in district_lower:
-            return 'Haifa'
-        elif 'תל אביב' in district_lower or 'tel aviv' in district_lower:
-            return 'TelAviv'
-        elif 'ירושלים' in district_lower or 'jerusalem' in district_lower:
-            return 'Jerusalem'
-        elif 'באר שבע' in district_lower or 'beer sheva' in district_lower:
-            return 'BeerSheva'
-        elif 'אשדוד' in district_lower or 'ashdod' in district_lower:
-            return 'Ashdod'
-        elif 'אשקלון' in district_lower or 'ashkelon' in district_lower:
-            return 'Ashdod'  # Ashkelon uses Ashdod model
-        else:
-            return 'Unknown'
+        """Map a district/area name to its primary regional model area.
+
+        Returns the first/primary candidate model (see _get_candidate_models for
+        the full ordered list used during demand matching). Returns 'Unknown'
+        when no candidate matches.
+        """
+        candidates = self._get_candidate_models(district)
+        return candidates[0] if candidates else 'Unknown'
     
     def assign_demand_by_area(self, gdf: gpd.GeoDataFrame, 
                              demand_data: Dict[str, pd.DataFrame]) -> gpd.GeoDataFrame:
         """
         Assign demand data to nodes based on their geographical area.
-        
-        This is the core demand assignment logic. For each area:
-        1. Filter nodes in that area
-        2. Get demand data from corresponding model
-        3. Merge demand data to nodes by node ID
-        4. Sum boardings + alightings = total demand
-        
+
+        This is the core demand assignment logic:
+        1. Resolve each hub's candidate demand models from its district/area
+           (a single area may map to several models - see _get_candidate_models)
+        2. For each node, search the candidate models and take the first match
+           (avoids double-counting a node found in more than one model)
+        3. Add overlay-model demand (Hadera, Haifa Metronit) on top
+
+        Matching by candidate models (instead of an exact area == model lookup)
+        ensures southern hubs - tagged with the Southern District 'דרום' /
+        'מחוז דרום' - pick up demand stored under the Ashdod / Ashkelon models,
+        which the old exact-match logic missed (leaving them with zero demand).
+
         Args:
-            gdf: Hub GeoDataFrame with area tags
+            gdf: Hub GeoDataFrame with area/district tags
             demand_data: Dictionary of standardized demand DataFrames
-            
+
         Returns:
             Hub GeoDataFrame with demand columns populated
         """
         print("Assigning demand data by geographic area...")
-        
+
         gdf_copy = gdf.copy()
-        
+
         # Initialize if columns don't exist
         if 'TotalDemand' not in gdf_copy.columns:
             gdf_copy['TotalDemand'] = 0.0
         if 'TotalTransfers' not in gdf_copy.columns:
             gdf_copy['TotalTransfers'] = 0.0
-        
-        # Assign demand for each area
-        for area in gdf_copy['area'].unique():
-            if area == 'Unknown' or area not in demand_data:
-                continue
-            
-            # Get nodes in this area
-            area_mask = gdf_copy['area'] == area
-            area_nodes = gdf_copy.loc[area_mask, 'node'].unique()
-            
-            # Get demand for these nodes
-            demand_df = demand_data[area]
+
+        # Build a fast node -> (demand, transfers) lookup per model sheet
+        model_lookup: Dict[str, Dict[int, Tuple[float, float]]] = {}
+        for model_name, demand_df in demand_data.items():
             if 'node' not in demand_df.columns:
                 continue
-            
-            demand_for_area = demand_df[demand_df['node'].isin(area_nodes)]
-            
-            # Merge demand to gdf
-            for idx in gdf_copy[area_mask].index:
-                node_id = gdf_copy.loc[idx, 'node']
-                node_demand = demand_for_area[demand_for_area['node'] == node_id]
-                
-                if not node_demand.empty:
-                    if 'TotalDemand' in node_demand.columns:
-                        gdf_copy.loc[idx, 'TotalDemand'] = node_demand['TotalDemand'].iloc[0]
-                    if 'TotalTransfers' in node_demand.columns:
-                        gdf_copy.loc[idx, 'TotalTransfers'] = node_demand['TotalTransfers'].iloc[0]
-            
-            print(f"  ✓ Assigned demand for {area}: {area_mask.sum()} nodes")
-        
+            has_demand = 'TotalDemand' in demand_df.columns
+            has_transfers = 'TotalTransfers' in demand_df.columns
+            lookup: Dict[int, Tuple[float, float]] = {}
+            for _, r in demand_df.iterrows():
+                node_val = r['node']
+                if pd.isna(node_val):
+                    continue
+                try:
+                    node_id = int(node_val)
+                except (ValueError, TypeError):
+                    continue
+                demand = float(r['TotalDemand']) if has_demand and pd.notna(r['TotalDemand']) else 0.0
+                transfers = float(r['TotalTransfers']) if has_transfers and pd.notna(r['TotalTransfers']) else 0.0
+                if node_id in lookup:
+                    prev_d, prev_t = lookup[node_id]
+                    lookup[node_id] = (prev_d + demand, prev_t + transfers)
+                else:
+                    lookup[node_id] = (demand, transfers)
+            model_lookup[model_name] = lookup
+
+        has_district = 'district' in gdf_copy.columns
+        has_area = 'area' in gdf_copy.columns
+        matched_nodes = 0
+
+        for idx, row in gdf_copy.iterrows():
+            node_val = row['node']
+            if pd.isna(node_val):
+                continue
+            try:
+                node_id = int(node_val)
+            except (ValueError, TypeError):
+                continue
+
+            district = row['district'] if has_district else None
+            area = row['area'] if has_area else None
+            candidates = self._get_candidate_models(district, area)
+
+            # Base demand: first matching (non-overlay) model wins
+            for model_name in candidates:
+                if model_name in self.OVERLAY_MODELS:
+                    continue
+                lookup = model_lookup.get(model_name)
+                if lookup and node_id in lookup:
+                    demand, transfers = lookup[node_id]
+                    gdf_copy.at[idx, 'TotalDemand'] = demand
+                    gdf_copy.at[idx, 'TotalTransfers'] = transfers
+                    matched_nodes += 1
+                    break
+
+            # Overlay models add on top of the base demand for every hub
+            for overlay in self.OVERLAY_MODELS:
+                lookup = model_lookup.get(overlay)
+                if lookup and node_id in lookup:
+                    demand, transfers = lookup[node_id]
+                    gdf_copy.at[idx, 'TotalDemand'] += demand
+                    gdf_copy.at[idx, 'TotalTransfers'] += transfers
+
+        print(f"  ✓ Assigned demand to {matched_nodes}/{len(gdf_copy)} nodes")
+
         return gdf_copy
     
     def create_grouped_hubs(self, gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:

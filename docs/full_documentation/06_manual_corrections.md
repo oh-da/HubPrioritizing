@@ -105,6 +105,14 @@ node,area,total_demand,total_transfers,station_name,notes
 400460,Tel Aviv,41000,12133,Modiin West,From National Model 2025
 ```
 
+**How the match works:** the hub `node` column stores a *list* of node
+IDs per hexagon/hub (e.g. `[400020]` or `[400020, 400021]`), so Step
+2.6.1 matches a CSV row by testing whether its integer `node` value is a
+*member* of that list — not by scalar equality. (A plain
+`gdf_demand['node'] == node_id` comparison silently fails against the
+bracketed list values, which is what caused every node to be reported as
+"not found".)
+
 **Why keyed by node ID and not by DataFrame index?** Index numbers
 change every time H3 resolution or grouping parameters change, so
 index-based overrides silently update *the wrong hub* after a regroup.

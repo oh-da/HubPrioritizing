@@ -36,6 +36,9 @@ node,area,total_demand,total_transfers,station_name,notes
 ## Notes
 
 - Updates are applied by **node ID**, not by group ID or index
+- The hub `node` column stores a **list** of node IDs per hexagon/hub (e.g. `[400020]`
+  or `[400020, 400021]`). A CSV row matches a hub when its `node` value appears
+  **anywhere in that list**, so you still specify a single plain integer node ID per row.
 - If a node doesn't exist in the data, it will be skipped with a warning
 - CSV updates are applied **before** hardcoded updates, so hardcoded values will override CSV if there's a conflict
 - The CSV file is **optional** - if it doesn't exist, the pipeline continues normally

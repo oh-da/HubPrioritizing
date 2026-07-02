@@ -392,6 +392,76 @@ def get_mode_weight(mode: str) -> float:
 
 
 # ============================================================================
+# NETWORK CENTRALITY ANALYSIS
+# ============================================================================
+# Standalone validation study: build a graph of the planned mass-transit
+# network from per-line polyline shapefiles + the nodes-on-lines CSV, and
+# compare hub centrality against the Monte Carlo rankings.
+
+# Input locations
+TRANSIT_LINES_DIR = RAW_DATA_DIR / "transit_lines"  # one polyline SHP per line
+# Optional manual override mapping LINE_ID -> shapefile (columns:
+# LINE_ID, shapefile, feature_index [optional])
+LINE_SHAPEFILE_MAPPING_CSV = TRANSIT_LINES_DIR / "line_shapefile_mapping.csv"
+
+# Modes included in the centrality network.
+# NOTE: intentionally NOT the same as MASS_TRANSIT_MODES — the centrality
+# network includes Cable Line/Funicular (they carry hub demand even though
+# they don't count towards eligibility) and all rail sub-modes.
+CENTRALITY_MODES = {
+    'Rail',
+    'Suburban Rail',
+    'Interurban Rail',
+    'HighSpeed Rail',
+    'Metro',
+    'LRT',
+    'BRT',
+    'Cable Line',
+    'Funicular',
+}
+
+# Assumed commercial speeds (km/h) for generalized-time edge weights.
+# These are planning assumptions, surfaced in the validation report.
+MODE_SPEEDS_KMH = {
+    'HighSpeed Rail': 120.0,
+    'Interurban Rail': 60.0,
+    'Rail': 60.0,
+    'Suburban Rail': 50.0,
+    'Metro': 35.0,
+    'LRT': 25.0,
+    'BRT': 25.0,
+    'Cable Line': 15.0,
+    'Funicular': 10.0,
+}
+DEFAULT_MODE_SPEED_KMH = 30.0  # Fallback for modes missing from MODE_SPEEDS_KMH
+
+# Edge weight used for shortest paths: 'time_min' (generalized time) or
+# 'length_m' (along-line distance)
+CENTRALITY_EDGE_WEIGHT = 'time_min'
+
+# Stop-to-polyline projection thresholds (meters, EPSG:2039)
+PROJECTION_WARN_DIST_M = 200.0  # Stop farther than this from its line -> QA warning
+PROJECTION_MAX_DIST_M = 1000.0  # Farther than this -> drop stop from that line
+
+# MultiLineString handling: bridge endpoint gaps up to this distance when
+# shapely linemerge leaves multiple parts
+MULTILINE_GAP_TOLERANCE_M = 50.0
+
+# Floor for edge lengths (two stops projecting to the same chainage)
+MIN_EDGE_LENGTH_M = 1.0
+
+# Loop / ordering QA thresholds
+LOOP_ENDPOINT_DIST_M = 50.0  # Endpoints closer than this -> circular line flag
+CHAINAGE_GAP_RATIO = 5.0  # Consecutive gap > ratio x median gap -> ordering flag
+
+# If True, lines without a usable polyline fall back to greedy
+# nearest-neighbour stop ordering (approximate!). Off by default: a missing
+# central line silently distorts betweenness for the whole network, so
+# missing lines are skipped and reported instead.
+CENTRALITY_ALLOW_HEURISTIC_ORDERING = False
+
+
+# ============================================================================
 # CONFIGURATION SUMMARY
 # ============================================================================
 

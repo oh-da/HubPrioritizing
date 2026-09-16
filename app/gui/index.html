@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hub Prioritization - Run Model</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+    <header>
+        <h1>🚆 Hub Prioritization — Run Model</h1>
+        <p class="subtitle">Select inputs, run the pipeline, and produce outputs with a full run log.</p>
+    </header>
+
+    <!-- 1. Run metadata -->
+    <section class="card">
+        <h2>1. Run details</h2>
+        <div class="row">
+            <label for="runBy">Your name <span class="req">*</span></label>
+            <input type="text" id="runBy" placeholder="e.g. Ohad Cohen">
+        </div>
+        <div class="row">
+            <label for="remarks">Remarks / description</label>
+            <textarea id="remarks" rows="3"
+                placeholder="Describe this run: scenario, data version, what you're testing..."></textarea>
+        </div>
+    </section>
+
+    <!-- 2. Inputs -->
+    <section class="card">
+        <h2>2. Input data</h2>
+        <div class="modeToggle">
+            <label><input type="radio" name="mode" value="dir" checked> Select a directory (auto-detect files)</label>
+            <label><input type="radio" name="mode" value="files"> Select files individually</label>
+        </div>
+
+        <!-- Directory mode -->
+        <div id="dirMode" class="modePanel">
+            <div class="row inline">
+                <input type="text" id="dirPath" placeholder="Choose a folder containing the input files..." readonly>
+                <button class="btn" onclick="browseDir()">Browse…</button>
+                <button class="btn ghost" onclick="rescan()">Re-scan</button>
+            </div>
+            <p class="hint">The folder is scanned for the expected files by name and extension.</p>
+        </div>
+
+        <!-- File table (shared by both modes) -->
+        <table class="files">
+            <thead>
+                <tr><th>Input</th><th>File</th><th></th></tr>
+            </thead>
+            <tbody id="fileRows"><!-- filled by JS --></tbody>
+        </table>
+    </section>
+
+    <!-- 3. Options -->
+    <section class="card">
+        <h2>3. Options</h2>
+        <div class="opts">
+            <label><input type="checkbox" id="skip_demand_data"> Skip demand data</label>
+            <label><input type="checkbox" id="skip_spatial_layers"> Skip spatial layers</label>
+            <label><input type="checkbox" id="skip_demographics"> Skip demographics</label>
+            <label><input type="checkbox" id="run_mc_distribution"> Run Monte Carlo distribution analysis</label>
+        </div>
+    </section>
+
+    <!-- 4. Output -->
+    <section class="card">
+        <h2>4. Output location</h2>
+        <div class="row inline">
+            <input type="text" id="outputDir" placeholder="Output directory...">
+            <button class="btn" onclick="browseOutput()">Browse…</button>
+        </div>
+        <p class="hint">Outputs (CSV, GeoJSON, map) and a run log (run_log.json / run_log.txt) are written here.</p>
+    </section>
+
+    <!-- Run -->
+    <section class="runbar">
+        <button class="btn run" id="runBtn" onclick="runModel()">▶ Run model</button>
+        <span id="runStatus" class="status"></span>
+    </section>
+
+    <!-- Progress / results -->
+    <section class="card" id="progressCard" style="display:none;">
+        <h2>Progress</h2>
+        <pre id="logBox" class="logbox"></pre>
+        <div id="resultPanel" style="display:none;"></div>
+    </section>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

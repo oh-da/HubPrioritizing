@@ -38,3 +38,6 @@ sphinx>=6.0.0
 # Streamlit App
 streamlit>=1.28.0
 plotly>=5.18.0
+
+# Desktop GUI for running the model (native window + file dialogs)
+pywebview>=4.4.1

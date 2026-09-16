@@ -90,8 +90,11 @@ def check_and_install_dependencies():
             print("Please install packages manually and run again.")
             sys.exit(1)
 
-# Run dependency check
-check_and_install_dependencies()
+# Run the interactive dependency check only when this script is executed
+# directly. When the module is imported (e.g. by the GUI), we must not block on
+# input(); missing imports will surface naturally as ImportError instead.
+if __name__ == "__main__":
+    check_and_install_dependencies()
 
 # ============================================================================
 # Now import everything else
@@ -113,6 +116,12 @@ if not src_dir.exists():
         print(f"  {list(PROJECT_ROOT.iterdir())[:10]}")
     print("\nPlease ensure the project structure is intact.")
     sys.exit(1)
+
+import json
+import logging
+import hashlib
+from dataclasses import dataclass, field, asdict
+from typing import Optional, Dict, List
 
 import geopandas as gpd
 import pandas as pd
@@ -159,7 +168,7 @@ if 'logger' not in locals():
 
 
 # ============================================================================
-# CONFIGURE YOUR INPUT FILE PATHS HERE
+# DEFAULT INPUT FILE PATHS (used by the CLI / as fallbacks)
 # ============================================================================
 
 # Transit network (REQUIRED)
@@ -175,10 +184,161 @@ INPUT_DISTRICTS = RAW_DATA_DIR / "districts.shp"
 INPUT_TAZ_ZONES = RAW_DATA_DIR / "TAZ_2050.shp"  # With POP_2050 and EMPL_2050
 INPUT_BUS_TERMINALS = RAW_DATA_DIR / "bus_terminals.shp"  # Optional
 
-# Processing options
-SKIP_DEMAND_DATA = False  # Set True if you don't have demand data yet
-SKIP_SPATIAL_LAYERS = False  # Set True if you don't have spatial layers yet
-SKIP_DEMOGRAPHICS = False  # Set True if you don't have TAZ data yet
+
+# ============================================================================
+# RUN CONFIGURATION
+# ============================================================================
+# A RunConfig fully describes one execution of the pipeline: which input files
+# to use, where to write outputs, which optional steps to run, and run metadata
+# (who ran it and why). The GUI builds a RunConfig from user selections; the
+# CLI builds a default one from the paths above.
+
+# Field name -> list of filename match hints (lowercase substrings / patterns)
+# used by resolve_inputs_from_directory() to auto-detect files in a folder.
+INPUT_FILE_HINTS = {
+    'transit_nodes': {'ext': ['.csv'], 'contains': ['nodes']},
+    'lines_modes': {'ext': ['.csv'], 'contains': ['lines', 'mode']},
+    'demand': {'ext': ['.xlsx', '.xls', '.csv'], 'contains': ['demand', 'nodes_w_results']},
+    'metro_areas': {'ext': ['.shp'], 'contains': ['metro']},
+    'districts': {'ext': ['.shp'], 'contains': ['district', 'machoz']},
+    'taz_zones': {'ext': ['.shp'], 'contains': ['taz']},
+    'bus_terminals': {'ext': ['.shp'], 'contains': ['terminal', 'bus_term']},
+}
+
+# Which inputs are mandatory for a run to proceed
+REQUIRED_INPUTS = ['transit_nodes', 'lines_modes']
+
+
+@dataclass
+class RunConfig:
+    """Full configuration for a single pipeline run."""
+
+    # --- Input files (None = not provided) ---
+    transit_nodes: Optional[Path] = None
+    lines_modes: Optional[Path] = None
+    demand: Optional[Path] = None
+    metro_areas: Optional[Path] = None
+    districts: Optional[Path] = None
+    taz_zones: Optional[Path] = None
+    bus_terminals: Optional[Path] = None
+
+    # --- Output ---
+    output_dir: Optional[Path] = None
+
+    # --- Optional-step toggles ---
+    skip_demand_data: bool = False
+    skip_spatial_layers: bool = False
+    skip_demographics: bool = False
+    run_mc_distribution: bool = False
+
+    # --- Run metadata (for the run log) ---
+    run_by: str = ""
+    remarks: str = ""
+    run_id: str = field(default_factory=lambda: datetime.now().strftime('%Y%m%d_%H%M%S'))
+
+    def __post_init__(self):
+        # Normalise provided paths to Path objects
+        for f in ['transit_nodes', 'lines_modes', 'demand', 'metro_areas',
+                  'districts', 'taz_zones', 'bus_terminals', 'output_dir']:
+            val = getattr(self, f)
+            if val is not None and not isinstance(val, Path):
+                setattr(self, f, Path(val))
+
+        # Default output dir: data/results/run_<run_id>/
+        if self.output_dir is None:
+            self.output_dir = RESULTS_DIR / f"run_{self.run_id}"
+
+    @property
+    def results_dir(self) -> Path:
+        """Directory for final outputs (CSV / GeoJSON / map / logs)."""
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        return self.output_dir
+
+    @property
+    def processed_dir(self) -> Path:
+        """Directory for intermediate artefacts."""
+        d = self.output_dir / "processed"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def validate(self) -> List[str]:
+        """Return a list of human-readable problems (empty = OK)."""
+        problems = []
+        for key in REQUIRED_INPUTS:
+            val = getattr(self, key)
+            if val is None:
+                problems.append(f"Missing required input: {key}")
+            elif not Path(val).exists():
+                problems.append(f"Required input not found on disk: {val}")
+        return problems
+
+
+def default_run_config(**overrides) -> RunConfig:
+    """Build a RunConfig from the default RAW_DATA_DIR paths (CLI behaviour)."""
+    cfg = RunConfig(
+        transit_nodes=INPUT_TRANSIT_NODES,
+        lines_modes=INPUT_LINES_MODES,
+        demand=INPUT_DEMAND_CSV if INPUT_DEMAND_CSV.exists() else None,
+        metro_areas=INPUT_METRO_AREAS if INPUT_METRO_AREAS.exists() else None,
+        districts=INPUT_DISTRICTS if INPUT_DISTRICTS.exists() else None,
+        taz_zones=INPUT_TAZ_ZONES if INPUT_TAZ_ZONES.exists() else None,
+        bus_terminals=INPUT_BUS_TERMINALS if INPUT_BUS_TERMINALS.exists() else None,
+    )
+    for k, v in overrides.items():
+        setattr(cfg, k, v)
+    cfg.__post_init__()
+    return cfg
+
+
+def resolve_inputs_from_directory(directory) -> Dict[str, Optional[str]]:
+    """Scan a directory and auto-match expected input files by name/extension.
+
+    Args:
+        directory: Folder to scan (str or Path).
+
+    Returns:
+        Dict mapping each input field name to a matched file path (or None).
+    """
+    directory = Path(directory)
+    found: Dict[str, Optional[str]] = {k: None for k in INPUT_FILE_HINTS}
+
+    if not directory.is_dir():
+        return found
+
+    files = [p for p in directory.rglob('*') if p.is_file()]
+    used: set = set()  # paths already claimed by an earlier field
+
+    def score(path: Path, hints) -> int:
+        """Number of hint words found in the filename stem (0 = no name match)."""
+        stem = path.stem.lower()
+        return sum(1 for c in hints['contains'] if c in stem)
+
+    # Fields are processed in INPUT_FILE_HINTS order, which is arranged so that
+    # the more specific names (e.g. 'nodes') claim their file before a more
+    # generic hint (e.g. 'lines', which also appears in 'All_nodes+lines.csv').
+    for field_name, hints in INPUT_FILE_HINTS.items():
+        best = None
+        best_score = 0
+        for ext in hints['ext']:
+            candidates = [p for p in files
+                          if p.suffix.lower() == ext and p not in used]
+            # Prefer the candidate matching the most hint words
+            for p in candidates:
+                s = score(p, hints)
+                if s > best_score:
+                    best, best_score = p, s
+            if best is not None:
+                break
+            # If nothing name-matched but exactly one file of a single allowed
+            # extension exists, accept it (unambiguous type, e.g. a lone .shp).
+            if len(hints['ext']) == 1 and len(candidates) == 1:
+                best = candidates[0]
+                break
+        if best is not None:
+            used.add(best)
+            found[field_name] = str(best)
+
+    return found
 
 # ============================================================================
 
@@ -186,9 +346,23 @@ SKIP_DEMOGRAPHICS = False  # Set True if you don't have TAZ data yet
 class CompleteHubPipeline:
     """Complete pipeline with all data sources."""
 
-    def __init__(self):
+    def __init__(self, config: Optional[RunConfig] = None):
+        self.config = config if config is not None else default_run_config()
         self.logger = logger
-        self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.timestamp = self.config.run_id
+        self.started_at = datetime.now()
+        self.output_files: List[str] = []
+        self.status = "running"
+        self.error_message = None
+
+        # Attach a per-run log file inside the output directory
+        self._run_log_path = self.config.results_dir / f"run_{self.timestamp}.log"
+        self._run_log_handler = logging.FileHandler(self._run_log_path, encoding='utf-8')
+        self._run_log_handler.setLevel(logging.DEBUG)
+        self._run_log_handler.setFormatter(
+            logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        )
+        logger.addHandler(self._run_log_handler)
 
         # Data holders
         self.transit_nodes = None
@@ -219,43 +393,45 @@ class CompleteHubPipeline:
         logger.info("STEP 1: LOAD ALL INPUT DATA")
         logger.info("="*80)
 
+        cfg = self.config
+
         # Transit network (required)
         logger.info("\n1.1: Loading transit nodes...")
-        self.transit_nodes = loaders.load_transit_nodes(INPUT_TRANSIT_NODES)
+        self.transit_nodes = loaders.load_transit_nodes(cfg.transit_nodes)
 
         logger.info("\n1.2: Loading lines and modes...")
-        self.lines_modes = loaders.load_lines_and_modes(INPUT_LINES_MODES)
+        self.lines_modes = loaders.load_lines_and_modes(cfg.lines_modes)
 
         # Demand data (optional)
-        if not SKIP_DEMAND_DATA and INPUT_DEMAND_CSV.exists():
+        if not cfg.skip_demand_data and cfg.demand and Path(cfg.demand).exists():
             logger.info("\n1.3: Loading demand data...")
-            self.demand_data = loaders.load_demand_data(INPUT_DEMAND_CSV)
+            self.demand_data = loaders.load_demand_data(cfg.demand)
         else:
             logger.warning("⚠ Skipping demand data (file not found or disabled)")
 
         # Spatial layers (optional)
-        if not SKIP_SPATIAL_LAYERS:
-            if INPUT_METRO_AREAS.exists():
+        if not cfg.skip_spatial_layers:
+            if cfg.metro_areas and Path(cfg.metro_areas).exists():
                 logger.info("\n1.4: Loading metro areas...")
-                self.metro_areas = loaders.load_metro_areas(INPUT_METRO_AREAS)
+                self.metro_areas = loaders.load_metro_areas(cfg.metro_areas)
             else:
                 logger.warning("⚠ Metro areas not found")
 
-            if INPUT_DISTRICTS.exists():
+            if cfg.districts and Path(cfg.districts).exists():
                 logger.info("\n1.5: Loading districts...")
-                self.districts = loaders.load_districts(INPUT_DISTRICTS)
+                self.districts = loaders.load_districts(cfg.districts)
             else:
                 logger.warning("⚠ Districts not found")
 
-            if INPUT_TAZ_ZONES.exists() and not SKIP_DEMOGRAPHICS:
+            if cfg.taz_zones and Path(cfg.taz_zones).exists() and not cfg.skip_demographics:
                 logger.info("\n1.6: Loading TAZ zones...")
-                self.taz_zones = loaders.load_taz_zones(INPUT_TAZ_ZONES)
+                self.taz_zones = loaders.load_taz_zones(cfg.taz_zones)
             else:
                 logger.warning("⚠ TAZ zones not found or skipped")
 
-            if INPUT_BUS_TERMINALS.exists():
+            if cfg.bus_terminals and Path(cfg.bus_terminals).exists():
                 logger.info("\n1.7: Loading bus terminals...")
-                self.bus_terminals = loaders.load_bus_terminals(INPUT_BUS_TERMINALS)
+                self.bus_terminals = loaders.load_bus_terminals(cfg.bus_terminals)
             else:
                 logger.warning("⚠ Bus terminals not found (optional)")
 
@@ -284,7 +460,7 @@ class CompleteHubPipeline:
         )
 
         # Save intermediate
-        output_path = PROCESSED_DATA_DIR / f"h3_hexagons_{self.timestamp}.csv"
+        output_path = self.config.processed_dir / f"h3_hexagons_{self.timestamp}.csv"
         export_df = self.h3_hexagons.copy()
         export_df['geometry'] = export_df['geometry'].apply(lambda x: x.wkt)
         export_df.to_csv(output_path, index=False, encoding='utf-8-sig')
@@ -305,7 +481,7 @@ class CompleteHubPipeline:
         self.grouped_hubs = merging.aggregate_groups(hexagons_grouped)
 
         # Save
-        output_path = PROCESSED_DATA_DIR / f"grouped_hubs_{self.timestamp}.csv"
+        output_path = self.config.processed_dir / f"grouped_hubs_{self.timestamp}.csv"
         export_df = self.grouped_hubs.copy()
         export_df['geometry'] = export_df['geometry'].apply(lambda x: x.wkt)
         export_df.to_csv(output_path, index=False, encoding='utf-8-sig')
@@ -324,7 +500,7 @@ class CompleteHubPipeline:
         logger.info("STEP 4: ADD DEMAND DATA")
         logger.info("="*80)
 
-        if SKIP_DEMAND_DATA:
+        if self.config.skip_demand_data:
             logger.warning("⚠ Skipping demand data - disabled")
             self.hubs_with_demand = self.grouped_hubs.copy()
             self.hubs_with_demand['TotalDemand'] = 5000  # Placeholder
@@ -595,23 +771,32 @@ class CompleteHubPipeline:
             logger.info(f"    Processed {rows_processed} rows, {len(result)} unique nodes")
             return result
 
-        # Try to find demand file (Excel or CSV)
-        demand_excel = RAW_DATA_DIR / "Demand_2050_all.xlsx"
-        demand_xls = RAW_DATA_DIR / "Demand_2050_all.xls"
-        # Also check for the original filename pattern
-        demand_excel_alt = RAW_DATA_DIR / "Nodes_w_results_21082025.xlsx"
-        demand_csv = INPUT_DEMAND_CSV
+        # Determine demand file from the run configuration. Excel (multi-sheet)
+        # is preferred; a single CSV is also supported. Fall back to the legacy
+        # default locations only when no demand file was configured.
+        configured_demand = Path(self.config.demand) if self.config.demand else None
+
+        excel_file = None
+        demand_csv = None
+        if configured_demand and configured_demand.exists():
+            if configured_demand.suffix.lower() in ('.xlsx', '.xls'):
+                excel_file = configured_demand
+            else:
+                demand_csv = configured_demand
+        else:
+            # Legacy fallbacks (CLI without explicit config)
+            for ef in [RAW_DATA_DIR / "Demand_2050_all.xlsx",
+                       RAW_DATA_DIR / "Demand_2050_all.xls",
+                       RAW_DATA_DIR / "Nodes_w_results_21082025.xlsx"]:
+                if ef.exists():
+                    excel_file = ef
+                    break
+            if excel_file is None and INPUT_DEMAND_CSV.exists():
+                demand_csv = INPUT_DEMAND_CSV
 
         node_demand = {}
 
         try:
-            # Try Excel file first (with multiple sheets)
-            excel_file = None
-            for ef in [demand_excel, demand_xls, demand_excel_alt]:
-                if ef.exists():
-                    excel_file = ef
-                    break
-
             if excel_file:
                 logger.info(f"Loading demand from Excel: {excel_file}")
 
@@ -654,7 +839,7 @@ class CompleteHubPipeline:
                         logger.warning(f"    Error loading sheet '{sheet}': {e}")
 
             # If no Excel or no data found, try CSV
-            elif demand_csv.exists():
+            elif demand_csv and demand_csv.exists():
                 logger.info(f"Loading demand from CSV: {demand_csv}")
                 df_demand = pd.read_csv(demand_csv, encoding='utf-8-sig')
                 logger.info(f"Loaded {len(df_demand)} rows")
@@ -666,7 +851,7 @@ class CompleteHubPipeline:
 
             else:
                 logger.warning("⚠ No demand file found!")
-                logger.info(f"  Looked for: {demand_excel}, {demand_xls}, {demand_excel_alt}, {demand_csv}")
+                logger.info(f"  Configured demand file: {configured_demand}")
                 self.hubs_with_demand = self.grouped_hubs.copy()
                 self.hubs_with_demand['TotalDemand'] = 5000  # Placeholder
                 self.hubs_with_demand['TotalTransfers'] = 0
@@ -898,7 +1083,7 @@ class CompleteHubPipeline:
         hubs_proj = hubs_tagged.to_crs('EPSG:2039')
 
         # Tag with district (for region determination)
-        if self.districts is not None and not SKIP_SPATIAL_LAYERS:
+        if self.districts is not None and not self.config.skip_spatial_layers:
             logger.info("Spatial join with districts...")
             try:
                 # Find district column
@@ -963,7 +1148,7 @@ class CompleteHubPipeline:
         logger.info("STEP 6: ADD DEMOGRAPHIC DATA")
         logger.info("="*80)
 
-        if SKIP_DEMOGRAPHICS or self.taz_zones is None:
+        if self.config.skip_demographics or self.taz_zones is None:
             logger.warning("⚠ Skipping demographics - no TAZ data")
             # Add placeholder columns
             for zone in ['zone1', 'zone2', 'zone3']:
@@ -987,17 +1172,18 @@ class CompleteHubPipeline:
         processor = InfluenceAreaProcessor()
 
         # Save hubs temporarily
-        temp_csv = PROCESSED_DATA_DIR / f"temp_hubs_{self.timestamp}.csv"
+        temp_csv = self.config.processed_dir / f"temp_hubs_{self.timestamp}.csv"
         export_df = self.hubs_with_demand.copy()
         export_df['geometry'] = export_df['geometry'].apply(lambda x: x.wkt if x else None)
         export_df.to_csv(temp_csv, index=False, encoding='utf-8-sig')
 
         # Process influence areas
         try:
+            _terminals = self.config.bus_terminals
             result_gdf = processor.process_full_pipeline(
                 hubs_csv=str(temp_csv),
-                taz_shp=str(INPUT_TAZ_ZONES),
-                terminals_shp=str(INPUT_BUS_TERMINALS) if INPUT_BUS_TERMINALS.exists() else None,
+                taz_shp=str(self.config.taz_zones),
+                terminals_shp=str(_terminals) if _terminals and Path(_terminals).exists() else None,
                 output_csv=None  # Don't save intermediate file
             )
             self.hubs_with_demographics = result_gdf
@@ -1125,13 +1311,14 @@ class CompleteHubPipeline:
         logger.info("STEP 11: MONTE CARLO DISTRIBUTION ANALYSIS (OPTIONAL)")
         logger.info("="*80)
 
-        # Check if user wants to run MC distribution
-        run_mc_dist = os.environ.get('RUN_MC_DISTRIBUTION', 'false').lower() == 'true'
+        # Check if user wants to run MC distribution (config flag or env var)
+        run_mc_dist = self.config.run_mc_distribution or \
+            os.environ.get('RUN_MC_DISTRIBUTION', 'false').lower() == 'true'
 
         if not run_mc_dist:
             logger.info("⊘ Skipping MC distribution analysis (not requested)")
-            logger.info("  To enable: Set environment variable RUN_MC_DISTRIBUTION=true")
-            logger.info("  or modify this script to set run_mc_dist = True")
+            logger.info("  To enable: set run_mc_distribution=True in the RunConfig")
+            logger.info("  or set environment variable RUN_MC_DISTRIBUTION=true")
             logger.info("✓ Step 11 complete (skipped)")
             return
 
@@ -1163,7 +1350,7 @@ class CompleteHubPipeline:
             score_matrix.index = self.scored_hubs.index
 
             # Run distribution analysis
-            mc_dist_dir = RESULTS_DIR / f'mc_distribution_{self.timestamp}'
+            mc_dist_dir = self.config.results_dir / f'mc_distribution_{self.timestamp}'
             mc_results = run_mc_distribution_analysis(
                 score_matrix=score_matrix,
                 output_dir=str(mc_dist_dir),
@@ -1197,27 +1384,174 @@ class CompleteHubPipeline:
         logger.info("STEP 12: EXPORT RESULTS")
         logger.info("="*80)
 
+        results_dir = self.config.results_dir
+
         # CSV
-        csv_path = RESULTS_DIR / f"hub_prioritization_results_{self.timestamp}.csv"
+        csv_path = results_dir / f"hub_prioritization_results_{self.timestamp}.csv"
         export_df = self.scored_hubs.copy()
         export_df['geometry'] = export_df['geometry'].apply(lambda x: x.wkt if x else None)
         export_df.to_csv(csv_path, index=False, encoding='utf-8-sig')
+        self.output_files.append(str(csv_path))
         logger.info(f"✓ CSV: {csv_path}")
 
         # GeoJSON
-        geojson_path = RESULTS_DIR / f"hub_results_{self.timestamp}.geojson"
+        geojson_path = results_dir / f"hub_results_{self.timestamp}.geojson"
         self.scored_hubs.to_file(geojson_path, driver='GeoJSON')
+        self.output_files.append(str(geojson_path))
         logger.info(f"✓ GeoJSON: {geojson_path}")
 
         # Map
         try:
-            map_path = RESULTS_DIR / f"hub_map_{self.timestamp}.html"
+            map_path = results_dir / f"hub_map_{self.timestamp}.html"
             maps.create_hub_map(self.scored_hubs, color_by='final_score', output_file=str(map_path))
+            self.output_files.append(str(map_path))
             logger.info(f"✓ Map: {map_path}")
         except Exception as e:
             logger.warning(f"Could not create map: {e}")
 
         logger.info("✓ Step 12 complete")
+
+    # ------------------------------------------------------------------
+    # Run logging / manifest
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _file_info(path) -> Dict:
+        """Return name/size/mtime/sha256 metadata for an input file."""
+        info = {'path': str(path), 'exists': False}
+        try:
+            p = Path(path)
+            if p.exists():
+                stat = p.stat()
+                info.update({
+                    'exists': True,
+                    'name': p.name,
+                    'size_bytes': stat.st_size,
+                    'modified': datetime.fromtimestamp(stat.st_mtime).isoformat(timespec='seconds'),
+                })
+                # SHA-256 (skip very large files for speed)
+                if stat.st_size <= 500 * 1024 * 1024:
+                    h = hashlib.sha256()
+                    with open(p, 'rb') as fh:
+                        for chunk in iter(lambda: fh.read(1024 * 1024), b''):
+                            h.update(chunk)
+                    info['sha256'] = h.hexdigest()
+        except Exception as e:
+            info['error'] = str(e)
+        return info
+
+    def write_run_manifest(self):
+        """Write run_log.json + run_log.txt describing this run."""
+        cfg = self.config
+        finished_at = datetime.now()
+
+        inputs = {}
+        for key in ['transit_nodes', 'lines_modes', 'demand', 'metro_areas',
+                    'districts', 'taz_zones', 'bus_terminals']:
+            val = getattr(cfg, key)
+            inputs[key] = self._file_info(val) if val else None
+
+        summary = {}
+        if self.scored_hubs is not None:
+            summary['total_hubs'] = int(len(self.scored_hubs))
+            if 'tier' in self.scored_hubs.columns:
+                summary['hubs_by_tier'] = {
+                    str(k): int(v)
+                    for k, v in self.scored_hubs['tier'].value_counts().items()
+                }
+
+        manifest = {
+            'run_id': cfg.run_id,
+            'run_by': cfg.run_by or 'unknown',
+            'remarks': cfg.remarks,
+            'status': self.status,
+            'error_message': self.error_message,
+            'started_at': self.started_at.isoformat(timespec='seconds'),
+            'finished_at': finished_at.isoformat(timespec='seconds'),
+            'duration_seconds': round((finished_at - self.started_at).total_seconds(), 1),
+            'output_dir': str(cfg.output_dir),
+            'options': {
+                'skip_demand_data': cfg.skip_demand_data,
+                'skip_spatial_layers': cfg.skip_spatial_layers,
+                'skip_demographics': cfg.skip_demographics,
+                'run_mc_distribution': cfg.run_mc_distribution,
+            },
+            'inputs': inputs,
+            'outputs': self.output_files,
+            'log_file': str(self._run_log_path),
+            'results_summary': summary,
+        }
+
+        # JSON manifest
+        json_path = cfg.results_dir / "run_log.json"
+        with open(json_path, 'w', encoding='utf-8') as f:
+            json.dump(manifest, f, indent=2, ensure_ascii=False)
+
+        # Human-readable text log
+        txt_path = cfg.results_dir / "run_log.txt"
+        with open(txt_path, 'w', encoding='utf-8') as f:
+            f.write("=" * 70 + "\n")
+            f.write("HUB PRIORITIZATION - RUN LOG\n")
+            f.write("=" * 70 + "\n\n")
+            f.write(f"Run ID        : {manifest['run_id']}\n")
+            f.write(f"Run by        : {manifest['run_by']}\n")
+            f.write(f"Status        : {manifest['status']}\n")
+            if self.error_message:
+                f.write(f"Error         : {self.error_message}\n")
+            f.write(f"Started       : {manifest['started_at']}\n")
+            f.write(f"Finished      : {manifest['finished_at']}\n")
+            f.write(f"Duration      : {manifest['duration_seconds']} s\n")
+            f.write(f"Output dir    : {manifest['output_dir']}\n\n")
+            f.write(f"Remarks:\n{cfg.remarks or '(none)'}\n\n")
+            f.write("-" * 70 + "\n")
+            f.write("INPUT FILES USED\n")
+            f.write("-" * 70 + "\n")
+            for key, info in inputs.items():
+                if not info:
+                    f.write(f"  {key:<16}: (not provided)\n")
+                elif info.get('exists'):
+                    f.write(f"  {key:<16}: {info['name']}  "
+                            f"({info.get('size_bytes', '?')} bytes, "
+                            f"modified {info.get('modified', '?')})\n")
+                    f.write(f"  {'':<16}  path: {info['path']}\n")
+                    if 'sha256' in info:
+                        f.write(f"  {'':<16}  sha256: {info['sha256']}\n")
+                else:
+                    f.write(f"  {key:<16}: MISSING ({info['path']})\n")
+            f.write("\n")
+            f.write("-" * 70 + "\n")
+            f.write("OPTIONS\n")
+            f.write("-" * 70 + "\n")
+            for k, v in manifest['options'].items():
+                f.write(f"  {k:<22}: {v}\n")
+            f.write("\n")
+            f.write("-" * 70 + "\n")
+            f.write("OUTPUT FILES PRODUCED\n")
+            f.write("-" * 70 + "\n")
+            for out in self.output_files:
+                f.write(f"  {out}\n")
+            f.write("\n")
+            if summary:
+                f.write("-" * 70 + "\n")
+                f.write("RESULTS SUMMARY\n")
+                f.write("-" * 70 + "\n")
+                f.write(f"  Total hubs: {summary.get('total_hubs', '?')}\n")
+                for tier, n in summary.get('hubs_by_tier', {}).items():
+                    f.write(f"    {tier}: {n}\n")
+
+        self.output_files.append(str(json_path))
+        self.output_files.append(str(txt_path))
+        logger.info(f"✓ Run log: {json_path}")
+        logger.info(f"✓ Run log: {txt_path}")
+        return manifest
+
+    def _detach_log_handler(self):
+        """Remove the per-run file handler from the shared logger."""
+        try:
+            logger.removeHandler(self._run_log_handler)
+            self._run_log_handler.close()
+        except Exception:
+            pass
 
     def run(self):
         """Run complete pipeline."""
@@ -1235,22 +1569,57 @@ class CompleteHubPipeline:
             self.step_11_run_mc_distribution()
             self.step_12_export_results()
 
+            self.status = "success"
+
             logger.info("\n" + "="*80)
             logger.info("✅ PIPELINE COMPLETE!")
             logger.info("="*80)
             logger.info(f"\nFinal Results:")
             logger.info(f"  Total hubs: {len(self.scored_hubs)}")
-            logger.info(f"  Results: {RESULTS_DIR}")
+            logger.info(f"  Results: {self.config.results_dir}")
 
             return self.scored_hubs
 
         except Exception as e:
+            self.status = "error"
+            self.error_message = str(e)
             logger.error(f"Pipeline failed: {e}", exc_info=True)
             raise
+        finally:
+            # Always write a manifest (even on failure) and detach the log file
+            try:
+                self.write_run_manifest()
+            except Exception as e:
+                logger.error(f"Could not write run manifest: {e}")
+            self._detach_log_handler()
+
+
+def run_pipeline(config: Optional[RunConfig] = None):
+    """Run the full pipeline for a given configuration.
+
+    This is the single entry point shared by the CLI and the GUI.
+
+    Args:
+        config: A RunConfig. If None, a default config is built from the
+            RAW_DATA_DIR paths defined at the top of this module.
+
+    Returns:
+        The scored hubs GeoDataFrame.
+    """
+    cfg = config if config is not None else default_run_config()
+
+    problems = cfg.validate()
+    if problems:
+        for p in problems:
+            logger.error(f"❌ {p}")
+        raise FileNotFoundError("; ".join(problems))
+
+    pipeline = CompleteHubPipeline(cfg)
+    return pipeline.run()
 
 
 def main():
-    """Main entry point."""
+    """CLI entry point - runs with default RAW_DATA_DIR paths."""
 
     # Check required files
     if not INPUT_TRANSIT_NODES.exists():
@@ -1263,9 +1632,8 @@ def main():
         logger.info("Please update INPUT_LINES_MODES path in this script")
         sys.exit(1)
 
-    # Run pipeline
-    pipeline = CompleteHubPipeline()
-    results = pipeline.run()
+    # Run pipeline with default configuration
+    results = run_pipeline(default_run_config())
 
     logger.info("\n🎉 Done! Check results in data/results/")
 

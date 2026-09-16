@@ -178,6 +178,29 @@ MODE_WEIGHTS = {
     'Bus': 1.0,  # Regular bus (lowest weight)
 }
 
+# Per-mode line-count columns carried through the pipeline and into the final workbook
+MODE_LINE_COLS = [
+    'BRT Lines', 'Cable Line Lines', 'Funicular Lines',
+    'HighSpeed Rail Lines', 'Interurban Rail Lines', 'LRT Lines',
+    'Metro Lines', 'Suburban Rail Lines',
+]
+
+# Planned-mode label -> per-mode line column (None = excluded from mode line counts)
+MODE_TO_COLUMN = {
+    'BRT': 'BRT Lines',
+    'Metro': 'Metro Lines',
+    'LRT': 'LRT Lines',
+    'Light Rail': 'LRT Lines',
+    'Rail': 'Interurban Rail Lines',
+    'Interurban Rail': 'Interurban Rail Lines',
+    'HighSpeed Rail': 'HighSpeed Rail Lines',
+    'Suburban Rail': 'Suburban Rail Lines',
+    'Cable Line': 'Cable Line Lines',
+    'Funicular': 'Funicular Lines',
+    'Bus': None,
+    'Express Bus': None,
+}
+
 # Diminishing returns for multiple lines of same mode
 # Returns factor = 1 / sqrt(line_count)
 MODE_LINE_DIMINISHING_RETURNS = True

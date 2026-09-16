@@ -65,3 +65,7 @@ htmlcov/
 *.bak
 *.orig
 *.backup
+
+# Real sample inputs and golden workbook for regression tests (not committed; see tests/fixtures/README.md)
+tests/fixtures/real/*
+!tests/fixtures/real/.gitkeep

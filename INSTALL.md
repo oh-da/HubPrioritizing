@@ -46,7 +46,7 @@ See `README.md` and `docs/DATA_CONFIGURATION.md` for the input directory contrac
 
 Stable inputs (metropolitan zones, districts, hub display names, manual group merges) ship
 under `data/reference/`. See `data/reference/README.md` for the list and for the layers that
-still have to be added (bus terminals, TAZ 2050).
+still have to be added (TAZ 2050).
 
 ## Troubleshooting
 

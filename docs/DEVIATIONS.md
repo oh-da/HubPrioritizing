@@ -51,7 +51,7 @@ page lists every such place, plus the few spots where the pipeline deliberately 
 | Two lines sharing a display name | Kept | Kept (the parser no longer de-duplicates *names*) |
 | `Cable Line` in `Modes_ForPlot` | Untranslated (map key was `Cable`) | `רכבל` |
 | `Line_Names_forPlot`, `RankByHubTypeMetro` | Excel formulas typed by hand | Computed columns (`postprocess.line_names_for_plot`, `rank_by_hubtype_metro`) |
-| Multiple bus terminals within 200 m | Duplicate hub rows from the spatial join | Highest-scoring terminal kept, tie reported |
+| Multiple bus terminals within 200 m | Duplicate hub rows from the spatial join; whichever row survived downstream set the score (Netanya, group 25, kept חניון לילה = 1 although a מסוף בינוני = 2 is also within 200 m) | Highest-scoring terminal kept, tie reported |
 | Missing inputs | Placeholder values (demand 5000, pop 1000 …) and a green "PIPELINE COMPLETE" | Hard failure listing every problem (`hubs validate`) |
 | Hub names | Keyed by `group`, which changes between runs | Keyed by `h3_index` |
 

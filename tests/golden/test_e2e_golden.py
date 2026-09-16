@@ -45,3 +45,17 @@ def test_e2e_reproduces_golden_upstream_columns(e2e, golden):
 def test_e2e_row_count_matches_golden(e2e, golden):
     result, _ = e2e
     assert len(result.results) == len(golden) == 142
+
+
+def test_e2e_bus_terminal_matches_golden(e2e, golden, real_inputs):
+    """With the terminals layer present, bus_terminal matches except where the notebook's
+    duplicate-row spatial join picked a lower class (Netanya, group 25; see DEVIATIONS.md)."""
+    if not real_inputs.has("bus_terminals"):
+        pytest.skip("bus terminals layer not present")
+    result, _ = e2e
+    res = result.results.set_index("group").loc[golden["group"]]
+    g = golden.set_index("group")
+    mism = res.index[res["bus_terminal"].astype(int) != g["bus_terminal"].astype(int)].tolist()
+    print(f"\n[bus_terminal] mismatches: {mism}")
+    assert set(mism) <= {25}
+    assert (res.loc[mism, "bus_terminal"] > g.loc[mism, "bus_terminal"]).all()

@@ -216,9 +216,9 @@ Two complementary methods are available:
 
 **Option A: Monte Carlo Simulation (Default)**
 - 10,000 iterations with random weight sets
-- Each criterion 0–50% per iteration
-- **Runs on all hubs together** (single simulation across the entire dataset)
-- Final score = weighted mean across simulations
+- Each criterion 0–50% per iteration (raw draws are capped at 0.5, then normalised to sum to 1)
+- **Runs per hub type** with one seeded random stream consumed type by type (`mc_scope = per_hubtype`, the notebook's behaviour); `mc_scope = all_hubs` runs a single simulation across the entire dataset
+- Final score = weighted mean across simulations (`Average_Simulated_Score` = `TotalScore_MC`)
 - Prevents single-criterion dominance
 - Robust to weighting uncertainty
 
@@ -257,19 +257,20 @@ Each hub receives a **normalized score (1–10)** for each criterion.
 
 **Important**: Normalization is performed **per hub tier** (ארצי/מטרופוליני/עירוני), NOT per metro area within each tier:
 
-| Criterion | Normalization Method |
-|-----------|---------------------|
-| Passenger Activity | Per tier (log₁₀ + min-max to 1-10) |
-| Service & Modes | Per tier (min-max to 1-10) |
-| Location | **Global** (all hubs together) |
-| Population & Jobs | Per tier (min-max to 1-10) |
-| Bus Terminal | **Global** (all hubs together) |
+| Criterion | Column | Normalization Method |
+|-----------|--------|---------------------|
+| Passenger Activity | `TotalDemand_Norm` | Per tier (log₁₀ + min-max to 1-10) |
+| Service & Modes | `score_Norm` | Per tier (min-max to 1-10) |
+| Location | `RegionLocation_Norm` | Per tier (min-max to 1-10) |
+| Population & Jobs | `PopEmp_Score_Norm` | Per tier (min-max to 1-10) |
+| Bus Terminal | `bus_terminal_Norm` | Per tier (min-max to 1-10) |
 
 This means:
 - All Metropolitan hubs (regardless of geographic area) are normalized together
 - All Local hubs are normalized together
 - National hubs are normalized together
-- Location and Terminal scores use global normalization across all tiers
+- A tier whose values are all equal receives 5.5 for that criterion
+- `renormalize_globally=true` reproduces the older results workbook's globally re-normalised display columns (see `docs/DEVIATIONS.md`)
 
 ### Aggregation Methods
 
@@ -352,13 +353,12 @@ service_score = normalize_by_tier(Σ(mode_weight × line_count_with_diminishing_
 location_score = normalize_global(region_weight × ring_score)
 ```
 
-**Normalization**: **Global** (all hubs normalized together, across all tiers)
+**Normalization**: Per tier (`RegionLocation_Norm`)
 
 **Rationale**:
 - Balances national equity (periphery boost) with metropolitan efficiency (core importance)
 - Recognizes different strategic value of locations
 - Prevents over-concentration in center
-- Global normalization ensures consistent geographic signals across tiers
 
 ### 7.4 Population & Jobs Score (2050)
 
@@ -410,7 +410,7 @@ pop_jobs_score = normalize_by_tier(Σ(ring_weight × (job_mix × jobs + pop_mix 
 terminal_score = normalize_global(Σ(terminal_weight × proximity_factor))
 ```
 
-**Normalization**: **Global** (all hubs normalized together, across all tiers)
+**Normalization**: Per tier (`bus_terminal_Norm`); the raw score is 0–3 by terminal class (חניון לילה 1, מסוף קטן/בינוני 2, מסוף גדול/מתקן משולב 3)
 
 **Rationale**:
 - Bus integration critical for first/last mile
@@ -566,150 +566,80 @@ This framework should be implemented using:
 ---
 
 ## 9. Codebase Structure
-Key files for reference:
-@notebooks/COMPLETE_TRANSIT_PIPELINE.ipynb - complete the first 3 parts of the project in a pipeline, needs to be reviewed
-@src/HubsCode_to_1_file.ipynb - older version of most of the steps in the project
-@src/Create_h3_from_all_nodes.ipynb - the first step in the project
-@src/Group_n_Filter_Hubs.ipynb - how the grouping and the filtering of the transit hubs was made before
 
-### Recommended Organization
+The production pipeline is the `hubs` command (`src/cli.py` → `src/pipeline/run.py`).
+Key files for reference:
+- `src/pipeline/run.py` — orchestrator; read this first to see the stage order
+- `src/pipeline/scoring.py` — eligibility, tiers, normalisation, Monte Carlo
+- `src/pipeline/export.py` — `FINAL_COLUMNS`, the 70-column schema the display page reads
+- `docs/DEVIATIONS.md` — every notebook quirk kept behind a flag and every intentional fix
+- `notebooks/archive/COMPLETE_TRANSIT_PIPELINE.ipynb`, `create_results_csv.ipynb` — the superseded Colab notebooks (provenance only; tag `v1-notebooks` has the pre-cleanup repo)
+
+### Organization
 
 ```
 HubPrioritizing/
-├── README.md                    # Project overview
-├── CLAUDE.md                    # This file
-├── .gitignore
-├── requirements.txt             # Python dependencies
-├── environment.yml              # Conda environment (optional)
-├── Dockerfile                   # Container definition
+├── README.md, INSTALL.md, CLAUDE.md, LICENSE, AHP_QUICKSTART.md
+├── pyproject.toml               # package metadata, `hubs` console script, pytest config
+├── requirements.txt             # runtime deps (mirror of pyproject)
 │
-├── data/                        # Data files (not in git)
-│   ├── raw/                     # Original source data
-│   │   ├── transit_lines/
-│   │   ├── stations/
-│   │   ├── forecasts_2050/
-│   │   ├── demographics/
-│   │   └── terminals/
-│   ├── processed/               # Cleaned, standardized data
-│   └── results/                 # Output files
+├── src/
+│   ├── cli.py                   # hubs validate | run | show-config
+│   ├── config.py                # thresholds, weights, CRS, column constants, tier labels
+│   ├── pipeline/                # the one-command pipeline (pure DataFrame stages)
+│   │   ├── settings.py          #   PipelineConfig, YAML / --set overrides
+│   │   ├── inputs.py            #   input directory contract, discovery, validation, readers
+│   │   ├── report.py            #   RunReport (findings, metrics, inputs)
+│   │   ├── network.py           #   nodes x lines -> H3 hexagons -> per-mode line counts
+│   │   ├── grouping.py          #   120 m union-find groups, manual merges, stable hub_id
+│   │   ├── spatial_tags.py      #   metro ring / district -> area, location
+│   │   ├── demand.py            #   demand workbook -> TotalDemand, TotalTransfers, overrides
+│   │   ├── aggregate.py         #   hexagons -> hubs, bus terminals, pop/jobs rings
+│   │   ├── scoring.py           #   categories, mode score, tiers, normalisation, Monte Carlo
+│   │   ├── postprocess.py       #   display columns incl. the former Excel formulas
+│   │   ├── export.py            #   xlsx (Excel Table) + CSV writers
+│   │   └── run.py               #   orchestrator, write_outputs, run_from_cli
+│   ├── spatial/                 # h3_operations.py, merging.py (UnionFind)
+│   ├── classification/          # hierarchy.py (classify_hub_tier)
+│   ├── scoring/                 # optional extras: ahp.py, mc_distribution.py, normalization.py
+│   └── utils/                   # encoding_fix.py, logging.py
 │
-├── src/                         # Source code
-│   ├── __init__.py
-│   ├── config.py                # Configuration and constants
-│   ├── data/                    # Data loading and processing
-│   │   ├── __init__.py
-│   │   ├── loaders.py           # Data import functions
-│   │   ├── validators.py        # Data quality checks
-│   │   └── reconciliation.py   # Cross-dataset alignment
-│   ├── spatial/                 # Spatial operations
-│   │   ├── __init__.py
-│   │   ├── h3_operations.py     # H3 hex aggregation
-│   │   ├── merging.py           # Adjacent hex merging
-│   │   └── geometry.py          # Geometric calculations
-│   ├── classification/          # Hub classification
-│   │   ├── __init__.py
-│   │   ├── eligibility.py       # Filtering logic
-│   │   └── hierarchy.py         # Tier assignment
-│   ├── scoring/                 # Scoring algorithms
-│   │   ├── __init__.py
-│   │   ├── activity.py          # Passenger activity score
-│   │   ├── service.py           # Service & modes score
-│   │   ├── location.py          # Geographic score
-│   │   ├── demographics.py      # Population & jobs score
-│   │   ├── terminals.py         # Bus terminal score
-│   │   ├── normalization.py     # Scoring normalization
-│   │   ├── monte_carlo.py       # Weight simulation & aggregation
-│   │   └── ahp.py               # AHP expert-driven weighting (optional)
-│   ├── visualization/           # Visualization components
-│   │   ├── __init__.py
-│   │   ├── maps.py              # Interactive maps
-│   │   └── charts.py            # Statistical plots
-│   └── utils/                   # Utility functions
-│       ├── __init__.py
-│       ├── logging.py
-│       └── constants.py
+├── data/
+│   ├── reference/               # stable layers + curated tables shipped with the repo
+│   ├── ahp_expert_comparisons_*.csv
+│   └── raw/ processed/ results/ # scratch (gitignored)
 │
-├── notebooks/                   # Analysis notebooks
-│   ├── 01_data_exploration.ipynb
-│   ├── 02_hub_identification.ipynb
-│   ├── 03_scoring_analysis.ipynb
-│   ├── 04_sensitivity_analysis.ipynb
-│   └── 05_results_visualization.ipynb
+├── tests/
+│   ├── unit/                    # synthetic tests per stage
+│   ├── golden/                  # regression vs the real June 2026 results (fixtures gitignored)
+│   ├── synthetic.py, test_smoke.py
+│   └── fixtures/real/           # place the real exports + golden workbook here (not committed)
 │
-├── tests/                       # Unit tests
-│   ├── __init__.py
-│   ├── test_data_loaders.py
-│   ├── test_spatial.py
-│   ├── test_scoring.py
-│   └── test_classification.py
-│
-├── docs/                        # Documentation
-│   ├── methodology.md
-│   ├── data_dictionary.md
-│   ├── api_reference.md
-│   ├── user_guide.md
-│   └── AHP_SCORING_GUIDE.md     # AHP methodology guide
-│
-├── AHP_QUICKSTART.md            # AHP quick-start guide
-│
-├── scripts/                     # Execution scripts
-│   ├── run_pipeline.py          # Main workflow
-│   ├── update_data.py           # Data refresh
-│   ├── export_results.py        # Output generation
-│   └── test_ahp_scoring.py      # AHP scoring test suite
-│
-├── data/                        # Data files
-│   ├── ahp_expert_comparisons_TEMPLATE.csv  # Blank AHP template
-│   ├── ahp_expert_comparisons_example.csv   # Example with 3 experts
-│   └── ahp_expert_comparisons.csv           # Actual expert input (user-provided)
-│
-└── app/                         # Web application (optional)
-    ├── app.py                   # Main app file
-    ├── components/              # UI components
-    └── assets/                  # Static assets
+├── notebooks/archive/           # superseded notebooks
+├── app/                         # Streamlit AHP questionnaire (optional)
+├── scripts/                     # generate_demo_excel.py, test_ahp_scoring.py
+└── docs/                        # full_documentation/, DEVIATIONS.md, PIPELINE_REFACTOR_PLAN.md, ...
 ```
 
 ### Module Responsibilities
 
 #### `src/config.py`
-- Constants (thresholds, weights, parameters)
-- File paths
-- Configuration management
+- Constants: thresholds, mode weights, CRS, `MODE_LINE_COLS`, tier labels
+- No file paths except `REFERENCE_DATA_DIR`; no side effects on import
 
-#### `src/data/`
-- Load raw data from various sources
-- Validate data quality and completeness
-- Reconcile conflicts between datasets
-- Standardize formats
+#### `src/pipeline/`
+- One module per stage, each a pure function (DataFrame in, DataFrame out) recording findings on a `RunReport`
+- `settings.py` holds every run-time parameter; `inputs.py` is the only place that resolves files
+- Column names follow the canonical notebook so the workbook schema is unchanged
 
-#### `src/spatial/`
-- H3 hex operations (creation, aggregation)
-- Merge adjacent hexes into hub areas
-- Calculate distances and buffers
-- Geometric operations
-
-#### `src/classification/`
-- Apply eligibility filters
-- Assign hierarchy tier
-- Handle edge cases
+#### `src/spatial/`, `src/classification/`
+- H3 helpers and union-find proximity grouping; tier rules
 
 #### `src/scoring/`
-- Implement each scoring criterion (activity, service, location, demographics, terminals)
-- Normalize scores to 1–10 scale
-- **Monte Carlo**: Random weight simulation (10,000 iterations)
-- **AHP**: Expert pairwise comparisons, eigenvector weights, consistency checking
-- Aggregate final scores using selected method(s)
-- Compare Monte Carlo vs AHP results
-
-#### `src/visualization/`
-- Generate interactive maps
-- Create statistical charts
-- Export visualizations
+- Optional analyses: AHP expert weighting, Monte Carlo distribution reporting
 
 #### `src/utils/`
-- Logging and debugging
-- Common utilities
-- Constants and enums
+- Hebrew text validation for encoding detection; logger setup (file logging opt-in)
 
 ---
 
@@ -971,10 +901,14 @@ MAX_CRITERION_WEIGHT = 0.5
 SCORE_RANGE = (1, 10)
 
 # Spatial
-H3_RESOLUTION = 9  # ~150m hexes
-HUB_MERGE_THRESHOLD_M = 300
-CATCHMENT_RINGS = [0, 400, 800, 1500]  # meters
+H3_RESOLUTION = 10  # ~15 m edge hexes
+HUB_MERGE_THRESHOLD_M = 120
+CATCHMENT_RINGS = [(0, 500), (500, 1000), (1000, 1500)]  # meters
 ```
+
+Run-time parameters (rings, filter flags, Monte Carlo scope, output names) live in
+`src/pipeline/settings.py::PipelineConfig` and are set with `--config pipeline.yaml` or
+`--set key=value`; the effective values are written to `run_config.json` with every run.
 
 ---
 
@@ -1157,18 +1091,16 @@ When explaining your work:
 
 ## 15. Results Overview (Current State)
 
-Based on the initial methodology application:
+June 2026 exports (`All_nodeslines_18062026`, `Lines_and_Planned_Mode_18-06-2026`, `Nodes_w_results_04022026`), reproduced by `hubs run`:
 
-- **155 potential hubs identified**
-- **69 filtered out** (demand <1,000 or single-mode)
-- **86 hubs fully evaluated**:
+- **1,033 hub groups** formed from 1,244 hexagons (1,319 nodes)
+- **142 groups pass eligibility** (≥ 1,000 passengers/day, ≥ 2 modes, a non-rail mode) and are exported:
   - 15 ארצי (National)
-  - 29 מטרופוליני - TA+Center
-  - 14 מטרופוליני - Haifa+North
-  - 3 מטרופוליני - South
-  - עירוני (Local) as defined in dataset
+  - 67 מטרופוליני (Metropolitan)
+  - 33 עירוני (Local)
+  - 27 "Not Hub" (eligible but fewer than 3 lines)
 
-Full spatial visualization should be available via interactive interface.
+The results workbook feeds the display page; `RankByHubTypeMetro` gives the tier-aware rank.
 
 ---
 
@@ -1277,6 +1209,12 @@ See the full review documents for detailed code examples and implementation guid
 ## 19. Document Maintenance
 
 ### Version History
+- **v2.0** (2026-09-16): One-command pipeline
+  - `hubs run --input-dir … --output-dir …` replaces the Colab notebooks and the two Excel formulas
+  - Notebook logic ported into `src/pipeline/` with golden tests against the June 2026 workbook
+  - Documented that all five criteria are normalised per tier and Monte Carlo runs per hub type
+  - Reference data moved to `data/reference/`; hardcoded demand overrides became data
+  - Corrected quick-reference values (H3 resolution 10, 120 m merge, 500/1000/1500 m rings)
 - **v1.3** (2025-12-29): Clarified scoring methodology documentation
   - Documented that normalization is per TIER only (not per metro+tier)
   - Documented that Monte Carlo runs on ALL hubs together
@@ -1311,17 +1249,29 @@ This document should be updated when:
 - **Local tier**: <5,000 passengers/day
 
 ### Key Parameters
-- **H3 resolution**: 9 (~150m hexes)
-- **Monte Carlo iterations**: 10,000
-- **Max criterion weight**: 50%
-- **Score range**: 1–10 (normalized)
-- **Catchment rings**: 0, 400, 800, 1500 meters
+- **H3 resolution**: 10 (~15 m edge hexagons)
+- **Hub merge distance**: 120 m edge-to-edge
+- **Monte Carlo iterations**: 10,000, seed 42, per hub type
+- **Max criterion weight**: 50% (on the raw draw)
+- **Score range**: 1–10 (normalized per tier)
+- **Catchment rings**: 0–500, 500–1000, 1000–1500 meters (configurable: `influence_rings`)
+- **Bus terminal buffer**: 200 m
 
-### Key Files (Expected)
-- `src/scoring/monte_carlo.py`: Final scoring logic
-- `src/spatial/h3_operations.py`: Hub identification
-- `src/config.py`: All parameters and thresholds
-- `notebooks/03_scoring_analysis.ipynb`: Scoring exploration
+### Key Commands
+```bash
+hubs validate --input-dir DIR            # check inputs
+hubs run --input-dir DIR --output-dir OUT
+hubs show-config --defaults              # every parameter as YAML
+pytest                                    # unit + smoke tests
+```
+
+### Key Files
+- `src/pipeline/run.py`: stage order
+- `src/pipeline/scoring.py`: tiers, normalisation, Monte Carlo
+- `src/pipeline/export.py`: the 70-column workbook schema
+- `src/config.py`: thresholds and weights
+- `data/reference/README.md`: reference layers and curated tables
+- `docs/DEVIATIONS.md`: flags and fixes
 
 ---
 

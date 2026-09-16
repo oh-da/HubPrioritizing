@@ -1,6 +1,9 @@
 # Executive Summary
 ## Hub Prioritization Framework - Code Quality & Architecture Review
 
+> **Historical document** (December 2025 code base). The pipeline was rebuilt as the
+> `hubs` command in September 2026; see `docs/PIPELINE_REFACTOR_PLAN.md`.
+
 **Date**: 2025-12-17
 **Review Type**: SOLID Principles & Architecture Assessment
 **Codebase**: Hub Prioritization Framework for Israeli Transit Hubs

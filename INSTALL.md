@@ -20,9 +20,19 @@ pip install -e .[viz]              # folium maps, matplotlib charts
 Verify:
 
 ```bash
-pytest                              # unit tests (no external data needed)
-hubs --help                         # one-command pipeline (available from PR 8 onwards)
+pytest                              # unit and smoke tests (no external data needed)
+hubs --help                         # the one-command pipeline
 ```
+
+## Running
+
+```bash
+hubs validate --input-dir my_run                     # check inputs, list problems
+hubs run --input-dir my_run --output-dir my_run/out  # produce hub_prioritization_results.xlsx
+hubs show-config --defaults                          # all parameters as YAML
+```
+
+See `README.md` and `docs/DATA_CONFIGURATION.md` for the input directory contract.
 
 ## Dependencies worth knowing about
 

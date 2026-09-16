@@ -1,6 +1,11 @@
 # SOLID Principles Review
 ## Hub Prioritization Framework
 
+> **Historical document.** This review describes the code base as of December 2025
+> (`scripts/run_complete_pipeline.py`, `src/scoring/*` criterion modules). Those modules
+> were replaced in September 2026 by the `src/pipeline/` package and the `hubs` command;
+> see `docs/PIPELINE_REFACTOR_PLAN.md` for the current structure.
+
 **Review Date**: 2025-12-17
 **Reviewer**: Claude Code
 **Codebase Version**: Current branch `claude/update-solid-docs-XLO46`

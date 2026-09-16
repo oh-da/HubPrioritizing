@@ -1,9 +1,28 @@
 # 4. Step-by-Step Details
 
 This document walks through every step the pipeline performs. Steps are
-numbered to match `COMPLETE_TRANSIT_PIPELINE.ipynb`. The equivalent code
-in the `src/` package is named for each step in the *Implementation*
-column.
+numbered to match the archived notebook (`notebooks/archive/COMPLETE_TRANSIT_PIPELINE.ipynb`),
+which the `hubs run` command replaces. The implementation of each step now lives in
+`src/pipeline/`:
+
+| Step(s) | Function |
+|---|---|
+| 1.3 | `network.load_nodeslines` |
+| 1.4 | `network.attach_modes`, `network.aggregate_to_hexes` |
+| 1.5 / 1.5.1 | `grouping.group_hexes`, `grouping.apply_manual_groups`, `grouping.assign_hub_ids` |
+| 1.6 | not ported (geocoding off; `address` = `Not geocoded`) |
+| 1.7 | `network.add_mode_line_columns` |
+| 1.8, 2.8, 3.6, 4.7 | no intermediate files; `run.write_outputs` (optionally `intermediate/`) |
+| 2.3 | `spatial_tags.tag_area_and_location` |
+| 2.4 / 2.5 | `demand.SHEET_COLUMN_CONFIG`, `demand.load_demand_workbook` |
+| 2.6 / 2.6.1–2.6.3 | `demand.assign_demand`, `demand.apply_manual_demand` (all overrides are rows of `manual_demand_updates.csv`) |
+| 2.7 / 2.7.1 | `aggregate.aggregate_to_groups`, `aggregate.tag_bus_terminals` |
+| 3.x | `aggregate.add_influence_area` |
+| 4.2–4.6 | `scoring.prepare_scoring_frame`, `add_mode_score`, `classify`, `filter_eligible`, `normalize_scores`, `monte_carlo` |
+| post-processing | `postprocess.finalize_columns`, `export.write_results_xlsx` |
+
+Where the text below says "the notebook", the same logic runs in the function named above;
+`docs/DEVIATIONS.md` lists the places where behaviour is configurable or was fixed.
 
 > Manual corrections are flagged with 🔧. The full description of each one
 > lives in [`06_manual_corrections.md`](06_manual_corrections.md).
@@ -23,11 +42,11 @@ Resolves Part-1-specific paths: `INPUT_NODES_CSV`, `LINES_MODE_CSV`,
 `OUTPUT_H3_HEXAGONS`.
 
 ### Step 1.3 — Load transit nodes
-Reads `INPUT_NODES_CSV` with `encoding='windows-1255'`. If the file has a
-`geometry` column the WKT is parsed; otherwise the geometry is built
-from `X` / `Y`. The result is a GeoDataFrame in **EPSG:2039**.
+Reads the `All_nodeslines*.csv` found in the input directory (encoding detected: `cp1255`
+or UTF-8). If the file has a `geometry` column the WKT is parsed; otherwise the geometry is
+built from `X` / `Y`. The result is a GeoDataFrame in **EPSG:2039**.
 
-| Implementation | `src/data/loaders.py::load_transit_nodes` |
+| Implementation | `src/pipeline/inputs.py::read_csv_auto`, `src/pipeline/network.py::load_nodeslines` |
 |----------------|-------------------------------------------|
 
 ### Step 1.4 — Assign H3 indices and aggregate lines per node
@@ -95,9 +114,9 @@ to produce:
 - `area` — national district (תל אביב / חיפה / צפון / דרום / ירושלים),
 - `location` — metropolitan position (גלעין / טבעת / periphery).
 
-Hebrew strings are passed through
-`src/scoring/location.py::fix_truncated_hebrew` to repair common shapefile
-truncations (e.g. `גלעי` → `גלעין`, `תל אבי` → `תל אביב`).
+Shapefile text is decoded byte-exact by `src/pipeline/inputs.py::read_shapefile`, so the
+Hebrew names arrive complete; `spatial_tags.fix_hebrew_name` still applies the notebook's
+repairs (`גלעי` → `גלעין`, `מחוז צפון` → `צפון`) for consistency of the `area` vocabulary.
 
 ### Step 2.4 — Per-sheet column configuration for the demand Excel
 The demand Excel contains multiple regional models, each with slightly
@@ -149,9 +168,10 @@ scoring: one row per hub with `TotalDemand`, `TotalTransfers`, modes,
 per-mode line counts, `area`, `location`, geometry.
 
 ### Step 2.7.1 — Add bus terminal data
-Reads `BUS_TERMINALS_SHP` (≈673 terminals), builds a 200 m buffer
-around each hub centroid (EPSG:2039), and tags hubs with the closest
-terminal's `term_type` plus a boolean `near_bus_terminal`.
+Reads the strategic bus terminals layer (≈673 terminals), buffers each terminal by 200 m
+(EPSG:2039), and tags hubs whose geometry intersects a buffer with `term_type`, `term_id`
+and the 0–3 `bus_terminal` class score. When several terminals touch a hub the
+highest-scoring one is kept (the notebook produced duplicate rows) and the tie is reported.
 
 ### Step 2.7.2 — Verify scoring columns
 Runs a checklist over the dataframe to ensure every column the scoring
@@ -169,14 +189,17 @@ hand-off file between Part 2 and Parts 3 / 4.
 ### Step 3.1 — Configure Part-3 paths
 `TAZ_SHAPEFILE`, `OUTPUT_FINAL`, `OUTPUT_FINAL_EXCEL`.
 
-### Step 3.2 — Load the influence-area processor module
-Imports `influence_area_processor.InfluenceAreaProcessor` — a
-performance-tuned refactor of the original notebook code that is ~3.7×
-faster.
+### Step 3.2 — Influence-area computation
+`src/pipeline/aggregate.py::add_influence_area` buffers each hub centroid into concentric
+rings (default 0–500 / 500–1 000 / 1 000–1 500 m, `influence_rings`), overlays them with the
+TAZ polygons and allocates `POP_2050` / `EMPL_2050` proportionally to the overlap area.
+(The former `influence_area_processor` ignored its ring configuration and always used
+600 / 1 000 / 1 200 m; see `docs/DEVIATIONS.md`.)
 
-### Step 3.3 — Check TAZ data availability
-If the TAZ shapefile is missing, Part 3 is skipped gracefully and the
-pipeline continues with whatever population/employment fields exist.
+### Step 3.3 — TAZ layer availability
+The TAZ layer is **required**: `hubs validate` lists it as missing and `hubs run` refuses
+to start without it. Only the test/dry-run escape hatch `HUBS_ALLOW_MISSING_LAYERS=1`
+lets the run continue with zero population and employment.
 
 ### Step 3.4 — Run the influence-area pipeline
 For each hub:
@@ -208,65 +231,52 @@ distribution-analysis parameters.
 Final column cleanup, dtype coercion, missing-value handling.
 
 ### Step 4.3 — Calculate mode-service and bus-terminal scores
-Runs the **Service** score (mode weights × line counts with diminishing
-returns and the modal-diversity bonus) and the **Bus Terminal Proximity**
-score (200 m buffer, weighted by terminal type).
+Computes the **Service** score `score = Σ(<Mode> Lines × MODE_WEIGHTS[mode]) × (1 + 0.1 ×
+(Num_Modes − 1))` and carries the 0–3 **bus_terminal** class score from Step 2.7.1.
 
-| Implementation | `src/scoring/service.py::calculate_service_score`, `src/scoring/terminals.py::calculate_terminal_score` |
+| Implementation | `src/pipeline/scoring.py::add_mode_score`, `src/pipeline/aggregate.py::bus_terminal_score` |
 
 ### Step 4.4 — Filter eligible hubs and classify tier
-Applies the eligibility rules and assigns one of the three tiers:
+Applies the eligibility rules and assigns `HubType`:
 
-1. Drop hubs with `TotalDemand < 1,000` or fewer than 2 mass-transit
-   modes (`src/classification/eligibility.py::filter_eligible_hubs`).
-2. *(Optional but enabled by default)* drop hubs whose only mass-transit
-   modes are rail (Suburban Rail / Interurban Rail / generic Rail) and
-   that have **no** Metro / LRT / BRT / HighSpeed Rail —
-   `config.REQUIRE_NON_RAIL_MODE = True`.
-3. Assign `tier` ∈ {ארצי, מטרופוליני, עירוני} based on `TotalDemand`
-   plus mode/line counts
-   (`src/classification/hierarchy.py::assign_hub_tiers`).
+1. Eligible = `TotalDemand ≥ 1,000` **and** at least 2 planned modes (after dropping generic
+   `Rail`) **and**, with `require_non_rail_mode` (default on), at least one of Metro / LRT /
+   BRT / HighSpeed Rail. With `apply_eligibility_filter` (default on) only eligible groups
+   continue.
+2. `HubType` ∈ {ארצי, מטרופוליני, עירוני, Train Station, Not Hub} from demand, modes and
+   `Total_Unique_Lines` (`src/classification/hierarchy.py::classify_hub_tier`; metropolitan
+   requires ≥ 5,000 passengers/day).
+
+| Implementation | `src/pipeline/scoring.py::classify`, `filter_eligible` |
 
 ### Step 4.5 — Normalize scores and calculate the Pop/Emp score
-Normalisation:
-- Activity, Service, Pop/Jobs → **per-tier** min-max to 1–10
-  (after `log10` for Activity).
-- Location, Terminal → **global** min-max to 1–10.
+All five criteria are min-max normalised to 1–10 **per HubType** (5.5 when a type is
+constant): `RegionLocation_Norm`, `score_Norm`, `bus_terminal_Norm`, `TotalDemand_Norm`
+(log₁₀, range over the non-zero values) and `PopEmp_Score_Norm`.
 
-Pop/Emp score uses three rings (0–500 / 500–1 000 / 1 000–1 500 m) with
-inverse-distance weights (`β = 1.5`) producing ring weights
-`{0: 0.78, 1: 0.15, 2: 0.07}`. The pop-vs-jobs mix is **80 / 20** for
-National and Metropolitan tiers and **20 / 80** for Local.
+The Pop/Emp raw score sums, over the rings (default 0–500 / 500–1 000 / 1 000–1 500 m),
+`(w_pop × pop + w_emp × emp) / midpoint^β` with `β = 1.5`. The mix is **20 % population /
+80 % jobs** for ארצי and מטרופוליני and **80 / 20** for עירוני.
 
-| Implementation | `src/scoring/normalization.py`, `src/scoring/demographics.py`, `src/scoring/activity.py`, `src/scoring/location.py` |
+| Implementation | `src/pipeline/scoring.py::normalize_scores`, `normalize_by_type`, `normalize_log_demand_by_type`, `pop_emp_raw_score` |
 
-### Step 4.6 — Monte Carlo aggregation and tier-aware ranking
-For 10,000 iterations:
-1. Draw five random weights, each uniformly in [0, 0.5], renormalised to
-   sum to 1.
-2. Compute the weighted sum of the five criterion scores.
+### Step 4.6 — Monte Carlo aggregation and ranking
+For 10,000 iterations per hub type (one seeded stream, `mc_scope = per_hubtype`):
+1. Draw five weights in [0, 1]; redraw while any exceeds 0.5; normalise to sum to 1.
+2. Compute the weighted sum of the five `*_Norm` criteria.
 
-The hub's `final_score` is the mean over all iterations. Ranking is
-then applied **after** Monte Carlo:
-- **National**: ranked globally.
-- **Metropolitan**: ranked **within geographic area** (Tel Aviv+Center,
-  Haifa+North, South).
-- **Local**: ranked **within geographic area**.
+`Average_Simulated_Score` (`TotalScore_MC`) is the mean over the iterations. Ranks:
+`Overall_Rank` / `Rank_TS_MC` (dense, all hubs), `Rank_within_HubType` /
+`Rank_By_TS_MC_By_Metro` (dense, per type) and, in post-processing, `RankByHubTypeMetro`
+(national hubs nationwide, other tiers within their metropolitan area, competition rank).
 
-If `AHP_ENABLED=True`, expert pairwise comparisons in
-`data/ahp_expert_comparisons.csv` are also loaded, validated for
-consistency (CR < 0.10) and aggregated (geometric mean). The hub then
-also gets `ahp_score` and `ahp_rank` columns.
+The optional AHP (`src/scoring/ahp.py`) and Monte Carlo distribution analysis
+(`src/scoring/mc_distribution.py`) can be run on the scored table separately.
 
-If MC distribution analysis is enabled, the per-iteration scores are
-preserved and additional statistics (mean, std, p5/p25/p75/p95, top-N
-probabilities) are exported.
+| Implementation | `src/pipeline/scoring.py::monte_carlo`, `src/pipeline/postprocess.py::rank_by_hubtype_metro` |
 
-| Implementation | `src/scoring/monte_carlo.py::run_complete_scoring_pipeline`, `src/scoring/ahp.py::run_ahp_scoring_pipeline`, `src/scoring/mc_distribution.py::run_mc_distribution_analysis` |
-
-### Step 4.7 — Export scored and ranked hubs
-Writes:
-- `scored_hubs_final.csv` (UTF-8-BOM, geometry as WKT),
-- `scored_hubs_final.xlsx`,
-- A GeoJSON layer for GIS, and
-- An interactive HTML map (`src/visualization/maps.py::create_hub_map`).
+### Step 4.7 — Export
+`postprocess.finalize_columns` derives the display columns (Hebrew names, line statuses,
+transfer rate, the two former Excel formula columns) and `run.write_outputs` writes
+`hub_prioritization_results.xlsx` (one Excel Table), its CSV twin, `hub_identity.csv`,
+the run report and the effective configuration. See [`07_outputs.md`](07_outputs.md).

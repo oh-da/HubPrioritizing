@@ -32,11 +32,3 @@ def test_validate_bad_set_value_exits(tmp_path):
 
     with pytest.raises(SystemExit):
         main(["validate", "--input-dir", str(tmp_path), "--set", "mc_iterations=abc"])
-
-
-def test_run_not_available_yet(tmp_path):
-    import pytest
-
-    with pytest.raises(SystemExit) as exc:
-        main(["run", "--input-dir", str(tmp_path), "--output-dir", str(tmp_path)])
-    assert "PR 8" in str(exc.value)

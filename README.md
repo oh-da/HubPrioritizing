@@ -7,64 +7,67 @@ A systematic framework for identifying, classifying, and prioritizing integrated
 
 ## Overview
 
-This framework implements a comprehensive methodology for evaluating multi-modal transit hubs based on:
+The framework evaluates multi-modal transit hubs on five criteria:
 - **Passenger activity** (2050 forecasts)
-- **Service quality** (modes and frequencies)
-- **Strategic location** (national and metropolitan importance)
-- **Development potential** (population and employment catchment)
-- **Bus network integration** (terminal proximity)
+- **Service quality** (modes and lines)
+- **Strategic location** (national region and metropolitan ring)
+- **Development potential** (2050 population and employment catchment)
+- **Bus network integration** (strategic terminal within 200 m)
 
-Results are aggregated using **Monte Carlo simulation** to ensure no single criterion dominates the final score.
+The criteria are aggregated with a **Monte Carlo simulation** (10,000 random weight sets) so that no
+single criterion dominates. The result is one workbook, `hub_prioritization_results.xlsx`, consumed
+by the results display page.
 
 ---
 
 ## Quick Start
 
-### Installation
-
-**Option 1: Automatic (Recommended)**
 ```bash
-# Just run the pipeline - it will check and install dependencies
-python scripts/run_complete_pipeline.py
-# When prompted, type 'y' to install missing packages
+git clone https://github.com/oh-da/HubPrioritizing.git
+cd HubPrioritizing
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -e .[dev]
+
+# 1. put the model exports of this run in one directory
+ls my_run/
+#   All_nodeslines_18062026.csv  Lines_and_Planned_Mode_18-06-2026.csv  Nodes_w_results_04022026.xlsx
+#   linesNames_noDuplicates.csv  lines_exploded.csv  BS_lines.csv
+
+# 2. check the inputs (lists every missing file or column, exits non-zero if anything is wrong)
+hubs validate --input-dir my_run
+
+# 3. run
+hubs run --input-dir my_run --output-dir my_run/out
 ```
 
-**Option 2: Install Script**
-```bash
-python scripts/install_dependencies.py
-```
+`my_run/out/` then contains:
 
-**Option 3: Manual**
-```bash
-pip install -r requirements.txt
-```
+| File | Content |
+|---|---|
+| `hub_prioritization_results.xlsx` | The display workbook: one sheet, one Excel Table, the 70 columns the page reads |
+| `hub_prioritization_results.csv` | The same table as UTF-8 CSV |
+| `hub_identity.csv` | `group`, stable `hub_id`, node list and name per hub |
+| `run_report.md` / `.json` | Inputs, detected encodings, metrics, and every data-quality finding |
+| `run_config.json`, `run.log` | The effective configuration and the log |
 
-See **INSTALL.md** for detailed installation instructions and troubleshooting.
+Stable layers (metropolitan rings, districts, bus terminals, TAZ 2050, hub names, manual merges,
+demand overrides) live in [`data/reference/`](data/reference/README.md) and do not need to be
+copied per run. A same-named file in the input directory overrides the reference copy.
 
-### Basic Usage
+See [INSTALL.md](INSTALL.md) for installation details.
 
-```python
-from scripts.run_pipeline import HubPrioritizationPipeline
+### Configuration
 
-# Initialize pipeline
-pipeline = HubPrioritizationPipeline()
-
-# Run complete analysis
-results = pipeline.run_complete_pipeline(
-    nodes_csv="data/raw/All_nodes+lines.csv",
-    lines_modes_csv="data/raw/Lines_and_Planned_Mode.csv"
-)
-
-# View top hubs
-print(results.nlargest(10, 'final_score'))
-```
-
-### Command Line
+Every methodological parameter has a default that reproduces the canonical notebook. Override
+with a YAML file or on the command line:
 
 ```bash
-# Edit file paths in scripts/run_pipeline.py, then run:
-python scripts/run_pipeline.py
+hubs show-config --defaults > pipeline.yaml       # edit, then:
+hubs run --input-dir my_run --output-dir out --config pipeline.yaml
+hubs run --input-dir my_run --output-dir out --set mc_iterations=20000 --set influence_rings=600,1000,1200
 ```
+
+[`docs/DEVIATIONS.md`](docs/DEVIATIONS.md) explains each flag and which notebook quirk it controls.
 
 ---
 
@@ -72,40 +75,33 @@ python scripts/run_pipeline.py
 
 ```
 HubPrioritizing/
-├── src/                          # Source code (reusable library)
-│   ├── config.py                 # Configuration and constants
-│   ├── utils/                    # Utilities (logging, constants, encoding)
-│   ├── data/                     # Data loading, validation, and processors
-│   │   ├── loaders.py            #   Input loading
-│   │   ├── validators.py         #   Data quality checks
-│   │   ├── hub_demand_processor.py      # 2050 demand matching & aggregation
-│   │   └── influence_area_processor.py  # Population/employment catchment
-│   ├── spatial/                  # H3 operations and merging
-│   ├── classification/           # Eligibility and hierarchy
-│   ├── scoring/                  # 5 scoring criteria + Monte Carlo + AHP
-│   └── visualization/            # Maps and charts
-│
-├── scripts/                      # Execution scripts
-│   ├── run_complete_pipeline.py  # Full end-to-end pipeline (demand + demographics)
-│   ├── run_pipeline.py           # Simplified pipeline (scoring path only)
-│   ├── install_dependencies.py   # Dependency installer
-│   ├── generate_demo_excel.py    # Demo scoring workbook generator
-│   └── test_ahp_scoring.py       # AHP smoke test
-│
-├── data/                         # Data files (raw/processed/results not in git)
-│   ├── *_TEMPLATE.csv            # Templates for manual inputs & AHP experts
-│   └── results/                  # Final outputs
-│
-├── app/                          # Streamlit AHP questionnaire app
-├── tests/                        # Unit tests
-├── notebooks/                    # Analysis & exploration notebooks
-├── docs/                         # Documentation (incl. full_documentation/)
-│
-├── requirements.txt              # Python dependencies
-├── INSTALL.md                    # Installation guide
-├── AHP_QUICKSTART.md             # AHP feature quick-start
-├── CLAUDE.md                     # Full framework specification
-└── README.md                     # This file
+├── src/
+│   ├── cli.py                    # `hubs validate | run | show-config`
+│   ├── config.py                 # thresholds, weights, CRS, column constants
+│   ├── pipeline/                 # the one-command pipeline (pure DataFrame stages)
+│   │   ├── settings.py           #   PipelineConfig, YAML / --set overrides
+│   │   ├── inputs.py             #   input directory contract, discovery, validation, readers
+│   │   ├── network.py            #   nodes x lines -> H3 hexagons -> per-mode line counts
+│   │   ├── grouping.py           #   120 m union-find groups, manual merges, stable hub_id
+│   │   ├── spatial_tags.py       #   metro ring / district -> area, location
+│   │   ├── demand.py             #   2050 demand workbook -> TotalDemand, TotalTransfers
+│   │   ├── aggregate.py          #   hexagons -> hubs, bus terminals, population/jobs rings
+│   │   ├── scoring.py            #   categories, mode score, tiers, normalisation, Monte Carlo
+│   │   ├── postprocess.py        #   display columns (incl. the former Excel formulas)
+│   │   ├── export.py             #   xlsx (Excel Table) and CSV writers, FINAL_COLUMNS
+│   │   ├── report.py             #   RunReport
+│   │   └── run.py                #   orchestrator
+│   ├── spatial/                  # H3 helpers, union-find proximity grouping
+│   ├── classification/           # tier rules (classify_hub_tier)
+│   ├── scoring/                  # optional extras: AHP, Monte Carlo distribution analysis
+│   └── utils/                    # encoding detection, logging
+├── data/reference/               # stable inputs shipped with the repo (see its README)
+├── tests/                        # unit (synthetic), golden (real exports, gitignored), smoke
+├── notebooks/archive/            # the superseded Colab notebooks, kept for provenance
+├── app/                          # Streamlit AHP questionnaire (optional)
+├── docs/                         # methodology, inputs, outputs, deviations, refactor plan
+├── pyproject.toml                # package + `hubs` console script
+└── CLAUDE.md                     # framework specification
 ```
 
 ---
@@ -114,210 +110,61 @@ HubPrioritizing/
 
 ### Pipeline Steps
 
-1. **Load Transit Data**: Import nodes, lines, and modes
-2. **Create H3 Hexagons**: Assign hexagonal spatial indices (~15m resolution)
-3. **Group Hexagons**: Merge nearby hexagons (120m threshold) into hub areas
-4. **Filter Eligibility**: Keep hubs with ≥1,000 passengers/day and ≥2 mass-transit modes
-5. **Classify Hierarchy**: Assign tiers (ארצי/מטרופוליני/עירוני) based on ridership
-6. **Calculate Scores**: Compute 5 scoring criteria normalized to 1-10 scale
-7. **Aggregate Scores**: Monte Carlo simulation (10,000 iterations) for final ranking
+1. **Network**: node x line rows joined to planned modes; H3 resolution-10 hexagons with node, mode and line lists.
+2. **Grouping**: hexagons within 120 m (edge to edge) form a hub; manual merges from `is_same_group.csv`.
+3. **Spatial tagging**: metropolitan area and ring (core / inner / middle / outer) or district.
+4. **Demand**: 2050 boardings + alightings per node from the regional models; overlay models override; node-level manual overrides.
+5. **Aggregation**: per hub demand, lines, modes, bus terminal within 200 m, population and jobs in 500 / 1000 / 1500 m rings.
+6. **Scoring**: eligibility (≥ 1,000 passengers, ≥ 2 modes, a non-rail mode), tier, five criteria normalised 1–10 per tier, Monte Carlo aggregation, ranks.
+7. **Display table**: Hebrew names, line status counts, transfer rate, formula columns, xlsx export.
 
 ### Hub Hierarchy
 
-| Tier | Hebrew | Ridership | Description |
-|------|--------|-----------|-------------|
-| **National** | ארצי | ≥50,000/day | Top-tier hubs connecting metropolitan regions |
-| **Metropolitan** | מטרופוליני | 5,000-50,000/day | Mid-level nodes linking trunk lines to feeders |
-| **Local** | עירוני | <5,000/day | Neighborhood gateways to the transit network |
+| Tier | Hebrew | Rule (as implemented) |
+|------|--------|------|
+| **National** | ארצי | high-speed or interurban rail, ≥ 3 lines, ≥ 50,000 passengers/day |
+| **Metropolitan** | מטרופוליני | suburban rail / metro / interurban / high-speed, ≥ 3 lines, ≥ 5,000 passengers/day |
+| **Local** | עירוני | BRT or LRT, ≥ 3 lines, ≥ 1,000 passengers/day |
+| Train Station | — | rail modes but ≤ 2 lines |
+| Not Hub | — | everything else |
 
 ### Scoring Criteria
 
-| # | Criterion | Normalization |
-|---|-----------|---------------|
-| 1 | **Passenger Activity** (log₁₀ + min-max) | Per tier |
-| 2 | **Service & Modes** (mode weights × √lines × diversity bonus) | Per tier |
-| 3 | **Location** (region × metro position) | **Global** |
-| 4 | **Population & Jobs** (2050 catchment with distance decay) | Per tier |
-| 5 | **Bus Terminal** (200m proximity × terminal weight) | **Global** |
+| # | Criterion | Column | Normalisation |
+|---|-----------|--------|---------------|
+| 1 | Passenger activity (log₁₀ demand) | `TotalDemand_Norm` | per tier |
+| 2 | Service & modes (Σ lines × mode weight × diversity bonus) | `score_Norm` | per tier |
+| 3 | Location (region × metropolitan position) | `RegionLocation_Norm` | per tier |
+| 4 | Population & jobs 2050 (rings with distance decay, tier-specific mix) | `PopEmp_Score_Norm` | per tier |
+| 5 | Bus terminal proximity (0–3 by terminal class) | `bus_terminal_Norm` | per tier |
 
-**Important Notes:**
-- **Per-tier normalization**: All hubs of the same tier (ארצי/מטרופוליני/עירוני) are normalized together, regardless of geographic area
-- **Monte Carlo**: Simulation runs on **all hubs together** (single simulation across entire dataset)
-- **Ranking**: National hubs ranked globally; Metropolitan/Local hubs ranked within their geographic area
-
----
-
-## Configuration
-
-All parameters are centralized in `src/config.py`:
-
-```python
-# Key thresholds
-ELIGIBILITY_MIN_PASSENGERS = 1000  # Minimum daily passengers
-ELIGIBILITY_MIN_MODES = 2          # Minimum mass-transit modes
-
-# Hierarchy thresholds
-NATIONAL_HUB_MIN_PASSENGERS = 50000
-METRO_HUB_MIN_PASSENGERS = 5000
-
-# Spatial parameters
-H3_RESOLUTION = 10                  # ~15m hexagons
-HUB_MERGE_THRESHOLD_M = 120        # Edge-to-edge grouping distance
-
-# Scoring
-MONTE_CARLO_ITERATIONS = 10000      # Simulation iterations
-MAX_CRITERION_WEIGHT = 0.5          # Max weight per criterion (50%)
-```
-
----
-
-## Data Requirements
-
-### Input Files
-
-1. **Transit Nodes** (`All_nodes+lines.csv`)
-   - Columns: `node`, `LINE_ID`, `X`, `Y` (or `geometry`)
-   - Format: CSV with Israel TM Grid coordinates (EPSG:2039)
-
-2. **Lines and Modes** (`Lines_and_Planned_Mode.csv`)
-   - Columns: `Line_ModelName`, `Mode_Planned`, `Area`
-   - Maps transit lines to their planned mode
-
-3. **Demand Data** (optional, Excel file)
-   - 2050 passenger forecasts by station
-   - Sheets for each regional model (Haifa, TelAviv, Jerusalem, etc.)
-
-4. **Spatial Layers** (optional shapefiles)
-   - Metro areas
-   - Administrative districts
-   - TAZ zones with POP_2050 and EMPL_2050
-   - Bus terminals
-
-### Output Files
-
-- `hub_prioritization_results_{timestamp}.csv` - Full results with all scores
-- `hub_prioritization_results_{timestamp}.geojson` - Spatial data for mapping
-- `hub_map_{timestamp}.html` - Interactive web map
-
----
-
-## Examples
-
-### Run Specific Steps
-
-```python
-from scripts.run_pipeline import HubPrioritizationPipeline
-
-pipeline = HubPrioritizationPipeline()
-
-# Run individual steps
-pipeline.step_1_load_transit_data(nodes_csv, lines_csv)
-pipeline.step_2_create_h3_hexagons()
-pipeline.step_3_group_hexagons()
-# ... continue as needed
-
-# Access intermediate results
-hubs = pipeline.grouped_hubs
-```
-
-### Custom Scoring
-
-```python
-from src.scoring import monte_carlo
-
-# Calculate all scores
-scored_hubs = monte_carlo.run_complete_scoring_pipeline(
-    hubs_gdf,
-    tier_column='tier'
-)
-
-# View top 20
-top_20 = scored_hubs.nlargest(20, 'final_score')
-print(top_20[['group', 'tier', 'final_score', 'rank']])
-```
-
-### Visualization
-
-```python
-from src.visualization import maps
-
-# Create interactive map
-maps.create_hub_map(
-    scored_hubs,
-    color_by='final_score',
-    output_file='results/my_map.html'
-)
-```
+Final score `TotalScore_MC` = mean over 10,000 random weight sets (seed 42). `RankByHubTypeMetro`
+ranks national hubs nationwide and other tiers within (tier, metropolitan area).
 
 ---
 
 ## Testing
 
 ```bash
-# Run all tests
-pytest tests/
-
-# With coverage
-pytest tests/ --cov=src --cov-report=html
+pytest                       # unit + smoke tests on synthetic data (no external files)
+pytest tests/golden          # regression against the June 2026 results; needs tests/fixtures/real/
 ```
 
----
-
-## Code Quality
-
-This codebase has been reviewed for adherence to SOLID design principles and software engineering best practices. See [docs/EXECUTIVE_SUMMARY.md](docs/EXECUTIVE_SUMMARY.md) for the complete assessment.
-
-### Key Strengths
-- ✅ **Excellent module organization** - Clear separation of concerns
-- ✅ **Well-documented methodology** - Comprehensive technical documentation
-- ✅ **Centralized configuration** - All parameters in one place
-- ✅ **Strong data validation** - Early error detection
-
-### Architecture Highlights
-- **Single Responsibility**: Each module has one clear purpose
-- **Functional Design**: Composable, testable functions
-- **Configuration-Driven**: Behavior controlled by `config.py`
-- **Reproducible**: Fixed random seeds, version-controlled parameters
-
-### Overall Assessment: **VERY GOOD (Grade: A-)**
-
-The framework demonstrates strong engineering practices and is production-ready. See the [SOLID review](docs/SOLID_PRINCIPLES_REVIEW.md) for detailed recommendations to enhance extensibility and testability
+`tests/fixtures/README.md` lists the real files the golden tests expect. On the June 2026 exports
+the pipeline reproduces all 142 hubs of the results workbook: group IDs, nodes, demand, lines, modes,
+tiers, names, and (given the same inputs) Monte Carlo scores to 1e-13.
 
 ---
 
 ## Documentation
 
-### Primary Documentation
-
-- **[CLAUDE.md](CLAUDE.md)** - Complete framework specification and methodology
-  - Domain context (What is a מתח"מ?)
-  - Hub hierarchy definitions
-  - Detailed scoring methodology
-  - Data requirements
-  - Development guidelines
-  - AI assistant instructions
-
-- **[INSTALL.md](INSTALL.md)** - Installation guide and troubleshooting
-- **[AHP_QUICKSTART.md](AHP_QUICKSTART.md)** - Quick-start for the optional AHP expert-weighting workflow
-- **[docs/full_documentation/](docs/full_documentation/)** - End-to-end documentation (overview, inputs, pipeline, step-by-step, scoring, outputs)
-
-### Methodology & Project Summary
-
-- **[docs/PROJECT_EXECUTIVE_SUMMARY.md](docs/PROJECT_EXECUTIVE_SUMMARY.md)** - Project-level executive summary (methodology depth and decision rationale)
-- **[docs/AHP_SCORING_GUIDE.md](docs/AHP_SCORING_GUIDE.md)** - AHP scoring methodology
-- **[docs/SCORING_CRITERIA_EXECUTIVE_SUMMARY.md](docs/SCORING_CRITERIA_EXECUTIVE_SUMMARY.md)** - Scoring criteria overview
-- **[docs/DEMO_SCORING_WALKTHROUGH.md](docs/DEMO_SCORING_WALKTHROUGH.md)** - Worked scoring example
-
-### Code Quality & Architecture
-
-- **[docs/EXECUTIVE_SUMMARY.md](docs/EXECUTIVE_SUMMARY.md)** - Code quality / SOLID review executive summary
-- **[docs/SOLID_PRINCIPLES_REVIEW.md](docs/SOLID_PRINCIPLES_REVIEW.md)** - Detailed SOLID principles review
-
-### Additional Documentation
-
-- **[docs/DATA_CONFIGURATION.md](docs/DATA_CONFIGURATION.md)** - Data file configuration guide
-- **[data/README_MANUAL_DEMAND_UPDATES.md](data/README_MANUAL_DEMAND_UPDATES.md)** - Demand data update procedures
-- **[data/README_MODE_LINE_COLUMNS.md](data/README_MODE_LINE_COLUMNS.md)** - Mode and line column descriptions
+- **[CLAUDE.md](CLAUDE.md)** — framework specification and methodology
+- **[docs/full_documentation/](docs/full_documentation/)** — inputs, pipeline, step-by-step, scoring, manual corrections, outputs, code reference
+- **[docs/DEVIATIONS.md](docs/DEVIATIONS.md)** — notebook quirks kept behind flags and intentional fixes
+- **[docs/PIPELINE_REFACTOR_PLAN.md](docs/PIPELINE_REFACTOR_PLAN.md)** — the review and plan that produced the current structure
+- **[data/reference/README.md](data/reference/README.md)** — the stable reference layers and tables
+- **[AHP_QUICKSTART.md](AHP_QUICKSTART.md)**, **[docs/AHP_SCORING_GUIDE.md](docs/AHP_SCORING_GUIDE.md)** — optional expert weighting
+- **[docs/PROJECT_EXECUTIVE_SUMMARY.md](docs/PROJECT_EXECUTIVE_SUMMARY.md)**, **[docs/SCORING_CRITERIA_EXECUTIVE_SUMMARY.md](docs/SCORING_CRITERIA_EXECUTIVE_SUMMARY.md)** — summaries for stakeholders
 
 ---
 
@@ -344,6 +191,3 @@ is strictly prohibited without prior express written permission. See the
 
 **Author:** Ohad Dahan
 **Email:** [ohad@ayalonhw.co.il](mailto:ohad@ayalonhw.co.il)
-
-For technical questions about the framework, see [CLAUDE.md](CLAUDE.md) and the
-[full documentation](docs/full_documentation/).

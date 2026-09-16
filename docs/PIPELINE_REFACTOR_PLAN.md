@@ -2,6 +2,13 @@
 
 # HubPrioritizing: review and "one stop shop" pipeline plan
 
+> **Status (2026-09-16): implemented.** PRs 1–9 landed on `claude/lucid-lovelace-riqjaa`;
+> `hubs run` reproduces the June 2026 results workbook (see `tests/golden/`). Still open:
+> the bus-terminal and TAZ 2050 layers for `data/reference/` (Part D), and the optional
+> stage 0 that would build `All_nodeslines` from `Routes_and_Nodes` + node coordinates.
+> The pre-cleanup repository is tagged `v1-notebooks`. `docs/DEVIATIONS.md` records the
+> behaviour flags and fixes that came out of the golden comparisons.
+
 ## Context
 
 The user (transport modeler) reruns the hub prioritization whenever new model exports arrive. Today that means

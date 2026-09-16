@@ -42,9 +42,26 @@ from ..config import (
     MC_DIST_MAX_HUB_HISTOGRAMS,
 )
 from ..utils.logging import get_logger
-from .monte_carlo import generate_random_weights
 
 logger = get_logger(__name__)
+
+
+def generate_random_weights(
+    n_criteria: int,
+    max_weight: float = MAX_CRITERION_WEIGHT,
+    min_weight: float = MIN_CRITERION_WEIGHT,
+    random_state: Optional[np.random.RandomState] = None,
+) -> np.ndarray:
+    """Uniform weights in [min_weight, max_weight], normalised to sum to 1.
+
+    Used by the distribution analysis only. The production Monte Carlo
+    (:func:`src.pipeline.scoring.draw_weight_matrix`) uses the notebook's
+    rejection-sampling scheme instead.
+    """
+    if random_state is None:
+        random_state = np.random.RandomState()
+    weights = random_state.uniform(min_weight, max_weight, size=n_criteria)
+    return weights / weights.sum()
 
 
 # ============================================================================

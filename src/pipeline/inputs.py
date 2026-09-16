@@ -169,6 +169,16 @@ INPUT_SPECS: tuple[InputSpec, ...] = (
         reference=True,
     ),
     InputSpec(
+        key="line_names_extra",
+        patterns=("line_names_extra.csv",),
+        kind="csv",
+        required=False,
+        description="Hebrew line names that fill gaps in the per-run line names file",
+        required_columns=("LineName", "Line_n_Mode"),
+        hebrew_columns=("Line_n_Mode",),
+        reference=True,
+    ),
+    InputSpec(
         key="is_same_group",
         patterns=("is_same_group.csv", "IsSameGroup*.csv"),
         kind="csv",

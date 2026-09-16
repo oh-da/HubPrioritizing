@@ -199,14 +199,17 @@ def aggregate_to_hexes(nodes: gpd.GeoDataFrame, resolution: int = H3_RESOLUTION)
         }
     )
 
+    # sort=True on purpose: the notebook's default groupby ordering (by h3_index, node,
+    # mode) fixes the hexagon order, which in turn fixes group numbering and which
+    # hexagon's area/location a group inherits. Keeping it reproduces the golden IDs.
     per_node_mode = (
-        df.groupby(["h3_index", NODE_COL, MODE_COL], sort=False)[LINE_COL]
+        df.groupby(["h3_index", NODE_COL, MODE_COL], sort=True)[LINE_COL]
         .agg(Line_Nunique="nunique", lines=lambda s: sorted(set(s)))
         .reset_index()
     )
 
     rows = []
-    for h3_index, grp in per_node_mode.groupby("h3_index", sort=False):
+    for h3_index, grp in per_node_mode.groupby("h3_index", sort=True):
         lines_by_mode: dict[str, int] = {}
         for mode, n in zip(grp[MODE_COL], grp["Line_Nunique"]):
             lines_by_mode[mode] = lines_by_mode.get(mode, 0) + int(n)

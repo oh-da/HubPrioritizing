@@ -1,6 +1,7 @@
 """Fixtures over the real sample inputs and the golden workbook (skipped when absent)."""
 
 import ast
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -27,8 +28,15 @@ def golden(real_inputs) -> pd.DataFrame:
     return pd.read_excel(path)
 
 
+_QUOTED = re.compile(r"'((?:[^'\\]|\\.)*)'|\"((?:[^\"\\]|\\.)*)\"")
+
+
 def parse_listish(value) -> list:
-    """Parse the notebook's stringified (possibly nested) lists into a flat list of tokens."""
+    """Parse the notebook's stringified (possibly nested) lists into a flat list of tokens.
+
+    Handles ``"['Metro', 'HighSpeed Rail']"`` (tokens with spaces) and the CSV round-trip
+    artifact ``'["[\\'a\\' \\'b\\']", "[\\'c\\']"]'`` (a list of stringified lists).
+    """
     if isinstance(value, list):
         return value
     if pd.isna(value):
@@ -39,11 +47,14 @@ def parse_listish(value) -> list:
         outer = [value]
     if not isinstance(outer, list):
         outer = [outer]
-    out = []
+    out: list[str] = []
     for el in outer:
-        s = str(el).strip("[]").replace("'", "").replace('"', "")
-        out.extend(t for t in (x.strip() for x in s.replace(",", " ").split()) if t)
-    return out
+        s = str(el)
+        if s.startswith("[") and ("'" in s or '"' in s):
+            out.extend(a or b for a, b in _QUOTED.findall(s))
+        else:
+            out.append(s.strip())
+    return [t for t in out if t]
 
 
 @pytest.fixture(scope="session")

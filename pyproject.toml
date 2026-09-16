@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hub-prioritization"
+version = "2.0.0a1"
+description = "Identify, classify, score and prioritize integrated transport hubs (מתח\"מים) in Israel"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+dependencies = [
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "geopandas>=1.0",
+    "shapely>=2.0",
+    "pyproj>=3.6",
+    "pyogrio>=0.9",
+    "rtree>=1.1",
+    "h3>=4.0,<5",
+    "openpyxl>=3.1",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# Expert-driven weighting alternative (src/scoring/ahp.py, app/ahp_questionnaire.py)
+ahp = ["streamlit>=1.28", "plotly>=5.18"]
+# Maps and charts (src/visualization, src/scoring/mc_distribution.py)
+viz = ["folium>=0.14", "matplotlib>=3.7"]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov>=4.1",
+    "black>=23.0",
+    "flake8>=6.0",
+]
+
+[project.scripts]
+hubs = "src.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["src", "src.*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]

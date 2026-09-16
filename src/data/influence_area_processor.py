@@ -9,7 +9,7 @@ calculates population and employment statistics from Traffic Analysis Zones (TAZ
 that intersect with these buffers.
 
 Key Features:
-- Creates 3 concentric buffer zones (0-600m, 600-1000m, 1000-1200m)
+- Creates 3 concentric buffer zones (default 0-500m, 500-1000m, 1000-1500m; configurable)
 - Calculates population and employment from TAZ data
 - Uses proportional allocation by area overlap
 - Identifies hubs near bus terminals
@@ -49,12 +49,15 @@ class InfluenceAreaProcessor:
         self.crs_projected = crs_projected
         self.crs_wgs84 = crs_wgs84
         
-        # Default buffer zones (in meters)
-        # These create "rings" - each zone excludes the inner zones
+        # Default buffer zones (in meters), matching config.CATCHMENT_RINGS and the
+        # pop_0_500 / pop_500_1000 / pop_1000_1500 output column names.
+        # These create "rings" - each zone excludes the inner zones.
+        # Override by assigning a new dict before calling create_buffer_zones();
+        # the radii below are honoured (they used to be hardcoded to 600/1000/1200).
         self.buffer_zones = {
-            'zone1': (0, 600),      # 0-600m
-            'zone2': (600, 1000),   # 600-1000m (ring only)
-            'zone3': (1000, 1200)   # 1000-1200m (ring only)
+            'zone1': (0, 500),      # 0-500m
+            'zone2': (500, 1000),   # 500-1000m (ring only)
+            'zone3': (1000, 1500)   # 1000-1500m (ring only)
         }
         
         # Terminal proximity distance
@@ -305,21 +308,33 @@ class InfluenceAreaProcessor:
         """
         Create concentric buffer zones around hub centroids.
 
-        Creates rings:
-        - Zone 1: 0-600m
-        - Zone 2: 600-1000m (ring only, excluding zone 1)
-        - Zone 3: 1000-1200m (ring only, excluding zones 1 and 2)
+        Creates concentric rings from ``self.buffer_zones`` (default 0-500m,
+        500-1000m, 1000-1500m). Each outer zone excludes the inner zones.
 
         Args:
             gdf: Hub GeoDataFrame
 
         Returns:
             Dictionary of zone name to GeoSeries of buffer polygons
+
+        Raises:
+            ValueError: if the zones are not contiguous, increasing rings
+                starting at 0 (e.g. ``{'zone1': (0, 500), 'zone2': (500, 1000)}``)
         """
+        zone_names = list(self.buffer_zones.keys())
+        radii = [self.buffer_zones[z] for z in zone_names]
+        expected_inner = 0
+        for name, (inner, outer) in zip(zone_names, radii):
+            if inner != expected_inner or outer <= inner:
+                raise ValueError(
+                    f"buffer_zones must be contiguous increasing rings starting at 0; "
+                    f"got {name}=({inner}, {outer}) after inner radius {expected_inner}"
+                )
+            expected_inner = outer
+
         print("\nCreating buffer zones...")
-        print(f"  Zone 1: {self.buffer_zones['zone1'][0]}-{self.buffer_zones['zone1'][1]}m")
-        print(f"  Zone 2: {self.buffer_zones['zone2'][0]}-{self.buffer_zones['zone2'][1]}m")
-        print(f"  Zone 3: {self.buffer_zones['zone3'][0]}-{self.buffer_zones['zone3'][1]}m")
+        for name, (inner, outer) in zip(zone_names, radii):
+            print(f"  {name}: {inner}-{outer}m")
 
         # Convert to projected CRS for meter-based operations
         gdf_proj = gdf.to_crs(self.crs_projected)
@@ -343,36 +358,24 @@ class InfluenceAreaProcessor:
             print("  ERROR: No valid centroids found!")
             print(f"  Sample geometries: {gdf_proj.geometry.head()}")
 
-        # Create full circles at each distance
-        buffer_600 = centroids.buffer(600)
-        buffer_1000 = centroids.buffer(1000)
-        buffer_1200 = centroids.buffer(1200)
-
-        # Create rings by subtraction
-        # Zone 1: 0-600m (full circle)
-        zone1 = buffer_600
-
-        # Zone 2: 600-1000m (ring only)
-        zone2 = buffer_1000.difference(buffer_600)
-
-        # Zone 3: 1000-1200m (ring only)
-        zone3 = buffer_1200.difference(buffer_1000)
+        # Full circles at each outer radius, then rings by subtracting the inner circle.
+        buffers: Dict[str, gpd.GeoSeries] = {}
+        inner_circle = None
+        for name, (inner, outer) in zip(zone_names, radii):
+            outer_circle = centroids.buffer(outer)
+            if inner_circle is None:
+                buffers[name] = outer_circle
+            else:
+                buffers[name] = outer_circle.difference(inner_circle)
+            inner_circle = outer_circle
 
         # Debug: Check for empty buffers
-        empty_z1 = zone1[zone1.is_empty].count() if hasattr(zone1, 'is_empty') else 0
-        empty_z2 = zone2[zone2.is_empty].count() if hasattr(zone2, 'is_empty') else 0
-        empty_z3 = zone3[zone3.is_empty].count() if hasattr(zone3, 'is_empty') else 0
-        print(f"  Empty buffers - Zone1: {empty_z1}, Zone2: {empty_z2}, Zone3: {empty_z3}")
+        empty_counts = {name: int(b.is_empty.sum()) for name, b in buffers.items()}
+        print(f"  Empty buffers: {empty_counts}")
 
-        # Sample buffer bounds for debugging
-        if len(zone1) > 0 and not zone1.iloc[0].is_empty:
-            print(f"  Sample zone1 bounds: {zone1.iloc[0].bounds}")
-
-        buffers = {
-            'zone1': zone1,
-            'zone2': zone2,
-            'zone3': zone3
-        }
+        first_zone = buffers[zone_names[0]]
+        if len(first_zone) > 0 and not first_zone.iloc[0].is_empty:
+            print(f"  Sample {zone_names[0]} bounds: {first_zone.iloc[0].bounds}")
 
         print(f"✓ Created buffer zones for {len(gdf)} hubs")
 

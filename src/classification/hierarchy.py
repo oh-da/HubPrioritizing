@@ -40,6 +40,7 @@ def classify_hub_tier(
     2. Regional (מטרופוליני):
        - Has Suburban Rail OR Metro OR Interurban Rail OR HighSpeed Rail
        - AND ≥3 lines
+       - AND ≥5,000 passengers/day (added to the notebook on 2025-12-29)
 
     3. Local (עירוני):
        - Has BRT OR LRT
@@ -80,8 +81,12 @@ def classify_hub_tier(
     if (has_highspeed or has_interurban or (has_rail and num_lines >= 3)) and (num_lines >= 3) and (total_demand >= 50000):
         return tier_national
 
-    # Regional: (Suburban OR Metro OR Interurban OR HighSpeed) AND ≥3 lines
-    elif (has_suburban or has_metro or has_interurban or has_highspeed or has_rail) and (num_lines >= 3):
+    # Regional: (Suburban OR Metro OR Interurban OR HighSpeed) AND ≥3 lines AND ≥5000 demand
+    elif (
+        (has_suburban or has_metro or has_interurban or has_highspeed or has_rail)
+        and (num_lines >= 3)
+        and (total_demand >= 5000)
+    ):
         return tier_metro
 
     # Local: (BRT OR LRT) AND ≥3 lines AND ≥1000 demand

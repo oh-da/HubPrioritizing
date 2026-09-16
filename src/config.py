@@ -20,10 +20,10 @@ RAW_DATA_DIR = DATA_DIR / "raw"
 PROCESSED_DATA_DIR = DATA_DIR / "processed"
 RESULTS_DIR = DATA_DIR / "results"
 LOGS_DIR = PROJECT_ROOT / "logs"
+REFERENCE_DATA_DIR = DATA_DIR / "reference"  # stable inputs shipped with the repo
 
-# Ensure directories exist
-for directory in [DATA_DIR, RAW_DATA_DIR, PROCESSED_DATA_DIR, RESULTS_DIR, LOGS_DIR]:
-    directory.mkdir(parents=True, exist_ok=True)
+# NOTE: importing this module must have no side effects. Callers that write
+# files are responsible for creating the directory they write to.
 
 # ============================================================================
 # COORDINATE REFERENCE SYSTEMS
@@ -306,7 +306,7 @@ TIER_COLORS = {
 LOG_LEVEL = 'INFO'  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
-LOG_TO_FILE = True
+LOG_TO_FILE = False  # file logging is opt-in: pass log_file= to setup_logger()
 LOG_TO_CONSOLE = True
 
 # ============================================================================

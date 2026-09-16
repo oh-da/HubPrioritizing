@@ -573,7 +573,7 @@ Key files for reference:
 - `src/pipeline/scoring.py` — eligibility, tiers, normalisation, Monte Carlo
 - `src/pipeline/export.py` — `FINAL_COLUMNS`, the 70-column schema the display page reads
 - `docs/DEVIATIONS.md` — every notebook quirk kept behind a flag and every intentional fix
-- `notebooks/archive/COMPLETE_TRANSIT_PIPELINE.ipynb`, `create_results_csv.ipynb` — the superseded Colab notebooks (provenance only; tag `v1-notebooks` has the pre-cleanup repo)
+- `notebooks/archive/COMPLETE_TRANSIT_PIPELINE.ipynb`, `create_results_csv.ipynb` — the superseded Colab notebooks (provenance only; branch `legacy/v1-notebooks` has the pre-cleanup repo)
 
 ### Organization
 

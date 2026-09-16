@@ -39,5 +39,5 @@ to understand the model without reading the source code first.
 - **Document version:** 2.0
 - **Last updated:** 2026-09-16
 - **Implementation documented:** `src/pipeline/` (the `hubs` command). The Colab notebooks it
-  replaces are archived under `notebooks/archive/`; the pre-cleanup repository is tagged
-  `v1-notebooks`.
+  replaces are archived under `notebooks/archive/`; the pre-cleanup repository is on the branch
+  `legacy/v1-notebooks`.

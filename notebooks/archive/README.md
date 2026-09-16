@@ -15,5 +15,5 @@ provenance. Cell outputs were stripped to keep the repository small.
 | `ahp_expert_questionnaire.ipynb` | AHP expert input (still usable; see `app/ahp_questionnaire.py`) | `src/scoring/ahp.py` |
 | `grouped_hubs_ready_for_scoring_21082025.csv` | Sample intermediate the notebooks defaulted to | `tests/fixtures/` |
 
-The full pre-cleanup repository state is tagged `v1-notebooks`
-(`git checkout v1-notebooks`).
+The full pre-cleanup repository state is kept on the branch `legacy/v1-notebooks`
+(`git checkout legacy/v1-notebooks`).

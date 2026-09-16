@@ -6,7 +6,7 @@
 > `hubs run` reproduces the June 2026 results workbook (see `tests/golden/`). Still open:
 > the bus-terminal and TAZ 2050 layers for `data/reference/` (Part D), and the optional
 > stage 0 that would build `All_nodeslines` from `Routes_and_Nodes` + node coordinates.
-> The pre-cleanup repository is tagged `v1-notebooks`. `docs/DEVIATIONS.md` records the
+> The pre-cleanup repository is on the branch `legacy/v1-notebooks`. `docs/DEVIATIONS.md` records the
 > behaviour flags and fixes that came out of the golden comparisons.
 
 ## Context

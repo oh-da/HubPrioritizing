@@ -62,6 +62,13 @@ class PipelineConfig:
     overlay_regions: tuple[str, ...] = ("Hadera", "Haifa Metronit")
 
     # --- Part 3: terminals and influence area -------------------------------------------
+    # 'shapefiles' = tag metro/district, terminals and TAZ from the polygon layers at run
+    # time; 'h3_base' = look everything up in the pre-allocated H3 table written by
+    # `hubs prepare-base` (data/reference/h3_base.parquet).
+    spatial_source: str = "shapefiles"
+    # h3_base only: 'center' counts a cell in the ring its centre falls in; 'fraction'
+    # weights it by the share of its polygon inside the ring.
+    influence_cell_rule: str = "center"
     terminal_buffer_m: float = TERMINAL_PROXIMITY_DISTANCE_M
     influence_rings: tuple[int, ...] = (500, 1000, 1500)
     # Distance-decay midpoints for the pop/jobs score. Empty = derived from influence_rings
@@ -98,6 +105,10 @@ class PipelineConfig:
             raise ConfigError("per_mode_lines_method must be 'even' or 'exact'")
         if self.mc_scope not in ("per_hubtype", "all_hubs"):
             raise ConfigError("mc_scope must be 'per_hubtype' or 'all_hubs'")
+        if self.spatial_source not in ("shapefiles", "h3_base"):
+            raise ConfigError("spatial_source must be 'shapefiles' or 'h3_base'")
+        if self.influence_cell_rule not in ("center", "fraction"):
+            raise ConfigError("influence_cell_rule must be 'center' or 'fraction'")
         rings = list(self.influence_rings)
         if len(rings) < 1 or rings != sorted(rings) or rings[0] <= 0 or len(set(rings)) != len(rings):
             raise ConfigError("influence_rings must be strictly increasing positive radii")

@@ -584,7 +584,7 @@ HubPrioritizing/
 ├── requirements.txt             # runtime deps (mirror of pyproject)
 │
 ├── src/
-│   ├── cli.py                   # hubs validate | run | show-config
+│   ├── cli.py                   # hubs validate | run | show-config | prepare-base
 │   ├── config.py                # thresholds, weights, CRS, column constants, tier labels
 │   ├── pipeline/                # the one-command pipeline (pure DataFrame stages)
 │   │   ├── settings.py          #   PipelineConfig, YAML / --set overrides
@@ -595,6 +595,7 @@ HubPrioritizing/
 │   │   ├── spatial_tags.py      #   metro ring / district -> area, location
 │   │   ├── demand.py            #   demand workbook -> TotalDemand, TotalTransfers, overrides
 │   │   ├── aggregate.py         #   hexagons -> hubs, bus terminals, pop/jobs rings
+│   │   ├── base_layer.py        #   H3 base layer (prepare-base builder + lookups; prototype)
 │   │   ├── scoring.py           #   categories, mode score, tiers, normalisation, Monte Carlo
 │   │   ├── postprocess.py       #   display columns incl. the former Excel formulas
 │   │   ├── export.py            #   xlsx (Excel Table) + CSV writers
@@ -1262,6 +1263,7 @@ This document should be updated when:
 hubs validate --input-dir DIR            # check inputs
 hubs run --input-dir DIR --output-dir OUT
 hubs show-config --defaults              # every parameter as YAML
+hubs prepare-base                        # (prototype) pre-allocate the reference layers to H3 cells; see docs/H3_BASE_LAYER.md
 pytest                                    # unit + smoke tests
 ```
 

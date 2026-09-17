@@ -18,6 +18,8 @@ page lists every such place, plus the few spots where the pipeline deliberately 
 | `mc_scope` | `per_hubtype` — one seeded random stream consumed tier by tier | `all_hubs` — one weight matrix for the whole table | CLAUDE.md describes `all_hubs`; the notebook implemented `per_hubtype`. Scores differ slightly. |
 | `renormalize_globally` | `false` — `*_Norm` columns are the per-tier values the Monte Carlo score was built from | `true` — recompute them globally as `create_results_csv.ipynb` did | Only the five `*_Norm` display columns; `TotalScore_MC` is unaffected. The `true` setting reproduces the June 2026 workbook's `*_Norm` columns, which were inconsistent with its scores. |
 | `drop_line_rules` | Haifa lines starting with `m` (old Metronit), Netanya `LRT151`/`LRT152` | any list of `area:regex` | Which lines are excluded before hexagon aggregation |
+| `spatial_source` | `shapefiles` — metro/district, terminals and TAZ overlaid at run time | `h3_base` — everything looked up in `data/reference/h3_base.parquet` (`hubs prepare-base`) | Prototype. Terminals and tiers identical; pop/emp within ~1 % (with `influence_cell_rule=fraction`); ring tags of hexagons straddling a ring boundary follow the cell centre instead of shapefile order (4 of the 142 June 2026 hubs, see `H3_BASE_LAYER.md`). |
+| `influence_cell_rule` | `center` | `fraction` | `h3_base` only: whether a cell counts wholly in the ring its centre falls in, or by the share of its polygon inside the ring (recommended). |
 
 ## Notebook behaviours reproduced on purpose
 

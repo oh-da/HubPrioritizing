@@ -59,6 +59,14 @@ def build_parser() -> argparse.ArgumentParser:
     add_common(p_run)
     p_run.add_argument("--output-dir", required=True, type=Path)
 
+    p_base = sub.add_parser("prepare-base", help="pre-allocate the reference layers to H3 cells (h3_base.parquet)")
+    p_base.add_argument("--reference-dir", type=Path, default=REFERENCE_DATA_DIR, help=f"directory with the four shapefiles (default: {REFERENCE_DATA_DIR})")
+    p_base.add_argument("--input-dir", type=Path, default=None, help="optional directory whose same-named layers override the reference copies")
+    p_base.add_argument("--out", type=Path, default=None, help="output parquet (default: <reference-dir>/h3_base.parquet)")
+    p_base.add_argument("--resolution", type=int, default=10, help="H3 resolution (must match the run's h3_resolution)")
+    p_base.add_argument("--terminal-buffer-m", type=float, default=None, help="terminal proximity distance (default: config value, 200 m)")
+    p_base.add_argument("--file", action="append", default=[], metavar="KEY=PATH", help="pin a specific file for a layer key (repeatable)")
+
     return parser
 
 
@@ -117,6 +125,12 @@ def cmd_show_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_prepare_base(args: argparse.Namespace) -> int:
+    from .pipeline.run import prepare_base_from_cli
+
+    return prepare_base_from_cli(args)
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     try:
         from .pipeline.run import run_from_cli  # implemented in PR 8
@@ -128,7 +142,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    handlers = {"validate": cmd_validate, "show-config": cmd_show_config, "run": cmd_run}
+    handlers = {"validate": cmd_validate, "show-config": cmd_show_config, "run": cmd_run, "prepare-base": cmd_prepare_base}
     return handlers[args.command](args)
 
 

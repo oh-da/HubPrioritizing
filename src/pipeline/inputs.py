@@ -43,7 +43,7 @@ class InputError(ValueError):
 class InputSpec:
     key: str
     patterns: tuple[str, ...]  # glob patterns, tried in order
-    kind: str  # 'csv' | 'xlsx' | 'shp'
+    kind: str  # 'csv' | 'xlsx' | 'shp' | 'parquet'
     required: bool
     description: str
     required_columns: tuple[str, ...] = ()
@@ -156,6 +156,15 @@ INPUT_SPECS: tuple[InputSpec, ...] = (
         required=True,
         description="Traffic analysis zones with POP_2050 / EMPL_2050",
         required_columns=("POP_2050", "EMPL_2050"),
+        reference=True,
+    ),
+    InputSpec(
+        key="h3_base",
+        patterns=("h3_base.parquet", "h3_base*.parquet"),
+        kind="parquet",
+        required=False,
+        description="Pre-allocated H3 base layer (hubs prepare-base): area, ring, terminal, pop/emp per cell",
+        required_columns=("h3_index", "area", "location", "bus_terminal", "pop_2050", "emp_2050"),
         reference=True,
     ),
     InputSpec(
@@ -365,6 +374,10 @@ def validate_inputs(inputs: InputSet, report: RunReport | None = None) -> list[s
             elif spec.kind == "xlsx":
                 cols = []  # per-sheet validation happens in the demand stage
                 pd.ExcelFile(path).sheet_names
+            elif spec.kind == "parquet":
+                import pyarrow.parquet as pq
+
+                cols = list(pq.read_schema(path).names)
             else:
                 df, enc = read_csv_auto(path, nrows=5, header=0 if spec.header else None)
                 cols = [str(c) for c in df.columns]

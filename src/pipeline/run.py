@@ -21,6 +21,7 @@ import pandas as pd
 from ..config import CRS_WGS84
 from ..utils.logging import setup_logger
 from .aggregate import add_influence_area, aggregate_to_groups, tag_bus_terminals
+from .base_layer import add_influence_area_from_base, read_base_layer, tag_area_and_location_from_base, tag_bus_terminals_from_base
 from .demand import apply_manual_demand, assign_demand, load_demand_workbook
 from .export import write_results_csv, write_results_xlsx
 from .grouping import apply_manual_groups, assign_hub_ids, group_hexes, hub_identity_table
@@ -114,9 +115,29 @@ def run_pipeline(
 
     # --- Part 2: area tags and demand ----------------------------------------------------
     log.info("Part 2: spatial tags and demand")
-    metro = _read_optional_layer(inputs, "metro", report, ["METRO_NAME", "ZONE_NAME"])
-    districts = _read_optional_layer(inputs, "districts", report, ["MACHOZ"])
-    hexes = tag_area_and_location(hexes, metro, districts, report)
+    base = None
+    if cfg.spatial_source == "h3_base":
+        base_path = inputs.path("h3_base")
+        if base_path is None:
+            raise InputError(["spatial_source=h3_base but no h3_base*.parquet was found; run 'hubs prepare-base' first"])
+        base, manifest = read_base_layer(base_path)
+        provenance = {}
+        if manifest:
+            provenance = {
+                "built": manifest.get("built"),
+                "resolution": manifest.get("resolution"),
+                "sources": {k: v.get("sha256", "")[:12] for k, v in manifest.get("sources", {}).items()},
+            }
+        report.record_input("h3_base", base_path, source=inputs.files["h3_base"].source, rows=len(base), **provenance)
+        if manifest and manifest.get("resolution") != cfg.h3_resolution:
+            raise InputError([f"h3_base was built at resolution {manifest.get('resolution')}, the run uses {cfg.h3_resolution}"])
+        if manifest and float(manifest.get("terminal_buffer_m", cfg.terminal_buffer_m)) != float(cfg.terminal_buffer_m):
+            report.warn("inputs", f"h3_base was built with terminal_buffer_m={manifest.get('terminal_buffer_m')}; the run's {cfg.terminal_buffer_m} is ignored")
+        hexes = tag_area_and_location_from_base(hexes, base, report)
+    else:
+        metro = _read_optional_layer(inputs, "metro", report, ["METRO_NAME", "ZONE_NAME"])
+        districts = _read_optional_layer(inputs, "districts", report, ["MACHOZ"])
+        hexes = tag_area_and_location(hexes, metro, districts, report)
 
     sheets = read_excel_sheets(inputs.path("demand"))
     report.record_input("demand", inputs.path("demand"), sheets=list(sheets))
@@ -127,10 +148,14 @@ def run_pipeline(
     # --- Part 3: groups, terminals, influence area ---------------------------------------
     log.info("Part 3: aggregation, terminals, influence area")
     groups = aggregate_to_groups(hexes)
-    terminals = _read_optional_layer(inputs, "bus_terminals", report, ["term_type"])
-    groups = tag_bus_terminals(groups, terminals, cfg.terminal_buffer_m, report)
-    taz = _read_optional_layer(inputs, "taz", report)
-    groups = add_influence_area(groups, taz, cfg.influence_rings, report)
+    if base is not None:
+        groups = tag_bus_terminals_from_base(groups, hexes, base, report)
+        groups = add_influence_area_from_base(groups, base, cfg.influence_rings, cfg.h3_resolution, cfg.influence_cell_rule, report)
+    else:
+        terminals = _read_optional_layer(inputs, "bus_terminals", report, ["term_type"])
+        groups = tag_bus_terminals(groups, terminals, cfg.terminal_buffer_m, report)
+        taz = _read_optional_layer(inputs, "taz", report)
+        groups = add_influence_area(groups, taz, cfg.influence_rings, report)
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # geographic centroid, as the notebook computed it
@@ -223,6 +248,60 @@ def _to_geojson(gdf: gpd.GeoDataFrame, path: Path) -> None:
         if col != plain.geometry.name and plain[col].map(lambda v: isinstance(v, (list, dict))).any():
             plain[col] = plain[col].map(lambda v: str(v) if isinstance(v, (list, dict)) else v)
     plain.to_file(path, driver="GeoJSON")
+
+
+def prepare_base_layer(
+    inputs: InputSet,
+    out_path: Path | str,
+    resolution: int = 10,
+    terminal_buffer_m: float | None = None,
+    report: RunReport | None = None,
+) -> tuple[pd.DataFrame, dict]:
+    """Build ``h3_base.parquet`` (+ manifest) from the four reference shapefiles."""
+    from .base_layer import build_base_layer, build_manifest, write_base_layer
+    from ..config import TERMINAL_PROXIMITY_DISTANCE_M
+
+    report = report or RunReport()
+    buffer_m = TERMINAL_PROXIMITY_DISTANCE_M if terminal_buffer_m is None else terminal_buffer_m
+    missing = [k for k in ("metro", "districts", "bus_terminals", "taz") if not inputs.has(k)]
+    if missing:
+        raise InputError([f"prepare-base needs the reference layers {missing}"])
+    metro = _read_optional_layer(inputs, "metro", report, ["METRO_NAME", "ZONE_NAME"])
+    districts = _read_optional_layer(inputs, "districts", report, ["MACHOZ"])
+    terminals = _read_optional_layer(inputs, "bus_terminals", report, ["term_type"])
+    taz = _read_optional_layer(inputs, "taz", report)
+    layer = build_base_layer(metro, districts, terminals, taz, resolution, buffer_m, report)
+    manifest = build_manifest({k: inputs.path(k) for k in ("metro", "districts", "bus_terminals", "taz")}, resolution, buffer_m, len(layer))
+    write_base_layer(layer, out_path, manifest)
+    return layer, manifest
+
+
+def prepare_base_from_cli(args: Any) -> int:
+    """Entry point used by ``hubs prepare-base``."""
+    from .inputs import discover_inputs
+
+    setup_logger("hubs")
+    log = logging.getLogger("hubs.prepare")
+    reference_dir = Path(args.reference_dir)
+    out_path = Path(args.out) if args.out else reference_dir / "h3_base.parquet"
+    inputs = discover_inputs(args.input_dir or reference_dir, reference_dir, _parse_file_overrides_safe(args))
+    report = RunReport()
+    try:
+        layer, manifest = prepare_base_layer(inputs, out_path, args.resolution, args.terminal_buffer_m, report)
+    except InputError as exc:
+        print(str(exc))
+        return 1
+    for entry in report.warnings:
+        log.warning("%s: %s", entry.section, entry.message)
+    print(f"✓ base layer written: {out_path} ({len(layer):,} cells, resolution {manifest['resolution']})")
+    print(f"  manifest : {out_path.with_name(out_path.stem + '.manifest.json')}")
+    return 0
+
+
+def _parse_file_overrides_safe(args: Any) -> dict[str, Path]:
+    from ..cli import _parse_file_overrides
+
+    return _parse_file_overrides(getattr(args, "file", []) or [])
 
 
 def run_from_cli(args: Any) -> int:

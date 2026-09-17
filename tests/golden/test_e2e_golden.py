@@ -69,6 +69,42 @@ def test_e2e_legacy_settings_reproduce_golden_scores(real_inputs, golden):
     assert (res.loc[ok, "Overall_Rank"].rank(method="dense") == g.loc[ok, "Overall_Rank"].rank(method="dense")).all()
 
 
+def test_e2e_h3_base_layer_matches_shapefile_path(e2e, golden, real_inputs):
+    """The pre-allocated H3 layer (spatial_source=h3_base) against the polygon stages:
+    terminals identical, tiers identical, population/jobs within a few percent (fraction rule),
+    ring tags differ only for the hexagons the polygon stage tagged by layer order
+    (see docs/H3_BASE_LAYER.md)."""
+    if not real_inputs.has("h3_base"):
+        pytest.skip("h3_base.parquet not present; run 'hubs prepare-base'")
+    from src.pipeline.settings import load_config
+
+    ref, _ = e2e
+    cfg = load_config(None, {"spatial_source": "h3_base", "influence_cell_rule": "fraction"})
+    new = run_pipeline(cfg, real_inputs, RunReport())
+    a = ref.results.set_index("group").loc[golden["group"]]
+    b = new.results.set_index("group").loc[golden["group"]]
+
+    assert (a["HubType"] == b["HubType"]).all()
+    assert (a["bus_terminal"].astype(int) == b["bus_terminal"].astype(int)).all()
+    assert (a["area"] == b["area"]).all()
+    ring_differs = a.index[a["location"].map(str) != b["location"].map(str)].tolist()
+    print(f"\n[h3_base] hubs whose ring tag differs: {ring_differs}")
+    assert set(ring_differs) <= {303, 524, 546, 630}
+
+    pop_cols = ["pop_0_500", "emp_0_500", "pop_500_1000", "emp_500_1000", "pop_1000_1500", "emp_1000_1500"]
+    for col in pop_cols:
+        rel = (b[col] - a[col]).abs() / a[col].clip(lower=1.0)
+        assert rel.median() < 0.01, col
+        assert rel.quantile(0.9) < 0.03, col
+    total_a, total_b = a[pop_cols].sum().sum(), b[pop_cols].sum().sum()
+    assert abs(total_b / total_a - 1) < 0.005
+
+    diff = (b["TotalScore_MC"] - a["TotalScore_MC"]).abs()
+    off = diff.index[diff > 0.05].tolist()
+    print(f"[h3_base] hubs whose score moved by more than 0.05: {off}; max elsewhere {diff.drop(off).max():.3f}")
+    assert set(off) <= set(ring_differs)
+
+
 def test_e2e_bus_terminal_matches_golden(e2e, golden, real_inputs):
     """With the terminals layer present, bus_terminal matches except where the notebook's
     duplicate-row spatial join picked a lower class (Netanya, group 25; see DEVIATIONS.md)."""

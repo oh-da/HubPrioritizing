@@ -68,9 +68,14 @@ hubs run --input-dir my_run --output-dir out --set mc_iterations=20000
 
 # reproduce the June 2026 workbook's numbers (the notebook's accidental ring geometry)
 hubs run --input-dir my_run --output-dir out --set influence_rings=600,1000,1200 --set pop_emp_decay_midpoints=250,750,1250
+
+# prototype: read the spatial context from the pre-allocated H3 layer instead of the shapefiles
+hubs prepare-base                                  # once per vintage of the reference shapefiles
+hubs run --input-dir my_run --output-dir out --set spatial_source=h3_base --set influence_cell_rule=fraction
 ```
 
-[`docs/DEVIATIONS.md`](docs/DEVIATIONS.md) explains each flag and which notebook quirk it controls.
+[`docs/DEVIATIONS.md`](docs/DEVIATIONS.md) explains each flag and which notebook quirk it controls;
+[`docs/H3_BASE_LAYER.md`](docs/H3_BASE_LAYER.md) describes the H3 base layer and how it compares.
 
 ---
 
@@ -79,7 +84,7 @@ hubs run --input-dir my_run --output-dir out --set influence_rings=600,1000,1200
 ```
 HubPrioritizing/
 ├── src/
-│   ├── cli.py                    # `hubs validate | run | show-config`
+│   ├── cli.py                    # `hubs validate | run | show-config | prepare-base`
 │   ├── config.py                 # thresholds, weights, CRS, column constants
 │   ├── pipeline/                 # the one-command pipeline (pure DataFrame stages)
 │   │   ├── settings.py           #   PipelineConfig, YAML / --set overrides
@@ -89,6 +94,7 @@ HubPrioritizing/
 │   │   ├── spatial_tags.py       #   metro ring / district -> area, location
 │   │   ├── demand.py             #   2050 demand workbook -> TotalDemand, TotalTransfers
 │   │   ├── aggregate.py          #   hexagons -> hubs, bus terminals, population/jobs rings
+│   │   ├── base_layer.py         #   H3 base layer: prepare-base builder + lookups (prototype)
 │   │   ├── scoring.py            #   categories, mode score, tiers, normalisation, Monte Carlo
 │   │   ├── postprocess.py        #   display columns (incl. the former Excel formulas)
 │   │   ├── export.py             #   xlsx (Excel Table) and CSV writers, FINAL_COLUMNS

@@ -45,6 +45,16 @@ def test_decay_midpoints_must_match_rings():
         load_config(None, {"pop_emp_decay_midpoints": "250,750"})
 
 
+def test_spatial_source_and_cell_rule():
+    cfg = load_config(None, {"spatial_source": "h3_base", "influence_cell_rule": "fraction"})
+    assert cfg.spatial_source == "h3_base" and cfg.influence_cell_rule == "fraction"
+    assert PipelineConfig().spatial_source == "shapefiles"
+    with pytest.raises(ConfigError):
+        load_config(None, {"spatial_source": "geojson"})
+    with pytest.raises(ConfigError):
+        load_config(None, {"influence_cell_rule": "nearest"})
+
+
 def test_drop_rules_from_strings_and_mappings():
     cfg = load_config(None, {"drop_line_rules": ["Haifa:^m", {"pattern": "^X$"}]})
     assert cfg.drop_line_rules == (LineDropRule("^m", "Haifa"), LineDropRule("^X$", None))

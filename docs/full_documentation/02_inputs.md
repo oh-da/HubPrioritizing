@@ -43,8 +43,9 @@ processing starts. Nothing is ever replaced by placeholder data.
 | `taz` | `TAZ_1270.shp` | idem | `POP_2050`, `EMPL_2050` | population & jobs rings |
 | `hub_names` | `hub_names.csv` | optional | `h3_index`, `HubNameHE` | Hebrew display names |
 | `line_names_extra` | `line_names_extra.csv` | optional | `LineName`, `Line_n_Mode` | names missing from the export |
-| `is_same_group` | `is_same_group.csv` | optional | `Nodes in group` | manual hub merges |
-| `manual_demand` | `manual_demand_updates.csv` | optional | `node`, `total_demand`, `total_transfers` | node-level demand overrides |
+| `is_same_group` | `is_same_group.csv` | optional | `Nodes in group`, optional `model` | manual hub merges |
+| `manual_demand` | `manual_demand_updates.csv` | optional | `node`, `total_demand`, `total_transfers`, optional `model` | node-level demand overrides |
+| `node_positions` | `node_position_overrides.csv` | optional | `node`, `X`, `Y` | corrected coordinates for nodes whose network rows disagree on position (see `06_manual_corrections.md`) |
 
 See [`data/reference/README.md`](../../data/reference/README.md) for provenance and
 [`H3_BASE_LAYER.md`](../H3_BASE_LAYER.md) for how the base layer is built and shared.

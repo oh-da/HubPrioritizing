@@ -22,6 +22,8 @@ from .spatial_tags import AREA_COL, get_regions_for_area
 
 DEMAND_COL = "TotalDemand"
 TRANSFERS_COL = "TotalTransfers"
+NODE_MODELS_COL = "node_models"  # {node: model that supplied its demand} per hexagon
+MODELS_COL = "DemandModels"  # distinct models per hexagon, in order
 
 SHEET_NAME_MAPPING: dict[str, str] = {
     "5040_Daily": "Haifa",
@@ -204,6 +206,11 @@ def assign_demand(
     For every node of a hexagon: an overlay model containing the node is authoritative
     (its value replaces the base model, never adds); otherwise the first candidate
     region of the hexagon's ``area`` that contains the node is used.
+
+    The model that supplied each node is recorded: ``node_models`` (``{node: model}``
+    per hexagon) and ``DemandModels`` (the distinct models, in order). A node found
+    in several candidate models with different values is a possible node-id collision
+    between models and is reported.
     """
     lookup: dict[str, dict[int, tuple[float, float]]] = {
         region: dict(zip(df["node"].astype(int), zip(df["demand"], df["transfers"]))) for region, df in demand_by_region.items()
@@ -211,13 +218,16 @@ def assign_demand(
     overlays = [r for r in overlay_regions if r in lookup]
 
     out = hexes.copy()
-    demand_vals, transfer_vals = [], []
+    demand_vals, transfer_vals, node_models_col, models_col = [], [], [], []
     unmatched: dict[str, set[int]] = {}
+    collisions: list[dict] = []
     n_nodes = n_matched = 0
+    by_model: dict[str, int] = {}
 
     for nodes, area in zip(out["node"], out[AREA_COL] if AREA_COL in out.columns else [None] * len(out)):
         regions = get_regions_for_area(area)
         total_d = total_t = 0.0
+        node_models: dict[int, str] = {}
         for node in nodes if isinstance(nodes, list) else [nodes]:
             n_nodes += 1
             try:
@@ -227,34 +237,72 @@ def assign_demand(
             hit = None
             for r in overlays:
                 if node in lookup[r]:
-                    hit = lookup[r][node]
+                    hit = (r, lookup[r][node])
                     break
             if hit is None:
-                for r in regions:
-                    if r in lookup and node in lookup[r]:
-                        hit = lookup[r][node]
-                        break
+                candidates = [r for r in regions if r in lookup and node in lookup[r]]
+                if candidates:
+                    hit = (candidates[0], lookup[candidates[0]][node])
+                    values = {r: round(lookup[r][node][0]) for r in candidates}
+                    if len(candidates) > 1 and len(set(values.values())) > 1:
+                        collisions.append({"node": node, "area": str(area), "used": candidates[0], "demand_by_model": values})
             if hit is None:
                 unmatched.setdefault(str(area), set()).add(node)
                 continue
-            total_d += hit[0]
-            total_t += hit[1]
+            model, (d, t) = hit
+            total_d += d
+            total_t += t
             n_matched += 1
+            node_models[node] = model
+            by_model[model] = by_model.get(model, 0) + 1
         demand_vals.append(total_d)
         transfer_vals.append(total_t)
+        node_models_col.append(node_models)
+        models_col.append(list(dict.fromkeys(node_models.values())))
 
     out[DEMAND_COL] = demand_vals
     out[TRANSFERS_COL] = transfer_vals
+    out[NODE_MODELS_COL] = node_models_col
+    out[MODELS_COL] = models_col
 
     if report is not None:
         report.set_metric("demand_nodes_checked", n_nodes)
         report.set_metric("demand_nodes_matched", n_matched)
+        report.set_metric("demand_nodes_by_model", dict(sorted(by_model.items())))
         report.set_metric("hexes_with_demand", int((out[DEMAND_COL] > 0).sum()))
         for area, nodes in sorted(unmatched.items()):
             report.warn("demand", f"{len(nodes)} nodes in area '{area}' have no demand in models {get_regions_for_area(area)}", nodes=sorted(nodes)[:50])
+        for c in collisions:
+            report.warn(
+                "demand",
+                f"node {c['node']} exists in several candidate models of area '{c['area']}' with different demand; used {c['used']} (possible node-id collision between models)",
+                demand_by_model=c["demand_by_model"],
+            )
+        report.set_metric("demand_node_id_collisions", len(collisions))
         if n_matched == 0:
             report.error("demand", "no node matched any demand model; check node IDs and sheet names")
     return out
+
+
+def _row_model(row) -> str | None:
+    model = row.get("model") if hasattr(row, "get") else None
+    if model is None or (isinstance(model, float) and pd.isna(model)):
+        return None
+    model = str(model).strip()
+    return model or None
+
+
+def hex_accepts_model(area, node_models: Mapping[int, str] | None, node: int, model: str | None) -> bool:
+    """Whether a manual row written for ``model`` applies to ``node`` in a hexagon of ``area``.
+
+    Empty model = any. Otherwise the model must be the one that supplied the node's demand
+    or one of the hexagon's candidate models (its location stands in for the model).
+    """
+    if model is None:
+        return True
+    if node_models and node_models.get(node) == model:
+        return True
+    return model in get_regions_for_area(area)
 
 
 # ----------------------------------------------------------------------------------------
@@ -266,8 +314,9 @@ def apply_manual_demand(hexes: pd.DataFrame, updates: pd.DataFrame | None, repor
     """Override ``TotalDemand`` / ``TotalTransfers`` for every hexagon containing a listed node.
 
     ``updates`` columns: ``node``, ``total_demand``, optional ``total_transfers``
-    (blank keeps the computed value), optional ``station_name`` / ``notes`` for the report.
-    Rows are applied in file order; later rows win.
+    (blank keeps the computed value), optional ``model`` (the row applies only where the
+    node belongs to that demand model; blank = any), optional ``station_name`` /
+    ``notes`` for the report. Rows are applied in file order; later rows win.
     """
     out = hexes.copy()
     if updates is None or updates.empty:
@@ -277,6 +326,8 @@ def apply_manual_demand(hexes: pd.DataFrame, updates: pd.DataFrame | None, repor
         raise ValueError(f"manual demand updates need columns {sorted(required)}; got {list(updates.columns)}")
 
     node_sets = [set(int(n) for n in (ns if isinstance(ns, list) else [ns])) for ns in out["node"]]
+    areas = out[AREA_COL].tolist() if AREA_COL in out.columns else [None] * len(out)
+    node_models = out[NODE_MODELS_COL].tolist() if NODE_MODELS_COL in out.columns else [None] * len(out)
     applied = 0
     for _, row in updates.iterrows():
         try:
@@ -286,10 +337,16 @@ def apply_manual_demand(hexes: pd.DataFrame, updates: pd.DataFrame | None, repor
                 report.warn("demand", f"manual demand row with invalid node skipped: {row.to_dict()}")
             continue
         label = str(row.get("station_name", "") or "")
-        mask = [node in s for s in node_sets]
-        if not any(mask):
+        model = _row_model(row)
+        present = [node in s for s in node_sets]
+        mask = [p and hex_accepts_model(a, nm, node, model) for p, a, nm in zip(present, areas, node_models)]
+        if not any(present):
             if report is not None:
                 report.warn("demand", f"manual demand: node {node} ({label}) not found in the network; skipped")
+            continue
+        if not any(mask):
+            if report is not None:
+                report.warn("demand", f"manual demand: node {node} ({label}) is in the network but not in model '{model}'; skipped")
             continue
         out.loc[mask, DEMAND_COL] = float(row["total_demand"])
         transfers = row.get("total_transfers")

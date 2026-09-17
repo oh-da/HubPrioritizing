@@ -7,7 +7,7 @@ which the `hubs run` command replaces. The implementation of each step now lives
 
 | Step(s) | Function |
 |---|---|
-| 1.3 | `network.load_nodeslines` |
+| 1.3 | `network.load_nodeslines`, then `network.apply_node_position_overrides` and `network.check_node_positions` (one position per node: small spreads snapped, conflicts reported, `node_position_overrides.csv` resolves them) |
 | 1.4 | `network.attach_modes`, `network.aggregate_to_hexes` |
 | 1.5 / 1.5.1 | `grouping.group_hexes`, `grouping.apply_manual_groups`, `grouping.assign_hub_ids` |
 | 1.6 | not ported (geocoding off; `address` = `Not geocoded`) |

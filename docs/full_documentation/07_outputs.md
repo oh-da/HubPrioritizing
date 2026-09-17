@@ -6,8 +6,8 @@
 |------|---------|
 | `hub_prioritization_results.xlsx` | The display workbook: one sheet (`hubs_final_results`), one Excel Table (`טבלה1`), values only, the 70 columns below in this order. Sorted by `Rank_TS_MC`. |
 | `hub_prioritization_results.csv` | Same table, `utf-8-sig` |
-| `hub_identity.csv` | `group, hub_id, n_hexes, nodes, HubNameHE, HubType` — the stable identity of each hub |
-| `h3_layer.gpkg` | Shareable H3 cell layer (GeoPackage, layer `h3_cells`, EPSG:2039): every hub cell and every cell within the outer catchment ring of a scored hub, with the base attributes (area, ring, terminal, 2050 population and jobs), the hub identity, network and scores, and the nearest hub. `h3_layer_format` (gpkg / geojson / parquet / csv / none) and `h3_layer_extent` (hubs / influence / all); see `docs/H3_BASE_LAYER.md`. |
+| `hub_identity.csv` | `group, hub_id, n_hexes, nodes, demand_models, HubNameHE, HubType` — the stable identity of each hub and the demand model(s) its nodes were read from |
+| `h3_layer.gpkg` | Shareable H3 cell layer (GeoPackage, layer `h3_cells`, EPSG:2039): every hub cell and every cell within the outer catchment ring of a scored hub, with the base attributes (area, ring, terminal, 2050 population and jobs), the hub identity, network, demand model and scores, and the nearest hub. `h3_layer_format` (gpkg / geojson / parquet / csv / none) and `h3_layer_extent` (hubs / influence / all); see `docs/H3_BASE_LAYER.md`. |
 | `run_report.md`, `run_report.json` | Inputs and encodings, metrics (nodes, hexagons, groups, matched demand nodes, hub type counts…), and every finding: lines without a mode, duplicated keys, nodes without demand, manual rows applied or unmatched, unnamed lines, status conflicts, hubs without a name, top 10 hubs |
 | `run_config.json` | The effective configuration |
 | `run.log` | Log of the run |

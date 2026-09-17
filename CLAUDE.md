@@ -1228,6 +1228,7 @@ See the full review documents for detailed code examples and implementation guid
   - Population/jobs rings filled from cells with the `fraction` rule (within ~1 % of the overlay); terminals and tiers identical; ring tags of boundary hexagons follow the cell centre instead of shapefile order (4 hubs)
   - Every run writes `h3_layer.gpkg`; `hubs export-h3` shares the whole base layer
   - `hubs validate` requires the shapefiles only to rebuild the layer or with `spatial_source=shapefiles`
+  - Node identity made explicit: one position per node (`check_node_positions`, `node_position_overrides.csv`), the demand model recorded per node, possible node-id collisions between models reported, optional `model` column on the manual tables
 - **v2.0** (2026-09-16): One-command pipeline
   - `hubs run --input-dir … --output-dir …` replaces the Colab notebooks and the two Excel formulas
   - Notebook logic ported into `src/pipeline/` with golden tests against the June 2026 workbook
@@ -1276,6 +1277,7 @@ This document should be updated when:
 - **Catchment rings**: 0–500, 500–1000, 1000–1500 meters (configurable: `influence_rings`)
 - **Bus terminal buffer**: 200 m (baked into the base layer)
 - **Spatial source**: `h3_base` (pre-allocated cells, `influence_cell_rule=fraction`); `shapefiles` = legacy overlay
+- **Node identity**: node ID + location (the hexagon's area selects the demand model; recorded per node as `demand_models`); one position per node, spreads ≤ `node_position_tolerance_m` (150 m) snapped, larger ones reported and fixed in `node_position_overrides.csv`
 - **Cell layer output**: `h3_layer.gpkg`, hub + catchment cells (`h3_layer_format`, `h3_layer_extent`)
 
 ### Key Commands

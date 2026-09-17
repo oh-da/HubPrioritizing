@@ -57,6 +57,11 @@ class PipelineConfig:
     # 'exact' = count lines per mode from the node x line rows.
     per_mode_lines_method: str = "even"
     geocode: bool = False
+    # A node whose rows disagree on position by at most this many metres is snapped to the
+    # position most of its rows carry; a larger spread is a conflict between network
+    # sources, reported ('warn') or fatal ('error'), resolved by node_position_overrides.csv.
+    node_position_tolerance_m: float = 150.0
+    on_node_position_conflict: str = "warn"
 
     # --- Part 2: demand -------------------------------------------------------------------
     overlay_regions: tuple[str, ...] = ("Hadera", "Haifa Metronit")
@@ -116,6 +121,10 @@ class PipelineConfig:
             raise ConfigError("spatial_source must be 'shapefiles' or 'h3_base'")
         if self.influence_cell_rule not in ("center", "fraction"):
             raise ConfigError("influence_cell_rule must be 'center' or 'fraction'")
+        if self.on_node_position_conflict not in ("warn", "error"):
+            raise ConfigError("on_node_position_conflict must be 'warn' or 'error'")
+        if self.node_position_tolerance_m < 0:
+            raise ConfigError("node_position_tolerance_m must be >= 0")
         if self.h3_layer_format not in ("gpkg", "geojson", "parquet", "csv", "none"):
             raise ConfigError("h3_layer_format must be one of gpkg, geojson, parquet, csv, none")
         if self.h3_layer_extent not in ("hubs", "influence", "all"):

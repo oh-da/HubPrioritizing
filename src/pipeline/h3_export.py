@@ -56,6 +56,7 @@ LAYER_COLUMNS = (
     "n_lines",
     "TotalDemand",
     "TotalTransfers",
+    "demand_models",
     "nearest_hub",
     "dist_nearest_hub_m",
     "hubs_within",
@@ -82,6 +83,7 @@ def hub_cell_table(hexes: pd.DataFrame, results: pd.DataFrame | None) -> pd.Data
             "n_lines": hexes["Line_Nunique"].to_numpy() if "Line_Nunique" in hexes.columns else None,
             "TotalDemand": hexes["TotalDemand"].to_numpy() if "TotalDemand" in hexes.columns else None,
             "TotalTransfers": hexes["TotalTransfers"].to_numpy() if "TotalTransfers" in hexes.columns else None,
+            "demand_models": [_join(v) for v in hexes["DemandModels"]] if "DemandModels" in hexes.columns else None,
         }
     )
     out["scored"] = False
@@ -180,7 +182,7 @@ def build_h3_layer(
         layer[c] = pd.to_numeric(layer[c], errors="coerce").astype("Int64")
     for c in ("TotalScore_MC", "TotalDemand", "TotalTransfers", "dist_nearest_hub_m", "term_id"):
         layer[c] = pd.to_numeric(layer[c], errors="coerce").astype(float)
-    for c in ("area", "location", "term_type", "hub_id", "HubNameHE", "HubType", "Metro", "nodes", "modes", "lines", "hubs_within", "role"):
+    for c in ("area", "location", "term_type", "hub_id", "HubNameHE", "HubType", "Metro", "nodes", "modes", "lines", "demand_models", "hubs_within", "role"):
         layer[c] = layer[c].astype(object).where(layer[c].notna(), None)
     geometry = cell_polygons_itm(cells)
     return gpd.GeoDataFrame(layer, geometry=geometry, crs=CRS_ISRAEL_TM)

@@ -77,6 +77,122 @@ def load_nodeslines(df: pd.DataFrame, crs: str = CRS_ISRAEL_TM) -> gpd.GeoDataFr
 
 
 # ----------------------------------------------------------------------------------------
+# 1b. node positions: one coordinate per node
+# ----------------------------------------------------------------------------------------
+
+NODE_POSITION_TOLERANCE_M = 150.0  # about one resolution-10 cell across
+
+
+def apply_node_position_overrides(
+    nodes: gpd.GeoDataFrame, overrides: pd.DataFrame | None, report: RunReport | None = None
+) -> gpd.GeoDataFrame:
+    """Move every row of a listed node to the ``X`` / ``Y`` (EPSG:2039) of
+    ``node_position_overrides.csv``. Rows for nodes absent from the network are reported."""
+    out = nodes.copy()
+    if overrides is None or overrides.empty:
+        return out
+    required = {"node", "X", "Y"}
+    if not required <= set(overrides.columns):
+        raise ValueError(f"node position overrides need columns {sorted(required)}; got {list(overrides.columns)}")
+    applied = 0
+    for _, row in overrides.iterrows():
+        try:
+            node = int(row["node"])
+            x, y = float(row["X"]), float(row["Y"])
+        except (TypeError, ValueError):
+            if report is not None:
+                report.warn("network", f"node position override with invalid values skipped: {row.to_dict()}")
+            continue
+        mask = out[NODE_COL] == node
+        if not mask.any():
+            if report is not None:
+                report.warn("network", f"node position override: node {node} not found in the network; skipped")
+            continue
+        out.loc[mask, out.geometry.name] = [Point(x, y)] * int(mask.sum())
+        applied += 1
+        if report is not None:
+            report.info("network", f"node {node} moved to ({x:.1f}, {y:.1f}) by node_position_overrides.csv", rows=int(mask.sum()), notes=str(row.get("notes", "") or ""))
+    if report is not None:
+        report.set_metric("node_position_overrides_applied", applied)
+    return out
+
+
+def node_position_table(nodes: gpd.GeoDataFrame) -> pd.DataFrame:
+    """One row per node whose rows disagree on position.
+
+    Columns: ``node, n_positions, spread_m, positions`` where ``positions`` is a list of
+    ``{"x", "y", "rows", "lines"}`` in order of first appearance.
+    """
+    df = pd.DataFrame(
+        {
+            NODE_COL: nodes[NODE_COL].to_numpy(),
+            LINE_COL: nodes[LINE_COL].to_numpy(),
+            "x": nodes.geometry.x.round(2).to_numpy(),
+            "y": nodes.geometry.y.round(2).to_numpy(),
+        }
+    )
+    rows = []
+    for node, grp in df.groupby(NODE_COL, sort=True):
+        positions = grp.groupby(["x", "y"], sort=False).agg(rows=(LINE_COL, "size"), lines=(LINE_COL, lambda s: sorted(set(s)))).reset_index()
+        if len(positions) < 2:
+            continue
+        xs, ys = positions["x"].to_numpy(), positions["y"].to_numpy()
+        spread = max(float(((xs - xs[i]) ** 2 + (ys - ys[i]) ** 2).max() ** 0.5) for i in range(len(xs)))
+        rows.append(
+            {
+                NODE_COL: int(node),
+                "n_positions": int(len(positions)),
+                "spread_m": round(spread, 1),
+                "positions": [{"x": float(r.x), "y": float(r.y), "rows": int(r.rows), "lines": list(r.lines)} for r in positions.itertuples()],
+            }
+        )
+    return pd.DataFrame(rows, columns=[NODE_COL, "n_positions", "spread_m", "positions"])
+
+
+def check_node_positions(
+    nodes: gpd.GeoDataFrame,
+    tolerance_m: float = NODE_POSITION_TOLERANCE_M,
+    on_conflict: str = "warn",
+    report: RunReport | None = None,
+) -> tuple[gpd.GeoDataFrame, list[str]]:
+    """Give every node one position.
+
+    A node whose rows disagree by at most ``tolerance_m`` is snapped to the position
+    carried by most of its rows (first in file order on a tie); all rows are kept. A
+    larger spread is a conflict between network sources that the pipeline will not
+    guess: the rows stay where they are, the node is reported, and with
+    ``on_conflict='error'`` the problem is returned for the caller to stop on.
+    Resolve conflicts with ``node_position_overrides.csv``.
+    """
+    if on_conflict not in ("warn", "error"):
+        raise ValueError("on_conflict must be 'warn' or 'error'")
+    out = nodes.copy()
+    table = node_position_table(out)
+    problems: list[str] = []
+    snapped = 0
+    for row in table.itertuples():
+        positions = row.positions
+        lines_by_pos = "; ".join(f"({p['x']:.1f}, {p['y']:.1f}) {p['rows']} rows: {', '.join(p['lines'])}" for p in positions)
+        if row.spread_m <= tolerance_m:
+            best = max(positions, key=lambda p: p["rows"])  # first on a tie (max keeps the first maximum)
+            mask = out[NODE_COL] == row.node
+            out.loc[mask, out.geometry.name] = [Point(best["x"], best["y"])] * int(mask.sum())
+            snapped += 1
+            if report is not None:
+                report.warn("network", f"node {row.node}: {row.n_positions} positions {row.spread_m:.0f} m apart; snapped to ({best['x']:.1f}, {best['y']:.1f})", positions=lines_by_pos)
+        else:
+            msg = f"node {row.node}: {row.n_positions} positions {row.spread_m:.0f} m apart (more than {tolerance_m:.0f} m); the rows stay in different cells until node_position_overrides.csv fixes it"
+            problems.append(msg + " [" + lines_by_pos + "]")
+            if report is not None:
+                report.warn("network", msg, positions=lines_by_pos)
+    if report is not None:
+        report.set_metric("nodes_with_inconsistent_position", int(len(table)))
+        report.set_metric("nodes_snapped", snapped)
+        report.set_metric("node_position_conflicts", len(problems))
+    return out, problems
+
+
+# ----------------------------------------------------------------------------------------
 # 2. planned modes
 # ----------------------------------------------------------------------------------------
 

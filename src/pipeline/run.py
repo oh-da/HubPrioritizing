@@ -26,7 +26,14 @@ from .demand import apply_manual_demand, assign_demand, load_demand_workbook
 from .export import write_results_csv, write_results_xlsx
 from .grouping import apply_manual_groups, assign_hub_ids, group_hexes, hub_identity_table
 from .inputs import InputError, InputSet, read_csv_auto, read_excel_sheets, read_shapefile, validate_inputs
-from .network import add_mode_line_columns, aggregate_to_hexes, attach_modes, load_nodeslines
+from .network import (
+    add_mode_line_columns,
+    aggregate_to_hexes,
+    apply_node_position_overrides,
+    attach_modes,
+    check_node_positions,
+    load_nodeslines,
+)
 from .postprocess import finalize_columns, load_line_corrections, load_line_names, load_line_status
 from .report import RunReport
 from .scoring import score_hubs
@@ -100,22 +107,19 @@ def run_pipeline(
     lines_df, enc = read_csv_auto(inputs.path("lines_mode"), hebrew_columns=["Line_Name", "Line_Description"])
     report.record_input("lines_mode", inputs.path("lines_mode"), encoding=enc, rows=len(lines_df))
 
-    nodes = attach_modes(load_nodeslines(nodes_df), lines_df, cfg.drop_line_rules, report)
+    nodes = load_nodeslines(nodes_df)
+    nodes = apply_node_position_overrides(nodes, _read_optional_csv(inputs, "node_positions", report), report)
+    nodes, position_problems = check_node_positions(nodes, cfg.node_position_tolerance_m, cfg.on_node_position_conflict, report)
+    if position_problems and cfg.on_node_position_conflict == "error":
+        raise InputError(position_problems)
+    nodes = attach_modes(nodes, lines_df, cfg.drop_line_rules, report)
     hexes = aggregate_to_hexes(nodes, cfg.h3_resolution)
     hexes = add_mode_line_columns(hexes, cfg.per_mode_lines_method)
     report.set_metric("nodes", int(nodes["node"].nunique()))
     report.set_metric("hexagons", len(hexes))
 
-    hexes = group_hexes(hexes, cfg.merge_threshold_m, cfg.merge_tolerance_m)
-    hexes = apply_manual_groups(hexes, _read_optional_csv(inputs, "is_same_group", report), report)
-    hexes = assign_hub_ids(hexes)
-    if cfg.geocode:
-        report.warn("grouping", "geocoding is not implemented in the pipeline; address set to 'Not geocoded'")
-    hexes["address"] = "Not geocoded"
-    report.set_metric("groups", int(hexes["group"].nunique()))
-
-    # --- Part 2: area tags and demand ----------------------------------------------------
-    log.info("Part 2: spatial tags and demand")
+    # area / ring per hexagon comes before the manual merges so a merge row can be
+    # restricted to one demand model (its 'model' column is checked against the location)
     base = None
     if cfg.spatial_source == "h3_base":
         base_path = inputs.path("h3_base")
@@ -140,6 +144,16 @@ def run_pipeline(
         districts = _read_optional_layer(inputs, "districts", report, ["MACHOZ"])
         hexes = tag_area_and_location(hexes, metro, districts, report)
 
+    hexes = group_hexes(hexes, cfg.merge_threshold_m, cfg.merge_tolerance_m)
+    hexes = apply_manual_groups(hexes, _read_optional_csv(inputs, "is_same_group", report), report)
+    hexes = assign_hub_ids(hexes)
+    if cfg.geocode:
+        report.warn("grouping", "geocoding is not implemented in the pipeline; address set to 'Not geocoded'")
+    hexes["address"] = "Not geocoded"
+    report.set_metric("groups", int(hexes["group"].nunique()))
+
+    # --- Part 2: demand ------------------------------------------------------------------
+    log.info("Part 2: demand")
     sheets = read_excel_sheets(inputs.path("demand"))
     report.record_input("demand", inputs.path("demand"), sheets=list(sheets))
     by_region = load_demand_workbook(sheets, report)

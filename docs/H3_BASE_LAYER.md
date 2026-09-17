@@ -67,7 +67,7 @@ EPSG:2039). `h3_layer_format` selects `gpkg` (default), `geojson` (WGS84), `parq
 
 Columns: `h3_index, role` (`hub` / `influence` / `base`), the base attributes (`area, location,
 bus_terminal, term_type, term_id, pop_2050, emp_2050`), the hub identity and network for hub
-cells (`group, hub_id, nodes, modes, lines, n_lines, TotalDemand, TotalTransfers`), the results
+cells (`group, hub_id, nodes, modes, lines, n_lines, TotalDemand, TotalTransfers, demand_models`), the results
 for scored hubs (`scored, HubNameHE, HubType, Metro, TotalScore_MC, Rank_TS_MC,
 RankByHubTypeMetro`) and, for cells in a catchment, `nearest_hub, dist_nearest_hub_m,
 hubs_within, n_hubs_within`. Lists are `;`-joined strings so the file reads the same in

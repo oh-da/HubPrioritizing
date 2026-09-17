@@ -206,8 +206,17 @@ INPUT_SPECS: tuple[InputSpec, ...] = (
         patterns=("manual_demand_updates.csv",),
         kind="csv",
         required=False,
-        description="Node-level demand overrides (node, total_demand, total_transfers)",
+        description="Node-level demand overrides (node, total_demand, total_transfers, optional model)",
         required_columns=("node", "total_demand", "total_transfers"),
+        reference=True,
+    ),
+    InputSpec(
+        key="node_positions",
+        patterns=("node_position_overrides.csv",),
+        kind="csv",
+        required=False,
+        description="Corrected coordinates (EPSG:2039) for nodes whose network rows disagree on position",
+        required_columns=("node", "X", "Y"),
         reference=True,
     ),
 )

@@ -116,6 +116,8 @@ def cmd_validate(args: argparse.Namespace) -> int:
         if info.get("encoding"):
             print(f"  {key}: encoding {info['encoding']}")
     print()
+    if not problems:
+        _print_node_position_check(inputs, cfg)
     if problems:
         print(f"✗ {len(problems)} problem(s):")
         for p in problems:
@@ -132,6 +134,31 @@ def cmd_show_config(args: argparse.Namespace) -> int:
     cfg = _load_config_or_exit(args)
     print(cfg.to_json())
     return 0
+
+
+def _print_node_position_check(inputs, cfg) -> None:
+    """After a clean validation, list nodes whose network rows disagree on position."""
+    from .pipeline.inputs import read_csv_auto
+    from .pipeline.network import apply_node_position_overrides, load_nodeslines, node_position_table
+
+    try:
+        nodes = load_nodeslines(read_csv_auto(inputs.path("nodeslines"))[0])
+        overrides = read_csv_auto(inputs.path("node_positions"))[0] if inputs.has("node_positions") else None
+        nodes = apply_node_position_overrides(nodes, overrides)
+        table = node_position_table(nodes)
+    except Exception as exc:  # noqa: BLE001 - the data check must never mask the validation verdict
+        print(f"node position check skipped: {exc}\n")
+        return
+    if table.empty:
+        print("node positions:      every node has one coordinate\n")
+        return
+    print(f"node positions:      {len(table)} node(s) with more than one coordinate (tolerance {cfg.node_position_tolerance_m:.0f} m):")
+    for row in table.itertuples():
+        verdict = "snapped to the majority position" if row.spread_m <= cfg.node_position_tolerance_m else "CONFLICT: add a row to node_position_overrides.csv"
+        print(f"  node {row.node}: {row.n_positions} positions, {row.spread_m:.0f} m apart -> {verdict}")
+        for p in row.positions:
+            print(f"      ({p['x']:.1f}, {p['y']:.1f})  {p['rows']} rows: {', '.join(p['lines'])}")
+    print()
 
 
 def cmd_prepare_base(args: argparse.Namespace) -> int:

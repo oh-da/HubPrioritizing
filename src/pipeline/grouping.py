@@ -20,6 +20,7 @@ import pandas as pd
 from ..config import HUB_MERGE_THRESHOLD_M, HUB_MERGE_TOLERANCE_M
 from ..spatial.merging import create_proximity_groups
 from .report import RunReport
+from .spatial_tags import get_regions_for_area
 
 MANUAL_GROUP_COLUMN = "Nodes in group"
 
@@ -38,20 +39,37 @@ def group_hexes(
     return create_proximity_groups(out, distance_threshold=threshold_m, tolerance=tolerance_m)
 
 
-def parse_manual_groups(is_same_group: pd.DataFrame) -> list[list[int]]:
-    """Parse the ``Nodes in group`` column into lists of node IDs (rows with < 2 nodes skipped)."""
+def parse_manual_group_rows(is_same_group: pd.DataFrame) -> list[tuple[list[int], str | None]]:
+    """``(node ids, model)`` per row of the manual group file (rows with < 2 nodes skipped).
+
+    ``model`` comes from an optional ``model`` column (blank = any) and restricts the
+    merge to hexagons whose location belongs to that demand model.
+    """
     if MANUAL_GROUP_COLUMN not in is_same_group.columns:
         raise ValueError(f"manual group file needs a '{MANUAL_GROUP_COLUMN}' column")
-    groups: list[list[int]] = []
-    for raw in is_same_group[MANUAL_GROUP_COLUMN].dropna():
+    rows: list[tuple[list[int], str | None]] = []
+    has_model = "model" in is_same_group.columns
+    for _, r in is_same_group.iterrows():
+        raw = r[MANUAL_GROUP_COLUMN]
+        if pd.isna(raw):
+            continue
         ids = []
         for tok in str(raw).replace(";", ",").split(","):
             tok = tok.strip()
             if tok:
                 ids.append(int(float(tok)))
-        if len(ids) >= 2:
-            groups.append(ids)
-    return groups
+        if len(ids) < 2:
+            continue
+        model = None
+        if has_model and pd.notna(r["model"]) and str(r["model"]).strip():
+            model = str(r["model"]).strip()
+        rows.append((ids, model))
+    return rows
+
+
+def parse_manual_groups(is_same_group: pd.DataFrame) -> list[list[int]]:
+    """Parse the ``Nodes in group`` column into lists of node IDs (rows with < 2 nodes skipped)."""
+    return [ids for ids, _ in parse_manual_group_rows(is_same_group)]
 
 
 def apply_manual_groups(
@@ -77,17 +95,24 @@ def apply_manual_groups(
     for idx, nodes in zip(out.index, out["node"]):
         for n in nodes if isinstance(nodes, list) else [nodes]:
             node_to_idx.setdefault(int(n), []).append(idx)
+    areas = out["area"] if "area" in out.columns else None
 
     applied = merged = 0
-    for row_num, node_ids in enumerate(parse_manual_groups(is_same_group)):
-        idxs, missing = [], []
+    for row_num, (node_ids, model) in enumerate(parse_manual_group_rows(is_same_group)):
+        idxs, missing, wrong_model = [], [], []
         for n in node_ids:
-            if n in node_to_idx:
-                idxs.extend(node_to_idx[n])
-            else:
+            if n not in node_to_idx:
                 missing.append(n)
+                continue
+            for idx in node_to_idx[n]:
+                if model is not None and (areas is None or model not in get_regions_for_area(areas.loc[idx])):
+                    wrong_model.append(n)
+                    continue
+                idxs.append(idx)
         if missing and report is not None:
             report.warn("grouping", f"manual group row {row_num}: nodes not found in network", nodes=missing)
+        if wrong_model and report is not None:
+            report.warn("grouping", f"manual group row {row_num}: nodes present but not in model '{model}'; ignored for this row", nodes=sorted(set(wrong_model)))
         if len(idxs) < 2:
             if report is not None:
                 report.warn("grouping", f"manual group row {row_num}: fewer than 2 hexagons matched; skipped", nodes=node_ids)
@@ -131,9 +156,15 @@ def assign_hub_ids(hexes: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
 
 def hub_identity_table(hexes: gpd.GeoDataFrame) -> pd.DataFrame:
-    """``group, hub_id, n_hexes, nodes`` (nodes as a comma-separated sorted string)."""
+    """``group, hub_id, n_hexes, nodes, demand_models`` (nodes as a comma-separated sorted
+    string; ``demand_models`` the models that supplied the nodes' demand, when known)."""
     rows = []
+    has_models = "DemandModels" in hexes.columns
     for g, grp in hexes.groupby("group", sort=True):
         nodes = sorted({int(n) for ns in grp["node"] for n in (ns if isinstance(ns, list) else [ns])})
-        rows.append({"group": int(g), "hub_id": stable_hub_id(nodes), "n_hexes": len(grp), "nodes": ",".join(map(str, nodes))})
+        row = {"group": int(g), "hub_id": stable_hub_id(nodes), "n_hexes": len(grp), "nodes": ",".join(map(str, nodes))}
+        if has_models:
+            models = list(dict.fromkeys(m for ms in grp["DemandModels"] for m in (ms if isinstance(ms, list) else [])))
+            row["demand_models"] = ";".join(models)
+        rows.append(row)
     return pd.DataFrame(rows)

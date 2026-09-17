@@ -9,8 +9,9 @@ listed in `run_report.md`.
 
 | Stage | Correction | File | Key |
 |------|-----------|------|-----|
-| Grouping | Force nodes into one hub | `is_same_group.csv` | node IDs |
-| Demand | Override 2050 demand / transfers | `manual_demand_updates.csv` | node ID |
+| Network | Correct a node whose rows disagree on position | `node_position_overrides.csv` | node ID |
+| Grouping | Force nodes into one hub | `is_same_group.csv` | node IDs (+ optional `model`) |
+| Demand | Override 2050 demand / transfers | `manual_demand_updates.csv` | node ID (+ optional `model`) |
 | Display | Hebrew hub names | `hub_names.csv` | H3 index |
 | Display | Hebrew line names missing from the export | `line_names_extra.csv` | line ID |
 | Display | Line-name spelling corrections | `BS_lines.csv` (per run) | line ID |
@@ -21,7 +22,46 @@ All keys are stable model identifiers. **Never key a table by `group`**: group I
 renumbered whenever the network or the manual merges change. (A legacy `group`-keyed hub
 names file is still accepted with a deprecation warning.)
 
+### Node identity: node ID plus model
+
+A node ID is unique only within one demand model; the regional models reuse numbers
+(Tel Aviv and Ashdod-Ashkelon share about 12,000 IDs). The network export carries no model
+column, so the pipeline identifies a node by its ID **and its location**: the hexagon's
+`area` tag selects the candidate models, and the first model that contains the node supplies
+its demand. That model is recorded per node (`node_models` on every hexagon, `demand_models`
+in `hub_identity.csv` and the H3 cell layer, `demand_nodes_by_model` in the report), and a
+node found in several candidate models with different values is reported as a possible ID
+collision. The manual tables keyed by node accept an optional `model` column (a region name
+such as `Tel Aviv`, `Haifa`, `Beer Sheva`, `Ashdod-Ashkelon`, `Jerusalem`, `Hadera`,
+`Haifa Metronit`): the row then applies only where the node belongs to that model, i.e. the
+model supplied its demand or is a candidate model of the hexagon's location. Blank = any.
+
 ---
+
+## 6.0 🔧 `node_position_overrides.csv` — one position per node
+
+**Stage:** `network.apply_node_position_overrides` then `network.check_node_positions`,
+before hexagons are formed. Also run by `hubs validate`.
+
+**Why:** `All_nodeslines` is joined by hand in GIS from several network sources, and the same
+node ID occasionally arrives with different coordinates on different lines (two vintages of
+a network, or a wrong node list). A node split across two cells becomes two hubs and its
+demand is counted twice.
+
+**Behaviour:** rows that disagree by at most `node_position_tolerance_m` (150 m, about one
+cell) are snapped to the position most of the node's rows carry, and the node is reported;
+no row is dropped. A larger spread is a conflict between sources that the pipeline will not
+guess: the rows stay where they are and the node is listed in the report and by
+`hubs validate` (`on_node_position_conflict=error` makes it fatal). Resolve it here:
+
+| Column | Required | Purpose |
+|--------|----------|---------|
+| `node` | yes | node ID |
+| `X`, `Y` | yes | the correct position, EPSG:2039 |
+| `notes` | no | which source was wrong and why |
+
+Every row of that node is moved to `X`, `Y` before the check, so all its lines end up in one
+cell. No `model` column: the network export has one position per node ID.
 
 ## 6.1 🔧 `is_same_group.csv` — forcing nodes into one hub
 
@@ -30,17 +70,19 @@ names file is still accepted with a deprecation warning.)
 **Why:** two nodes that belong to one hub operationally but sit more than 120 m apart
 (opposite platforms across a wide road, coordinated forecourts, a board decision).
 
-**Format:** one column `Nodes in group`; each row a comma-separated list of node IDs.
+**Format:** one column `Nodes in group`; each row a comma-separated list of node IDs; an
+optional `model` column restricts the row to hexagons whose location belongs to that model.
 
 ```csv
-Nodes in group
-"400018, 521063, 523019"
-"400020, 511128"
+Nodes in group,model
+"400018, 521063, 523019",
+"400020, 511128",Tel Aviv
 ```
 
 **Behaviour:** every group touched by a row is merged into the smallest group ID among them;
 merges are transitive across rows; group IDs are then renumbered sequentially. Nodes that are
-not in the network are reported (`manual group row N: nodes not found`).
+not in the network are reported (`manual group row N: nodes not found`), and so are nodes
+present in the network but outside the row's model.
 
 ## 6.2 🔧 `manual_demand_updates.csv` — overriding 2050 demand by node
 
@@ -52,6 +94,7 @@ order; later rows win. The override applies to every hexagon that contains the n
 | `node` | yes | node ID |
 | `total_demand` | yes | new `TotalDemand` |
 | `total_transfers` | no | new `TotalTransfers`; blank keeps the computed value |
+| `model` | no | apply only where the node belongs to this demand model (see *Node identity* above); blank = any |
 | `station_name`, `notes` | no | shown in the report |
 
 The file shipped in `data/reference/` holds the National-Model values that used to be

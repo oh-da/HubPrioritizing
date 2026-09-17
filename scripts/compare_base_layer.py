@@ -41,7 +41,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--input-dir", type=Path, default=Path("tests/fixtures/real"))
     ap.add_argument("--reference-dir", type=Path, default=REFERENCE_DATA_DIR)
-    ap.add_argument("--cell-rule", default="center", choices=["center", "fraction"])
+    ap.add_argument("--cell-rule", default="fraction", choices=["center", "fraction"])
     ap.add_argument("--set", action="append", default=[], help="extra config overrides applied to both runs (key=value)")
     ap.add_argument("--out", type=Path, default=None, help="write the per-hub comparison table as CSV")
     args = ap.parse_args(argv)

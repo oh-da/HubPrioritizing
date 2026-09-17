@@ -66,9 +66,10 @@ class PipelineConfig:
     # time; 'h3_base' = look everything up in the pre-allocated H3 table written by
     # `hubs prepare-base` (data/reference/h3_base.parquet).
     spatial_source: str = "shapefiles"
-    # h3_base only: 'center' counts a cell in the ring its centre falls in; 'fraction'
-    # weights it by the share of its polygon inside the ring.
-    influence_cell_rule: str = "center"
+    # h3_base only: 'fraction' weights a cell by the share of its polygon inside the ring
+    # (within ~1 % of the polygon overlay); 'center' counts it wholly in the ring its
+    # centre falls in (faster, coarser).
+    influence_cell_rule: str = "fraction"
     terminal_buffer_m: float = TERMINAL_PROXIMITY_DISTANCE_M
     influence_rings: tuple[int, ...] = (500, 1000, 1500)
     # Distance-decay midpoints for the pop/jobs score. Empty = derived from influence_rings

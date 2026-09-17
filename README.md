@@ -71,7 +71,7 @@ hubs run --input-dir my_run --output-dir out --set influence_rings=600,1000,1200
 
 # prototype: read the spatial context from the pre-allocated H3 layer instead of the shapefiles
 hubs prepare-base                                  # once per vintage of the reference shapefiles
-hubs run --input-dir my_run --output-dir out --set spatial_source=h3_base --set influence_cell_rule=fraction
+hubs run --input-dir my_run --output-dir out --set spatial_source=h3_base
 ```
 
 [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md) explains each flag and which notebook quirk it controls;

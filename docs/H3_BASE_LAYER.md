@@ -38,9 +38,9 @@ At run time:
 - `bus_terminal`: max over the hub's cells. Because a hub polygon is the union of its
   cell polygons, this is *identical* to the hub-level buffer test.
 - `pop_*` / `emp_*`: cells within `grid_disk` of the hub centroid's cell, assigned to
-  rings by distance. `influence_cell_rule=center` puts a cell in the ring its centre
-  falls in; `fraction` weights it by the share of its polygon inside the ring (exact
-  polygon fractions are only computed for cells a ring boundary can cross).
+  rings by distance. `influence_cell_rule=fraction` (default) weights a cell by the share of its
+  polygon inside the ring (exact polygon fractions are only computed for cells a ring
+  boundary can cross); `center` puts it wholly in the ring its centre falls in.
 
 ## Measured against the shapefile stages (June 2026 inputs, 142 scored hubs)
 
@@ -60,8 +60,7 @@ At run time:
 | run time of the spatial stages | ≈ same as shapefiles | +25 s |
 
 The inner ring at resolution 10 (cells ≈ 150 m across against a 500 m radius) is where
-the `center` rule discretises most; `fraction` removes almost all of it. **Recommendation:
-`fraction`.**
+the `center` rule discretises most; `fraction` removes almost all of it. **`fraction` is the default.**
 
 ### The ring-tag differences are a fix, not an error
 

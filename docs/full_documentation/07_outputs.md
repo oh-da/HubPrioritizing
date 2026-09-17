@@ -9,9 +9,11 @@
 | `hub_identity.csv` | `group, hub_id, n_hexes, nodes, demand_models, HubNameHE, HubType` — the stable identity of each hub and the demand model(s) its nodes were read from |
 | `h3_layer.gpkg` | Shareable H3 cell layer (GeoPackage, layer `h3_cells`, EPSG:2039): every hub cell and every cell within the outer catchment ring of a scored hub, with the base attributes (area, ring, terminal, 2050 population and jobs), the hub identity, network, demand model and scores, and the nearest hub. `h3_layer_format` (gpkg / geojson / parquet / csv / none) and `h3_layer_extent` (hubs / influence / all); see `docs/H3_BASE_LAYER.md`. |
 | `run_report.md`, `run_report.json` | Inputs and encodings, metrics (nodes, hexagons, groups, matched demand nodes, hub type counts…), and every finding: lines without a mode, duplicated keys, nodes without demand, manual rows applied or unmatched, unnamed lines, status conflicts, hubs without a name, top 10 hubs |
+| `run_manifest.json` | The run's version: input files with SHA-256, base-layer vintage, configuration, code commit, result summary; read by `hubs runs` and `hubs compare` (`docs/VERSIONS.md`) |
 | `run_config.json` | The effective configuration |
 | `run.log` | Log of the run |
 | `intermediate/` (with `keep_intermediates=true`) | `hexes.geojson`, `groups.geojson`, `scored.csv` for auditing |
+| `compare_<A>_vs_<B>.md` / `.csv` / `.json` (from `hubs compare A B`) | Inputs and settings that differ, hubs added / removed / changed tier, every score and rank with its delta |
 
 Sheet and table names, the file stem and extra columns (e.g. `hub_id`, `eligible`) are
 configurable (`output_sheet_name`, `output_table_name`, `output_basename`, `extra_columns`).

@@ -3,7 +3,11 @@
 
     hubs validate    --input-dir DIR [--reference-dir DIR]
     hubs show-config [--config pipeline.yaml] [--set key=value ...] [--defaults]
-    hubs run         --input-dir DIR --output-dir DIR [...]   (available from PR 8)
+    hubs run         --input-dir DIR --output-dir DIR [--version NAME] [...]
+    hubs compare     OUT_A OUT_B [--out DIR]
+    hubs runs        [DIR]
+    hubs serve       [--root DIR] [--port N]
+    hubs prepare-base / export-h3
 """
 
 from __future__ import annotations
@@ -58,6 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_run = sub.add_parser("run", help="run the full pipeline")
     add_common(p_run)
     p_run.add_argument("--output-dir", required=True, type=Path)
+    p_run.add_argument("--version", default=None, help="name of this run (default: the newest date among the model exports)")
 
     p_base = sub.add_parser("prepare-base", help="pre-allocate the reference layers to H3 cells (h3_base.parquet)")
     p_base.add_argument("--reference-dir", type=Path, default=REFERENCE_DATA_DIR, help=f"directory with the four shapefiles (default: {REFERENCE_DATA_DIR})")
@@ -66,6 +71,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_base.add_argument("--resolution", type=int, default=10, help="H3 resolution (must match the run's h3_resolution)")
     p_base.add_argument("--terminal-buffer-m", type=float, default=None, help="terminal proximity distance (default: config value, 200 m)")
     p_base.add_argument("--file", action="append", default=[], metavar="KEY=PATH", help="pin a specific file for a layer key (repeatable)")
+
+    p_cmp = sub.add_parser("compare", help="compare two run output directories (A = before, B = after)")
+    p_cmp.add_argument("run_a", type=Path, help="output directory of the earlier run")
+    p_cmp.add_argument("run_b", type=Path, help="output directory of the later run")
+    p_cmp.add_argument("--out", type=Path, default=None, help="where to write compare_<A>_vs_<B>.md/.csv/.json (default: run B's directory)")
+
+    p_runs = sub.add_parser("runs", help="list the run versions found under a directory")
+    p_runs.add_argument("root", type=Path, nargs="?", default=Path("."), help="directory to search (recursively) for run_manifest.json")
+
+    p_srv = sub.add_parser("serve", help="open the local web page (choose inputs, validate, run, compare versions)")
+    p_srv.add_argument("--root", type=Path, default=Path("."), help="folder the page browses and lists runs from (default: current directory)")
+    p_srv.add_argument("--reference-dir", type=Path, default=REFERENCE_DATA_DIR, help=f"reference data directory (default: {REFERENCE_DATA_DIR})")
+    p_srv.add_argument("--port", type=int, default=8765, help="port on 127.0.0.1 (default 8765; 0 = any free port)")
+    p_srv.add_argument("--host", default="127.0.0.1", help=argparse.SUPPRESS)
+    p_srv.add_argument("--no-browser", action="store_true", help="do not open the browser automatically")
 
     p_exp = sub.add_parser("export-h3", help="write the H3 base layer (every cell, all attributes) in a shareable GIS format")
     p_exp.add_argument("--out", required=True, type=Path, help="output file; the extension follows --format")
@@ -98,7 +118,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
     cfg = _load_config_or_exit(args)
     report = RunReport()
     inputs = discover_inputs(args.input_dir, args.reference_dir, _parse_file_overrides(args.file))
-    problems = validate_inputs(inputs, report, cfg.spatial_source)
+    problems = validate_inputs(inputs, report, cfg.spatial_source, cfg.on_stale_base_layer)
 
     print(f"Input directory:     {inputs.input_dir}")
     print(f"Reference directory: {inputs.reference_dir}")
@@ -167,6 +187,24 @@ def cmd_prepare_base(args: argparse.Namespace) -> int:
     return prepare_base_from_cli(args)
 
 
+def cmd_compare(args: argparse.Namespace) -> int:
+    from .pipeline.run import compare_from_cli
+
+    return compare_from_cli(args)
+
+
+def cmd_runs(args: argparse.Namespace) -> int:
+    from .pipeline.run import runs_from_cli
+
+    return runs_from_cli(args)
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    from .gui.server import serve_from_cli
+
+    return serve_from_cli(args)
+
+
 def cmd_export_h3(args: argparse.Namespace) -> int:
     from .pipeline.run import export_h3_from_cli
 
@@ -184,7 +222,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    handlers = {"validate": cmd_validate, "show-config": cmd_show_config, "run": cmd_run, "prepare-base": cmd_prepare_base, "export-h3": cmd_export_h3}
+    handlers = {"validate": cmd_validate, "show-config": cmd_show_config, "run": cmd_run, "prepare-base": cmd_prepare_base, "export-h3": cmd_export_h3, "compare": cmd_compare, "runs": cmd_runs, "serve": cmd_serve}
     return handlers[args.command](args)
 
 

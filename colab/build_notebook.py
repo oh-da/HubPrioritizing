@@ -29,6 +29,8 @@ OUTPUT_FOLDER = ""  #@param {type:"string"}
 #@markdown Repository and branch to run:
 REPO = "oh-da/HubPrioritizing"  #@param {type:"string"}
 BRANCH = "main"  #@param {type:"string"}
+#@markdown Name of this run version (blank = the newest date among the exports, e.g. `2026-06-18`):
+VERSION = ""  #@param {type:"string"}
 #@markdown Extra settings for `hubs run`, e.g. `--set mc_iterations=20000` (normally blank):
 EXTRA_ARGS = ""  #@param {type:"string"}
 
@@ -92,7 +94,7 @@ print("OK - inputs are valid. Continue with step 5.")""",
         """#@title 5. Run the pipeline (about 1 minute)
 import subprocess, shlex, os
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-cmd = ["hubs", "run", "--input-dir", INPUT_DIR, "--output-dir", OUTPUT_DIR] + shlex.split(EXTRA_ARGS)
+cmd = ["hubs", "run", "--input-dir", INPUT_DIR, "--output-dir", OUTPUT_DIR] + (["--version", VERSION.strip()] if VERSION.strip() else []) + shlex.split(EXTRA_ARGS)
 print(" ".join(shlex.quote(c) for c in cmd))
 r = subprocess.run(cmd, capture_output=True, text=True)
 print(r.stdout)

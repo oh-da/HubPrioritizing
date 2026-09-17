@@ -49,7 +49,14 @@ hubs run --input-dir my_run --output-dir my_run/out
 | `hub_identity.csv` | `group`, stable `hub_id`, node list and name per hub |
 | `h3_layer.gpkg` | Shareable H3 cell layer: every hub cell and its catchment with area, ring, terminal, 2050 population/jobs, hub identity and scores (`h3_layer_format`, `h3_layer_extent`) |
 | `run_report.md` / `.json` | Inputs, detected encodings, metrics, and every data-quality finding |
+| `run_manifest.json` | The run's version: input files with hashes, base-layer vintage, configuration, code commit, summary ([docs/VERSIONS.md](docs/VERSIONS.md)) |
 | `run_config.json`, `run.log` | The effective configuration and the log |
+
+```bash
+hubs run --input-dir my_run --output-dir my_run/out --version 2026-06   # name the version (default: newest export date)
+hubs compare old_run/out my_run/out                                    # what changed: inputs, settings, hubs, scores, ranks
+hubs runs runs/                                                        # list every version under a directory
+```
 
 Stable layers (metropolitan rings, districts, bus terminals, TAZ 2050, hub names, manual merges,
 demand overrides) live in [`data/reference/`](data/reference/README.md) and do not need to be
@@ -58,8 +65,10 @@ The four polygon layers are pre-allocated once to H3 cells (`data/reference/h3_b
 built by `hubs prepare-base`); a run reads that table and never touches a shapefile. See
 [`docs/H3_BASE_LAYER.md`](docs/H3_BASE_LAYER.md).
 
-See [INSTALL.md](INSTALL.md) for installation details. No Python on your machine? Open
-`colab/hubs_run.ipynb` in Google Colab and follow [docs/RUN_ON_COLAB.md](docs/RUN_ON_COLAB.md).
+Prefer a page to a terminal? `hubs serve` opens a local web page to choose the folders, validate,
+run, and compare versions ([docs/GUI.md](docs/GUI.md)). See [INSTALL.md](INSTALL.md) for installation
+details. No Python on your machine? Open `colab/hubs_run.ipynb` in Google Colab and follow
+[docs/RUN_ON_COLAB.md](docs/RUN_ON_COLAB.md).
 
 ### Configuration
 
@@ -92,7 +101,8 @@ hubs export-h3 --out israel_cells.gpkg             # every cell of Israel with a
 ```
 HubPrioritizing/
 ├── src/
-│   ├── cli.py                    # `hubs validate | run | show-config | prepare-base`
+│   ├── cli.py                    # `hubs validate | run | compare | runs | serve | show-config | prepare-base | export-h3`
+│   ├── gui/                      # `hubs serve`: local web page (server.py, index.html)
 │   ├── config.py                 # thresholds, weights, CRS, column constants
 │   ├── pipeline/                 # the one-command pipeline (pure DataFrame stages)
 │   │   ├── settings.py           #   PipelineConfig, YAML / --set overrides
@@ -107,6 +117,7 @@ HubPrioritizing/
 │   │   ├── scoring.py            #   categories, mode score, tiers, normalisation, Monte Carlo
 │   │   ├── postprocess.py        #   display columns (incl. the former Excel formulas)
 │   │   ├── export.py             #   xlsx (Excel Table) and CSV writers, FINAL_COLUMNS
+│   │   ├── versioning.py         #   run_manifest.json, `hubs compare`, `hubs runs`
 │   │   ├── report.py             #   RunReport
 │   │   └── run.py                #   orchestrator
 │   ├── spatial/                  # H3 helpers, union-find proximity grouping
@@ -183,6 +194,9 @@ tiers, names, population and jobs, and, with the legacy ring settings, the Monte
 - **[docs/full_documentation/](docs/full_documentation/)** — inputs, pipeline, step-by-step, scoring, manual corrections, outputs, code reference
 - **[docs/DEVIATIONS.md](docs/DEVIATIONS.md)** — notebook quirks kept behind flags and intentional fixes
 - **[docs/H3_BASE_LAYER.md](docs/H3_BASE_LAYER.md)** — the pre-allocated H3 layer and the shareable cell layer
+- **[docs/VERSIONS.md](docs/VERSIONS.md)** — run versions, the run manifest and comparing two runs
+- **[docs/GUI.md](docs/GUI.md)** — the local web page (`hubs serve`)
+- **[docs/RUN_ON_COLAB.md](docs/RUN_ON_COLAB.md)** — running without installing anything
 - **[docs/DATA_CONFIGURATION.md](docs/DATA_CONFIGURATION.md)** — where files go and how to set parameters
 - **[data/reference/README.md](data/reference/README.md)** — the stable reference layers and tables
 

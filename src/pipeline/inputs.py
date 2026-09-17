@@ -13,6 +13,7 @@ fixes the directory once.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -373,15 +374,44 @@ def discover_inputs(
 # ----------------------------------------------------------------------------------------
 
 
-def validate_inputs(inputs: InputSet, report: RunReport | None = None, spatial_source: str | None = None) -> list[str]:
+BASE_LAYER_SOURCE_KEYS = ("metro", "districts", "bus_terminals", "taz")
+
+
+def base_layer_staleness(inputs: InputSet) -> list[str]:
+    """Messages for source shapefiles that changed since ``h3_base`` was built (see
+    :func:`base_layer.stale_sources`); empty when the layer is current or absent."""
+    from .base_layer import manifest_path, stale_sources
+
+    layer = inputs.path("h3_base")
+    if layer is None:
+        return []
+    mp = manifest_path(layer)
+    manifest = json.loads(mp.read_text(encoding="utf-8")) if mp.exists() else None
+    return stale_sources(manifest, {k: inputs.path(k) for k in BASE_LAYER_SOURCE_KEYS})
+
+
+def validate_inputs(
+    inputs: InputSet,
+    report: RunReport | None = None,
+    spatial_source: str | None = None,
+    on_stale_base_layer: str = "error",
+) -> list[str]:
     """Return a list of problems (empty when the input set is usable).
 
     Checks: required keys present, shapefile sidecars present, required columns
-    present (headers only are read), Excel workbook opens. Never raises for a
-    data problem; callers decide via :func:`require_valid_inputs`.
-    ``spatial_source`` is passed through to :meth:`InputSet.missing_required`.
+    present (headers only are read), Excel workbook opens, and, unless the run uses
+    ``spatial_source='shapefiles'``, that the H3 base layer is not older than the
+    source shapefiles next to it (a problem, or only a report warning with
+    ``on_stale_base_layer='warn'``). Never raises for a data problem; callers decide
+    via :func:`require_valid_inputs`.
     """
     problems: list[str] = []
+    if spatial_source != "shapefiles":
+        for msg in base_layer_staleness(inputs):
+            if on_stale_base_layer == "error":
+                problems.append(msg)
+            elif report is not None:
+                report.warn("inputs", msg)
     if not inputs.input_dir.exists():
         problems.append(f"input directory does not exist: {inputs.input_dir}")
 

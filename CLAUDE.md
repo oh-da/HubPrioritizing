@@ -484,7 +484,8 @@ HubPrioritizing/
 ├── requirements.txt             # runtime deps (mirror of pyproject)
 │
 ├── src/
-│   ├── cli.py                   # hubs validate | run | show-config | prepare-base
+│   ├── cli.py                   # hubs validate | run | compare | runs | serve | show-config | prepare-base | export-h3
+│   ├── gui/                     # hubs serve: local web page (server.py = JSON API over the pipeline, index.html = the page)
 │   ├── config.py                # thresholds, weights, CRS, column constants, tier labels
 │   ├── pipeline/                # the one-command pipeline (pure DataFrame stages)
 │   │   ├── settings.py          #   PipelineConfig, YAML / --set overrides
@@ -500,6 +501,7 @@ HubPrioritizing/
 │   │   ├── scoring.py           #   categories, mode score, tiers, normalisation, Monte Carlo
 │   │   ├── postprocess.py       #   display columns incl. the former Excel formulas
 │   │   ├── export.py            #   xlsx (Excel Table) + CSV writers
+│   │   ├── versioning.py        #   run_manifest.json, hubs compare, hubs runs
 │   │   └── run.py               #   orchestrator, write_outputs, run_from_cli
 │   ├── spatial/                 # h3_operations.py, merging.py (UnionFind)
 │   ├── classification/          # hierarchy.py (classify_hub_tier)
@@ -529,6 +531,9 @@ HubPrioritizing/
 - Column names follow the canonical notebook so the workbook schema is unchanged
 - `base_layer.py` is the default spatial source: `hubs prepare-base` allocates the four polygon layers to H3 cells once (`data/reference/h3_base.parquet`, manifest with source hashes) and the run looks area/ring, terminal class and 2050 population/jobs up by `h3_index`. `spatial_tags.py` and the terminal/TAZ functions of `aggregate.py` are the run-time overlay kept behind `spatial_source=shapefiles`
 - `h3_export.py` writes the shareable cell layer (`h3_layer.gpkg`) with base attributes, hub identity, network and scores per cell
+
+#### `src/gui/`
+- `hubs serve`: a standard-library HTTP server on 127.0.0.1 exposing the pipeline functions as a JSON API (`/api/validate`, `/api/run`, `/api/runs`, `/api/compare`, `/api/prepare-base`) and one static page; jobs run in a background thread with their log streamed to the page
 
 #### `src/spatial/`, `src/classification/`
 - H3 helpers and union-find proximity grouping; tier rules
@@ -615,11 +620,11 @@ HubPrioritizing/
 **Format**: GeoPackage (EPSG:2039) by default; GeoJSON for web, GeoParquet or CSV+WKT for SQL
 
 #### Reports
-- Summary statistics
-- Ranking tables
-- Sensitivity analysis results
+- `run_report.md` / `.json`: every data-quality finding and metric of a run
+- `run_manifest.json`: the run's version (inputs with hashes, base-layer vintage, configuration, code, summary)
+- `compare_<A>_vs_<B>.md` / `.csv` / `.json` (`hubs compare`): what changed between two versions
 
-**Format**: CSV, Excel, PDF
+**Format**: Markdown, CSV, JSON
 
 ---
 
@@ -1113,14 +1118,17 @@ This document should be updated when:
 - **Score range**: 1–10 (normalized per tier)
 - **Catchment rings**: 0–500, 500–1000, 1000–1500 meters (configurable: `influence_rings`)
 - **Bus terminal buffer**: 200 m (baked into the base layer)
-- **Spatial source**: `h3_base` (pre-allocated cells, `influence_cell_rule=fraction`); `shapefiles` = legacy overlay
+- **Spatial source**: `h3_base` (pre-allocated cells, `influence_cell_rule=fraction`); `shapefiles` = legacy overlay. A source shapefile whose hash differs from the layer's manifest stops the run (`on_stale_base_layer=error`): rerun `hubs prepare-base`
 - **Node identity**: node ID + location (the hexagon's area selects the demand model; recorded per node as `demand_models`); one position per node, spreads ≤ `node_position_tolerance_m` (150 m) snapped, larger ones reported and fixed in `node_position_overrides.csv`
 - **Cell layer output**: `h3_layer.gpkg`, hub + catchment cells (`h3_layer_format`, `h3_layer_extent`)
 
 ### Key Commands
 ```bash
 hubs validate --input-dir DIR            # check inputs
-hubs run --input-dir DIR --output-dir OUT
+hubs run --input-dir DIR --output-dir OUT [--version NAME]   # writes run_manifest.json (default version = newest export date)
+hubs compare OUT_A OUT_B                 # inputs, settings, hubs, scores and ranks that changed between two runs
+hubs runs DIR                            # list the run versions under a directory
+hubs serve [--root DIR]                  # local web page: choose folders, validate, run, compare versions (docs/GUI.md)
 hubs show-config --defaults              # every parameter as YAML
 hubs prepare-base                        # rebuild data/reference/h3_base.parquet after a reference shapefile changes
 hubs export-h3 --out cells.gpkg          # the H3 base layer (every cell, all attributes) for GIS / SQL; see docs/H3_BASE_LAYER.md
@@ -1133,6 +1141,8 @@ pytest                                    # unit + smoke tests
 - `src/pipeline/scoring.py`: tiers, normalisation, Monte Carlo
 - `src/pipeline/export.py`: the 70-column workbook schema
 - `src/pipeline/h3_export.py`: the shareable cell layer
+- `src/pipeline/versioning.py`: run manifest and run-to-run comparison (`docs/VERSIONS.md`)
+- `src/gui/server.py`: the local web page's API (`docs/GUI.md`)
 - `src/config.py`: thresholds and weights
 - `data/reference/README.md`: reference layers and curated tables
 - `docs/H3_BASE_LAYER.md`: how the base layer is built, validated against the overlay, and shared

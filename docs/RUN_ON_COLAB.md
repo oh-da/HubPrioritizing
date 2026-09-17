@@ -38,6 +38,7 @@ The first cell is a form with four boxes:
 |---|---|
 | `INPUT_FOLDER` | the Drive folder from section 1, relative to My Drive, e.g. `HubRuns/2026_06` |
 | `OUTPUT_FOLDER` | leave blank; results go to a folder named `out` inside the input folder |
+| `VERSION` | a name for this run, e.g. `2026-06`; blank = the newest date in the export file names |
 | `REPO`, `BRANCH` | leave as they are unless you were told otherwise |
 | `EXTRA_ARGS` | leave blank |
 
@@ -70,7 +71,12 @@ In Drive, open the `out` folder inside your input folder:
 | `hub_prioritization_results.csv` | the same table as CSV |
 | `h3_layer.gpkg` | the H3 cell layer for QGIS / ArcGIS / SQL |
 | `run_report.md` | every data-quality finding; read the warnings before publishing |
+| `run_manifest.json` | the version record: which files, which settings, which code (`docs/VERSIONS.md`) |
 | `hub_identity.csv`, `run_config.json`, `run.log` | traceability |
+
+To see what changed since an earlier run, keep each run in its own folder and, in a Colab
+cell after step 5, run `!hubs compare "/content/drive/MyDrive/HubRuns/2026_03/out" "$OUTPUT_DIR"`;
+the report lands next to the new results.
 
 Step 7 downloads the workbook to your computer straight away if you prefer.
 
@@ -87,6 +93,11 @@ Step 7 downloads the workbook to your computer straight away if you prefer.
   and 6 again. `docs/DEVIATIONS.md` lists the settings.
 - **Node position conflicts** in step 4 are warnings, not errors: the run continues.
   `docs/full_documentation/06_manual_corrections.md` explains how to resolve them.
+- **`h3_base is stale for 'taz' …`** — somebody replaced a reference shapefile (demographics,
+  terminals, rings, districts) without rebuilding the H3 base layer. This needs a developer:
+  in the repository run `hubs prepare-base` and commit the new `h3_base.parquet` and its
+  manifest. Do not work around it with `on_stale_base_layer=warn` unless you accept results
+  computed on the old data.
 
 The notebook is generated from `colab/build_notebook.py`; edit that file, run it, and commit
 both if the cells need to change.

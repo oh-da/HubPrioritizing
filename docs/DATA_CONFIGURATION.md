@@ -15,6 +15,8 @@ A file placed in the input directory with a reference file's name overrides the 
 for that run. The newest file per input (by the date in its name) is used when several match.
 When one of the four shapefiles changes, run `hubs prepare-base` to rebuild `h3_base.parquet`
 (about 2.5 minutes) and commit both the layer and its manifest; see `H3_BASE_LAYER.md`.
+Forgetting is not possible: `hubs validate` and `hubs run` compare the shapefiles' hashes with
+the manifest and stop on a mismatch (`on_stale_base_layer=error`).
 
 ## Check before you run
 

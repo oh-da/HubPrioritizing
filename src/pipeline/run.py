@@ -53,6 +53,7 @@ class RunResult:
     report: RunReport
     config: PipelineConfig
     base: pd.DataFrame | None = None  # the H3 base layer the run used (indexed by h3_index)
+    inputs: InputSet | None = None
     outputs: dict[str, Path] = field(default_factory=dict)
 
 
@@ -90,7 +91,7 @@ def run_pipeline(
     report = report or RunReport()
     log = logging.getLogger("hubs.run")
 
-    problems = validate_inputs(inputs, report, cfg.spatial_source)
+    problems = validate_inputs(inputs, report, cfg.spatial_source, cfg.on_stale_base_layer)
     if allow_missing_layers and cfg.spatial_source == "shapefiles":
         problems = [p for p in problems if not any(f"'{k}'" in p for k in OPTIONAL_LAYER_KEYS)]
         for k in OPTIONAL_LAYER_KEYS:
@@ -223,11 +224,12 @@ def run_pipeline(
     report.set_metric("hub_type_counts_final", results["HubType"].value_counts().to_dict())
     top = results.nsmallest(10, "Rank_TS_MC")[["group", "HubNameHE", "HubType", "TotalScore_MC"]]
     report.info("results", "top 10 hubs by TotalScore_MC", top=top.to_dict("records"))
-    return RunResult(results=results, groups=groups, scored=scored, hexes=hexes, report=report, config=cfg, base=base)
+    return RunResult(results=results, groups=groups, scored=scored, hexes=hexes, report=report, config=cfg, base=base, inputs=inputs)
 
 
-def write_outputs(result: RunResult, output_dir: Path | str) -> dict[str, Path]:
-    """Write the workbook, CSV, identity table, report and config into ``output_dir``."""
+def write_outputs(result: RunResult, output_dir: Path | str, version: str | None = None) -> dict[str, Path]:
+    """Write the workbook, CSV, identity table, cell layer, report, config and run manifest
+    into ``output_dir``. ``version`` names the run (default: the newest input date)."""
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     cfg = result.config
@@ -251,6 +253,12 @@ def write_outputs(result: RunResult, output_dir: Path | str) -> dict[str, Path]:
 
     paths["run_config"] = out / "run_config.json"
     paths["run_config"].write_text(cfg.to_json(), encoding="utf-8")
+    if result.inputs is not None:
+        from .versioning import build_run_manifest, write_run_manifest
+
+        manifest = build_run_manifest(result.inputs, cfg, result.results, version, paths)
+        result.report.set_metric("version", manifest["version"])
+        paths["run_manifest"] = write_run_manifest(manifest, out)
     md, js = result.report.write(out)
     paths["report_md"], paths["report_json"] = md, js
 
@@ -342,6 +350,37 @@ def export_h3_from_cli(args: Any) -> int:
     return 0
 
 
+def compare_from_cli(args: Any) -> int:
+    """Entry point used by ``hubs compare A B``."""
+    from .versioning import compare_runs, write_comparison
+
+    try:
+        comp = compare_runs(args.run_a, args.run_b)
+    except FileNotFoundError as exc:
+        print(str(exc))
+        return 1
+    out_dir = Path(args.out) if args.out else Path(args.run_b)
+    paths = write_comparison(comp, out_dir)
+    s = comp["summary"]
+    print(f"✓ {s['a']['version']} → {s['b']['version']}: {s['matched_by_hub_id']} hubs unchanged in membership, {s['matched_by_nodes']} changed membership, {s['added']} added, {s['removed']} removed")
+    print(f"  tier changes {s['tier_changes']}, score changed {s['score_changed']}, rank changed {s['rank_changed']}, inputs changed {len(s['inputs_changed'])}, settings changed {len(s['config_changed'])}")
+    print(f"  report : {paths['md']}")
+    print(f"  table  : {paths['csv']}")
+    return 0
+
+
+def runs_from_cli(args: Any) -> int:
+    """Entry point used by ``hubs runs DIR``."""
+    from .versioning import list_runs
+
+    table = list_runs(args.root)
+    if table.empty:
+        print(f"no run manifests found under {args.root}")
+        return 1
+    print(table.to_string(index=False))
+    return 0
+
+
 def _parse_file_overrides_safe(args: Any) -> dict[str, Path]:
     from ..cli import _parse_file_overrides
 
@@ -371,11 +410,12 @@ def run_from_cli(args: Any) -> int:
         print("\nRun 'hubs validate --input-dir ...' for the full input check.")
         return 1
 
-    paths = write_outputs(result, output_dir)
-    print(f"✓ {len(result.results)} hubs written")
+    paths = write_outputs(result, output_dir, getattr(args, "version", None))
+    print(f"✓ {len(result.results)} hubs written (version {result.report.metrics.get('version')})")
     print(f"  workbook : {paths['xlsx']}")
     print(f"  csv      : {paths['csv']}")
     print(f"  report   : {paths['report_md']}")
+    print(f"  manifest : {paths.get('run_manifest')}")
     n_warn = len(result.report.warnings)
     if n_warn:
         print(f"  {n_warn} warning(s) in the report; review them before publishing.")

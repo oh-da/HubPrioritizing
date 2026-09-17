@@ -484,7 +484,7 @@ HubPrioritizing/
 ├── requirements.txt             # runtime deps (mirror of pyproject)
 │
 ├── src/
-│   ├── cli.py                   # hubs validate | run | show-config | prepare-base
+│   ├── cli.py                   # hubs validate | run | compare | runs | show-config | prepare-base | export-h3
 │   ├── config.py                # thresholds, weights, CRS, column constants, tier labels
 │   ├── pipeline/                # the one-command pipeline (pure DataFrame stages)
 │   │   ├── settings.py          #   PipelineConfig, YAML / --set overrides
@@ -500,6 +500,7 @@ HubPrioritizing/
 │   │   ├── scoring.py           #   categories, mode score, tiers, normalisation, Monte Carlo
 │   │   ├── postprocess.py       #   display columns incl. the former Excel formulas
 │   │   ├── export.py            #   xlsx (Excel Table) + CSV writers
+│   │   ├── versioning.py        #   run_manifest.json, hubs compare, hubs runs
 │   │   └── run.py               #   orchestrator, write_outputs, run_from_cli
 │   ├── spatial/                 # h3_operations.py, merging.py (UnionFind)
 │   ├── classification/          # hierarchy.py (classify_hub_tier)
@@ -615,11 +616,11 @@ HubPrioritizing/
 **Format**: GeoPackage (EPSG:2039) by default; GeoJSON for web, GeoParquet or CSV+WKT for SQL
 
 #### Reports
-- Summary statistics
-- Ranking tables
-- Sensitivity analysis results
+- `run_report.md` / `.json`: every data-quality finding and metric of a run
+- `run_manifest.json`: the run's version (inputs with hashes, base-layer vintage, configuration, code, summary)
+- `compare_<A>_vs_<B>.md` / `.csv` / `.json` (`hubs compare`): what changed between two versions
 
-**Format**: CSV, Excel, PDF
+**Format**: Markdown, CSV, JSON
 
 ---
 
@@ -1120,7 +1121,9 @@ This document should be updated when:
 ### Key Commands
 ```bash
 hubs validate --input-dir DIR            # check inputs
-hubs run --input-dir DIR --output-dir OUT
+hubs run --input-dir DIR --output-dir OUT [--version NAME]   # writes run_manifest.json (default version = newest export date)
+hubs compare OUT_A OUT_B                 # inputs, settings, hubs, scores and ranks that changed between two runs
+hubs runs DIR                            # list the run versions under a directory
 hubs show-config --defaults              # every parameter as YAML
 hubs prepare-base                        # rebuild data/reference/h3_base.parquet after a reference shapefile changes
 hubs export-h3 --out cells.gpkg          # the H3 base layer (every cell, all attributes) for GIS / SQL; see docs/H3_BASE_LAYER.md
@@ -1133,6 +1136,7 @@ pytest                                    # unit + smoke tests
 - `src/pipeline/scoring.py`: tiers, normalisation, Monte Carlo
 - `src/pipeline/export.py`: the 70-column workbook schema
 - `src/pipeline/h3_export.py`: the shareable cell layer
+- `src/pipeline/versioning.py`: run manifest and run-to-run comparison (`docs/VERSIONS.md`)
 - `src/config.py`: thresholds and weights
 - `data/reference/README.md`: reference layers and curated tables
 - `docs/H3_BASE_LAYER.md`: how the base layer is built, validated against the overlay, and shared

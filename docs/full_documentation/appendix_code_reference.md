@@ -4,7 +4,7 @@
 
 ```
 src/
-  cli.py                 hubs validate | run | show-config | prepare-base | export-h3
+  cli.py                 hubs validate | run | compare | runs | show-config | prepare-base | export-h3
   config.py              thresholds, weights, CRS, MODE_LINE_COLS, MODE_TO_COLUMN, tier labels
   pipeline/              the one-command pipeline
   spatial/               h3_operations.py (H3 helpers), merging.py (UnionFind, proximity groups)
@@ -89,13 +89,17 @@ collects findings.
 - `FINAL_COLUMNS` (70 names, ordered); `select_final_columns(df, extra_columns)`.
 - `write_results_xlsx(df, path, sheet_name, table_name, extra_columns)`; `write_results_csv(...)`; `read_results_xlsx(path)`.
 
+### `versioning.py`
+- `build_run_manifest(inputs, cfg, results, version, outputs) -> dict`; `write_run_manifest`, `read_run_manifest`, `default_version(inputs)`, `list_runs(root) -> DataFrame`.
+- `RunDir(path)`; `match_hubs(a, b)` (by `hub_id`, then shared nodes); `compare_runs(dir_a, dir_b) -> {summary, table, tier_changes, score_moves, rank_moves}`; `comparison_markdown`, `write_comparison(comp, out_dir)`.
+
 ### `report.py`
 - `RunReport` — `info/warn/error(section, message, **data)`, `record_input`, `set_metric`, `to_markdown`, `to_json`, `write(out_dir)`.
 
 ### `run.py`
 - `run_pipeline(cfg, inputs, report=None, allow_missing_layers=False) -> RunResult(results, groups, scored, hexes, report, config, base)`.
 - `write_outputs(result, output_dir) -> {name: Path}` (workbook, csv, identity, `h3_layer.<ext>`, report, config); `run_from_cli(args)`.
-- `prepare_base_layer(inputs, out_path, resolution, terminal_buffer_m, report)`; `prepare_base_from_cli(args)`; `export_h3_from_cli(args)`.
+- `prepare_base_layer(inputs, out_path, resolution, terminal_buffer_m, report)`; `prepare_base_from_cli(args)`; `export_h3_from_cli(args)`; `compare_from_cli(args)`; `runs_from_cli(args)`.
 
 ## A.2 `src/config.py` — constants used by the pipeline
 

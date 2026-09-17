@@ -38,6 +38,7 @@ The first cell is a form with four boxes:
 |---|---|
 | `INPUT_FOLDER` | the Drive folder from section 1, relative to My Drive, e.g. `HubRuns/2026_06` |
 | `OUTPUT_FOLDER` | leave blank; results go to a folder named `out` inside the input folder |
+| `VERSION` | a name for this run, e.g. `2026-06`; blank = the newest date in the export file names |
 | `REPO`, `BRANCH` | leave as they are unless you were told otherwise |
 | `EXTRA_ARGS` | leave blank |
 
@@ -70,7 +71,12 @@ In Drive, open the `out` folder inside your input folder:
 | `hub_prioritization_results.csv` | the same table as CSV |
 | `h3_layer.gpkg` | the H3 cell layer for QGIS / ArcGIS / SQL |
 | `run_report.md` | every data-quality finding; read the warnings before publishing |
+| `run_manifest.json` | the version record: which files, which settings, which code (`docs/VERSIONS.md`) |
 | `hub_identity.csv`, `run_config.json`, `run.log` | traceability |
+
+To see what changed since an earlier run, keep each run in its own folder and, in a Colab
+cell after step 5, run `!hubs compare "/content/drive/MyDrive/HubRuns/2026_03/out" "$OUTPUT_DIR"`;
+the report lands next to the new results.
 
 Step 7 downloads the workbook to your computer straight away if you prefer.
 

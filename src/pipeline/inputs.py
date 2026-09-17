@@ -250,38 +250,36 @@ class InputSet:
     def has(self, key: str) -> bool:
         return key in self.files
 
-    def missing_required(self, spatial_source: str | None = None) -> list[InputSpec]:
-        """Required specs that are absent.
+    def is_required(self, spec: InputSpec, spatial_source: str | None = None) -> bool:
+        """Effective requirement of a spec for this input set.
 
         The four polygon layers can be replaced by the H3 base layer: with
-        ``spatial_source=None`` (``hubs validate``) they are required only when
+        ``spatial_source=None`` (no configured source) they are required only when
         ``h3_base`` is absent; ``'shapefiles'`` always requires them; ``'h3_base'``
         requires the base layer instead.
         """
-        out = []
-        for s in INPUT_SPECS:
-            if s.key in self.files:
-                continue
-            required = s.required
-            if s.required_unless is not None:
-                if spatial_source == "shapefiles":
-                    required = True
-                elif spatial_source == "h3_base" or self.has(s.required_unless):
-                    required = False
-            if s.key == "h3_base" and spatial_source == "h3_base":
+        required = spec.required
+        if spec.required_unless is not None:
+            if spatial_source == "shapefiles":
                 required = True
-            if required:
-                out.append(s)
-        return out
+            elif spatial_source == "h3_base" or self.has(spec.required_unless):
+                required = False
+        if spec.key == "h3_base" and spatial_source == "h3_base":
+            required = True
+        return required
 
-    def summary_rows(self) -> list[dict[str, object]]:
+    def missing_required(self, spatial_source: str | None = None) -> list[InputSpec]:
+        """Required specs (see :meth:`is_required`) that are absent."""
+        return [s for s in INPUT_SPECS if s.key not in self.files and self.is_required(s, spatial_source)]
+
+    def summary_rows(self, spatial_source: str | None = None) -> list[dict[str, object]]:
         rows = []
         for spec in INPUT_SPECS:
             chosen = self.files.get(spec.key)
             rows.append(
                 {
                     "key": spec.key,
-                    "required": spec.required,
+                    "required": self.is_required(spec, spatial_source),
                     "file": str(chosen.path) if chosen else None,
                     "source": chosen.source if chosen else None,
                     "date": chosen.date if chosen else None,

@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from src.pipeline.inputs import (
+    INPUT_SPECS,
     InputError,
     discover_inputs,
     parse_date_from_name,
@@ -109,6 +110,29 @@ def test_validate_lists_every_problem_at_once(tmp_path):
     with pytest.raises(InputError) as exc:
         require_valid_inputs(inputs)
     assert len(exc.value.problems) == len(problems)
+
+
+def test_shapefiles_not_required_when_base_layer_present(tmp_path):
+    _write_minimal_inputs(tmp_path)
+    ref = tmp_path / "ref"
+    ref.mkdir()
+    (ref / "h3_base.parquet").write_bytes(b"")  # discovery only looks at names
+    inputs = discover_inputs(tmp_path, ref)
+    by_key = {s.key: s for s in INPUT_SPECS}
+    for key in ("metro", "districts", "bus_terminals", "taz"):
+        assert not inputs.is_required(by_key[key])  # no configured source: the base layer stands in
+        assert not inputs.is_required(by_key[key], "h3_base")
+        assert inputs.is_required(by_key[key], "shapefiles")
+    assert inputs.is_required(by_key["h3_base"], "h3_base") and not inputs.is_required(by_key["h3_base"])
+    assert inputs.missing_required() == [] and inputs.missing_required("h3_base") == []
+    assert {s.key for s in inputs.missing_required("shapefiles")} == {"metro", "districts", "bus_terminals", "taz"}
+    rows = {r["key"]: r["required"] for r in inputs.summary_rows("h3_base")}
+    assert rows["h3_base"] is True and rows["taz"] is False
+    # without the base layer the shapefiles are required again
+    (ref / "h3_base.parquet").unlink()
+    inputs = discover_inputs(tmp_path, ref)
+    assert {s.key for s in inputs.missing_required()} == {"metro", "districts", "bus_terminals", "taz"}
+    assert [s.key for s in inputs.missing_required("h3_base")] == ["h3_base"]
 
 
 def test_validate_passes_for_complete_set(tmp_path):

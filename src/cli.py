@@ -103,8 +103,10 @@ def cmd_validate(args: argparse.Namespace) -> int:
     print(f"Input directory:     {inputs.input_dir}")
     print(f"Reference directory: {inputs.reference_dir}")
     print()
+    print(f"spatial source:      {cfg.spatial_source}" + ("  (the polygon layers are not needed at run time)" if cfg.spatial_source == "h3_base" else ""))
+    print()
     print(f"{'key':<18} {'req':<4} {'source':<10} {'date':<11} file")
-    for row in inputs.summary_rows():
+    for row in inputs.summary_rows(cfg.spatial_source):
         req = "yes" if row["required"] else "opt"
         print(f"{row['key']:<18} {req:<4} {str(row['source'] or '-'):<10} {str(row['date'] or '-'):<11} {row['file'] or '(not found)'}")
         for ign in row["ignored"]:

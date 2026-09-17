@@ -45,6 +45,7 @@ class RunResult:
     hexes: gpd.GeoDataFrame
     report: RunReport
     config: PipelineConfig
+    base: pd.DataFrame | None = None  # the H3 base layer the run used (indexed by h3_index)
     outputs: dict[str, Path] = field(default_factory=dict)
 
 
@@ -82,8 +83,8 @@ def run_pipeline(
     report = report or RunReport()
     log = logging.getLogger("hubs.run")
 
-    problems = validate_inputs(inputs, report)
-    if allow_missing_layers:
+    problems = validate_inputs(inputs, report, cfg.spatial_source)
+    if allow_missing_layers and cfg.spatial_source == "shapefiles":
         problems = [p for p in problems if not any(f"'{k}'" in p for k in OPTIONAL_LAYER_KEYS)]
         for k in OPTIONAL_LAYER_KEYS:
             if not inputs.has(k):
@@ -208,7 +209,7 @@ def run_pipeline(
     report.set_metric("hub_type_counts_final", results["HubType"].value_counts().to_dict())
     top = results.nsmallest(10, "Rank_TS_MC")[["group", "HubNameHE", "HubType", "TotalScore_MC"]]
     report.info("results", "top 10 hubs by TotalScore_MC", top=top.to_dict("records"))
-    return RunResult(results=results, groups=groups, scored=scored, hexes=hexes, report=report, config=cfg)
+    return RunResult(results=results, groups=groups, scored=scored, hexes=hexes, report=report, config=cfg, base=base)
 
 
 def write_outputs(result: RunResult, output_dir: Path | str) -> dict[str, Path]:
@@ -225,6 +226,14 @@ def write_outputs(result: RunResult, output_dir: Path | str) -> dict[str, Path]:
     identity = hub_identity_table(result.hexes).merge(result.results[["group", "HubNameHE", "HubType"]], on="group", how="left")
     paths["hub_identity"] = out / "hub_identity.csv"
     identity.to_csv(paths["hub_identity"], index=False, encoding="utf-8-sig")
+
+    if result.base is not None and cfg.h3_layer_format != "none":
+        from .h3_export import build_h3_layer, write_h3_layer
+
+        layer = build_h3_layer(result.base, result.hexes, result.results, result.groups, cfg.influence_rings, cfg.h3_resolution, cfg.h3_layer_extent)
+        paths["h3_layer"] = write_h3_layer(layer, out / "h3_layer", cfg.h3_layer_format)
+        result.report.set_metric("h3_layer_cells", len(layer))
+        result.report.info("outputs", f"H3 cell layer written ({cfg.h3_layer_extent} extent, {len(layer)} cells)", path=str(paths["h3_layer"]))
 
     paths["run_config"] = out / "run_config.json"
     paths["run_config"].write_text(cfg.to_json(), encoding="utf-8")
@@ -295,6 +304,27 @@ def prepare_base_from_cli(args: Any) -> int:
         log.warning("%s: %s", entry.section, entry.message)
     print(f"✓ base layer written: {out_path} ({len(layer):,} cells, resolution {manifest['resolution']})")
     print(f"  manifest : {out_path.with_name(out_path.stem + '.manifest.json')}")
+    return 0
+
+
+def export_h3_from_cli(args: Any) -> int:
+    """Entry point used by ``hubs export-h3``: the base layer alone, in a shareable format."""
+    from .base_layer import read_base_layer
+    from .h3_export import build_h3_layer, write_h3_layer
+    from .inputs import discover_inputs
+
+    setup_logger("hubs")
+    reference_dir = Path(args.reference_dir)
+    inputs = discover_inputs(args.input_dir or reference_dir, reference_dir, _parse_file_overrides_safe(args))
+    base_path = inputs.path("h3_base")
+    if base_path is None:
+        print(f"no h3_base*.parquet in {reference_dir}; run 'hubs prepare-base' first")
+        return 1
+    base, manifest = read_base_layer(base_path)
+    resolution = int(manifest.get("resolution", 10)) if manifest else 10
+    layer = build_h3_layer(base, extent="all", resolution=resolution)
+    path = write_h3_layer(layer, args.out, args.format)
+    print(f"✓ {len(layer):,} cells written: {path}")
     return 0
 
 

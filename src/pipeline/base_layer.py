@@ -386,7 +386,12 @@ def manifest_path(layer_path: Path | str) -> Path:
 def write_base_layer(df: pd.DataFrame, path: Path | str, manifest: dict | None = None) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    df[list(BASE_LAYER_COLUMNS)].to_parquet(path, index=False, compression="zstd")
+    out = df[list(BASE_LAYER_COLUMNS)].copy()
+    # float32 halves the file; the rounding (7 significant digits) is far below the
+    # method's own precision and is restored to float64 on read
+    out["pop_2050"] = out["pop_2050"].astype("float32")
+    out["emp_2050"] = out["emp_2050"].astype("float32")
+    out.to_parquet(path, index=False, compression="zstd")
     if manifest is not None:
         manifest_path(path).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
@@ -400,6 +405,8 @@ def read_base_layer(path: Path | str) -> tuple[pd.DataFrame, dict | None]:
     if missing:
         raise ValueError(f"{path.name} is missing base layer columns {missing}")
     df = df.set_index("h3_index", drop=True)
+    df["pop_2050"] = df["pop_2050"].astype("float64")
+    df["emp_2050"] = df["emp_2050"].astype("float64")
     if df.index.duplicated().any():
         raise ValueError(f"{path.name} has duplicated h3_index values")
     mp = manifest_path(path)

@@ -51,6 +51,7 @@ class InputSpec:
     header: bool = True
     hebrew_columns: tuple[str, ...] = ()
     reference: bool = False  # lives in reference dir by default
+    required_unless: str | None = None  # a required spec that another key can stand in for
 
 
 INPUT_SPECS: tuple[InputSpec, ...] = (
@@ -128,6 +129,7 @@ INPUT_SPECS: tuple[InputSpec, ...] = (
         required_columns=("METRO_NAME", "ZONE_NAME"),
         hebrew_columns=("METRO_NAME", "ZONE_NAME"),
         reference=True,
+        required_unless="h3_base",
     ),
     InputSpec(
         key="districts",
@@ -138,6 +140,7 @@ INPUT_SPECS: tuple[InputSpec, ...] = (
         required_columns=("MACHOZ",),
         hebrew_columns=("MACHOZ",),
         reference=True,
+        required_unless="h3_base",
     ),
     InputSpec(
         key="bus_terminals",
@@ -148,6 +151,7 @@ INPUT_SPECS: tuple[InputSpec, ...] = (
         required_columns=("term_type",),
         hebrew_columns=("term_type",),
         reference=True,
+        required_unless="h3_base",
     ),
     InputSpec(
         key="taz",
@@ -157,6 +161,7 @@ INPUT_SPECS: tuple[InputSpec, ...] = (
         description="Traffic analysis zones with POP_2050 / EMPL_2050",
         required_columns=("POP_2050", "EMPL_2050"),
         reference=True,
+        required_unless="h3_base",
     ),
     InputSpec(
         key="h3_base",
@@ -245,8 +250,29 @@ class InputSet:
     def has(self, key: str) -> bool:
         return key in self.files
 
-    def missing_required(self) -> list[InputSpec]:
-        return [s for s in INPUT_SPECS if s.required and s.key not in self.files]
+    def missing_required(self, spatial_source: str | None = None) -> list[InputSpec]:
+        """Required specs that are absent.
+
+        The four polygon layers can be replaced by the H3 base layer: with
+        ``spatial_source=None`` (``hubs validate``) they are required only when
+        ``h3_base`` is absent; ``'shapefiles'`` always requires them; ``'h3_base'``
+        requires the base layer instead.
+        """
+        out = []
+        for s in INPUT_SPECS:
+            if s.key in self.files:
+                continue
+            required = s.required
+            if s.required_unless is not None:
+                if spatial_source == "shapefiles":
+                    required = True
+                elif spatial_source == "h3_base" or self.has(s.required_unless):
+                    required = False
+            if s.key == "h3_base" and spatial_source == "h3_base":
+                required = True
+            if required:
+                out.append(s)
+        return out
 
     def summary_rows(self) -> list[dict[str, object]]:
         rows = []
@@ -340,23 +366,25 @@ def discover_inputs(
 # ----------------------------------------------------------------------------------------
 
 
-def validate_inputs(inputs: InputSet, report: RunReport | None = None) -> list[str]:
+def validate_inputs(inputs: InputSet, report: RunReport | None = None, spatial_source: str | None = None) -> list[str]:
     """Return a list of problems (empty when the input set is usable).
 
     Checks: required keys present, shapefile sidecars present, required columns
     present (headers only are read), Excel workbook opens. Never raises for a
     data problem; callers decide via :func:`require_valid_inputs`.
+    ``spatial_source`` is passed through to :meth:`InputSet.missing_required`.
     """
     problems: list[str] = []
     if not inputs.input_dir.exists():
         problems.append(f"input directory does not exist: {inputs.input_dir}")
 
-    for spec in inputs.missing_required():
+    for spec in inputs.missing_required(spatial_source):
         where = "reference dir" if spec.reference else "input dir"
+        hint = " (run 'hubs prepare-base' or set spatial_source=shapefiles)" if spec.key == "h3_base" else ""
         problems.append(
             f"missing required {spec.kind} '{spec.key}' ({spec.description}); "
             f"expected one of {list(spec.patterns)} in the {where} "
-            f"({inputs.reference_dir if spec.reference else inputs.input_dir})"
+            f"({inputs.reference_dir if spec.reference else inputs.input_dir}){hint}"
         )
 
     for key, chosen in inputs.files.items():

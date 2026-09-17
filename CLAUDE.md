@@ -595,7 +595,8 @@ HubPrioritizing/
 │   │   ├── spatial_tags.py      #   metro ring / district -> area, location
 │   │   ├── demand.py            #   demand workbook -> TotalDemand, TotalTransfers, overrides
 │   │   ├── aggregate.py         #   hexagons -> hubs, bus terminals, pop/jobs rings
-│   │   ├── base_layer.py        #   H3 base layer (prepare-base builder + lookups; prototype)
+│   │   ├── base_layer.py        #   H3 base layer: prepare-base builder + the run-time lookups
+│   │   ├── h3_export.py         #   shareable H3 cell layer (h3_layer.gpkg, hubs export-h3)
 │   │   ├── scoring.py           #   categories, mode score, tiers, normalisation, Monte Carlo
 │   │   ├── postprocess.py       #   display columns incl. the former Excel formulas
 │   │   ├── export.py            #   xlsx (Excel Table) + CSV writers
@@ -1263,7 +1264,8 @@ This document should be updated when:
 hubs validate --input-dir DIR            # check inputs
 hubs run --input-dir DIR --output-dir OUT
 hubs show-config --defaults              # every parameter as YAML
-hubs prepare-base                        # (prototype) pre-allocate the reference layers to H3 cells; see docs/H3_BASE_LAYER.md
+hubs prepare-base                        # rebuild data/reference/h3_base.parquet after a reference shapefile changes
+hubs export-h3 --out cells.gpkg          # the H3 base layer (every cell, all attributes) for GIS / SQL; see docs/H3_BASE_LAYER.md
 pytest                                    # unit + smoke tests
 ```
 

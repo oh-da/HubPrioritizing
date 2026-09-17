@@ -62,10 +62,10 @@ class PipelineConfig:
     overlay_regions: tuple[str, ...] = ("Hadera", "Haifa Metronit")
 
     # --- Part 3: terminals and influence area -------------------------------------------
-    # 'shapefiles' = tag metro/district, terminals and TAZ from the polygon layers at run
-    # time; 'h3_base' = look everything up in the pre-allocated H3 table written by
-    # `hubs prepare-base` (data/reference/h3_base.parquet).
-    spatial_source: str = "shapefiles"
+    # 'h3_base' = look area/ring, terminals and pop/jobs up in the pre-allocated H3 table
+    # written by `hubs prepare-base` (data/reference/h3_base.parquet);
+    # 'shapefiles' = overlay the four polygon layers at run time (the legacy path).
+    spatial_source: str = "h3_base"
     # h3_base only: 'fraction' weights a cell by the share of its polygon inside the ring
     # (within ~1 % of the polygon overlay); 'center' counts it wholly in the ring its
     # centre falls in (faster, coarser).
@@ -93,6 +93,12 @@ class PipelineConfig:
     output_table_name: str = "טבלה1"
     extra_columns: tuple[str, ...] = ()
     keep_intermediates: bool = False
+    # Shareable H3 cell layer written next to the workbook (h3_base runs only):
+    # format 'gpkg' | 'geojson' | 'parquet' (GeoParquet) | 'csv' (WKT) | 'none';
+    # extent 'hubs' (hub cells), 'influence' (+ every cell within the outer ring of a
+    # scored hub) or 'all' (every cell of the base layer; large).
+    h3_layer_format: str = "gpkg"
+    h3_layer_extent: str = "influence"
 
     # ------------------------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
@@ -110,6 +116,10 @@ class PipelineConfig:
             raise ConfigError("spatial_source must be 'shapefiles' or 'h3_base'")
         if self.influence_cell_rule not in ("center", "fraction"):
             raise ConfigError("influence_cell_rule must be 'center' or 'fraction'")
+        if self.h3_layer_format not in ("gpkg", "geojson", "parquet", "csv", "none"):
+            raise ConfigError("h3_layer_format must be one of gpkg, geojson, parquet, csv, none")
+        if self.h3_layer_extent not in ("hubs", "influence", "all"):
+            raise ConfigError("h3_layer_extent must be 'hubs', 'influence' or 'all'")
         rings = list(self.influence_rings)
         if len(rings) < 1 or rings != sorted(rings) or rings[0] <= 0 or len(set(rings)) != len(rings):
             raise ConfigError("influence_rings must be strictly increasing positive radii")

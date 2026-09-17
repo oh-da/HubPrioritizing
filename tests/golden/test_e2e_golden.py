@@ -1,8 +1,7 @@
 """Full pipeline on the real exports vs the golden workbook.
 
-The bus-terminal and TAZ layers are not in the repository yet, so the terminal and
-population/jobs criteria (and therefore the Monte Carlo scores) cannot be reproduced
-here; everything upstream of them is compared.
+``e2e`` is the default run (the H3 base layer); ``e2e_shp`` overlays the shapefiles,
+which is the path that reproduces the June 2026 workbook exactly.
 """
 
 import pandas as pd
@@ -10,14 +9,21 @@ import pytest
 
 from src.pipeline.report import RunReport
 from src.pipeline.run import run_pipeline
-from src.pipeline.settings import PipelineConfig
+from src.pipeline.settings import PipelineConfig, load_config
 from tests.golden.conftest import parse_listish
 
 
 @pytest.fixture(scope="module")
 def e2e(real_inputs):
     report = RunReport()
-    result = run_pipeline(PipelineConfig(), real_inputs, report, allow_missing_layers=True)
+    result = run_pipeline(PipelineConfig(), real_inputs, report)
+    return result, report
+
+
+@pytest.fixture(scope="module")
+def e2e_shp(real_inputs):
+    report = RunReport()
+    result = run_pipeline(load_config(None, {"spatial_source": "shapefiles"}), real_inputs, report, allow_missing_layers=True)
     return result, report
 
 
@@ -53,9 +59,8 @@ def test_e2e_legacy_settings_reproduce_golden_scores(real_inputs, golden):
     every hub except Netanya (group 25: hand-edited score, terminal tie; see DEVIATIONS.md)."""
     if not (real_inputs.has("taz") and real_inputs.has("bus_terminals")):
         pytest.skip("TAZ or bus terminals layer not present")
-    from src.pipeline.settings import load_config
 
-    cfg = load_config(None, {"influence_rings": "600,1000,1200", "pop_emp_decay_midpoints": "250,750,1250"})
+    cfg = load_config(None, {"spatial_source": "shapefiles", "influence_rings": "600,1000,1200", "pop_emp_decay_midpoints": "250,750,1250"})
     res = run_pipeline(cfg, real_inputs, RunReport()).results.set_index("group").loc[golden["group"]]
     g = golden.set_index("group")
     legacy_cols = {"pop_0_600": "pop_0_500", "emp_0_600": "emp_0_500", "pop_600_1000": "pop_500_1000", "emp_600_1000": "emp_500_1000", "pop_1000_1200": "pop_1000_1500", "emp_1000_1200": "emp_1000_1500"}
@@ -69,18 +74,15 @@ def test_e2e_legacy_settings_reproduce_golden_scores(real_inputs, golden):
     assert (res.loc[ok, "Overall_Rank"].rank(method="dense") == g.loc[ok, "Overall_Rank"].rank(method="dense")).all()
 
 
-def test_e2e_h3_base_layer_matches_shapefile_path(e2e, golden, real_inputs):
-    """The pre-allocated H3 layer (spatial_source=h3_base) against the polygon stages:
-    terminals identical, tiers identical, population/jobs within a few percent (fraction rule),
+def test_e2e_h3_base_layer_matches_shapefile_path(e2e, e2e_shp, golden, real_inputs):
+    """The default run (H3 base layer, fraction rule) against the polygon stages:
+    terminals identical, tiers identical, population/jobs within a few percent,
     ring tags differ only for the hexagons the polygon stage tagged by layer order
     (see docs/H3_BASE_LAYER.md)."""
     if not real_inputs.has("h3_base"):
         pytest.skip("h3_base.parquet not present; run 'hubs prepare-base'")
-    from src.pipeline.settings import load_config
-
-    ref, _ = e2e
-    cfg = load_config(None, {"spatial_source": "h3_base", "influence_cell_rule": "fraction"})
-    new = run_pipeline(cfg, real_inputs, RunReport())
+    ref, _ = e2e_shp
+    new, _ = e2e
     a = ref.results.set_index("group").loc[golden["group"]]
     b = new.results.set_index("group").loc[golden["group"]]
 

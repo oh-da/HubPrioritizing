@@ -1,7 +1,8 @@
 # The H3 base layer (`hubs prepare-base`)
 
-**Status: prototype, opt-in.** The default run still tags hubs from the shapefiles.
-Switch with `--set spatial_source=h3_base`.
+**Status: default.** `hubs run` reads the spatial context from `data/reference/h3_base.parquet`
+and never opens a shapefile. `--set spatial_source=shapefiles` keeps the legacy overlay path,
+which is the one that reproduces the June 2026 workbook exactly.
 
 ## Idea
 
@@ -14,12 +15,13 @@ model run. The base layer separates the two cadences:
 hubs prepare-base                       once per vintage of the four shapefiles (~2.5 min)
     metro_2008 + Districts + BUS_TERMINAL_STRAT + TAZ_1270  ->  data/reference/h3_base.parquet
 
-hubs run --set spatial_source=h3_base   every model run (no shapefile, no overlay)
+hubs run                                every model run (no shapefile, no overlay)
     hexagons  x  h3_base  ->  area, ring, terminal class, pop/jobs per ring
+    -> hub_prioritization_results.xlsx + h3_layer.gpkg
 ```
 
 `h3_base.parquet` has one row per resolution-10 cell of Israel (1.57 million rows,
-about 20 MB):
+12 MB; population and jobs are stored as float32 and read back as float64):
 
 | column | content | rule |
 |---|---|---|
@@ -30,17 +32,49 @@ about 20 MB):
 
 `h3_base.manifest.json` records the source files with their SHA-256, the resolution,
 the buffer distance, the allocation rules and the build time. The run report records
-which layer a run used. A layer built at a different resolution than the run is refused.
+which layer a run used. A layer built at a different resolution than the run is refused;
+a run that sets a different `terminal_buffer_m` gets a warning and the layer's value.
 
 At run time:
 
-- `area` / `location`: lookup by `h3_index`.
+- `area` / `location`: lookup by `h3_index`. A hexagon with no row is reported and tagged
+  `Unknown`, never silently.
 - `bus_terminal`: max over the hub's cells. Because a hub polygon is the union of its
   cell polygons, this is *identical* to the hub-level buffer test.
 - `pop_*` / `emp_*`: cells within `grid_disk` of the hub centroid's cell, assigned to
   rings by distance. `influence_cell_rule=fraction` (default) weights a cell by the share of its
   polygon inside the ring (exact polygon fractions are only computed for cells a ring
   boundary can cross); `center` puts it wholly in the ring its centre falls in.
+
+## Validation
+
+`hubs validate` requires the base layer when `spatial_source=h3_base` (the default) and the
+four shapefiles when `spatial_source=shapefiles`; without a configured source the shapefiles
+are required only when the base layer is absent. A default run without the layer stops with
+"run `hubs prepare-base` or set `spatial_source=shapefiles`".
+
+## The shareable cell layer
+
+Every run writes `h3_layer.gpkg` next to the workbook (GeoPackage, layer `h3_cells`,
+EPSG:2039). `h3_layer_format` selects `gpkg` (default), `geojson` (WGS84), `parquet`
+(GeoParquet) or `csv` (WKT geometry column), or `none`. `h3_layer_extent` selects the cells:
+
+| extent | cells | typical size (June 2026) |
+|---|---|---|
+| `hubs` | the 1,244 hub hexagons | small |
+| `influence` (default) | hub cells plus every cell within the outer ring (1,500 m) of a scored hub | ~38 k cells, 14 MB GeoPackage |
+| `all` | every cell of the base layer | 1.57 M cells, hundreds of MB as GeoPackage |
+
+Columns: `h3_index, role` (`hub` / `influence` / `base`), the base attributes (`area, location,
+bus_terminal, term_type, term_id, pop_2050, emp_2050`), the hub identity and network for hub
+cells (`group, hub_id, nodes, modes, lines, n_lines, TotalDemand, TotalTransfers`), the results
+for scored hubs (`scored, HubNameHE, HubType, Metro, TotalScore_MC, Rank_TS_MC,
+RankByHubTypeMetro`) and, for cells in a catchment, `nearest_hub, dist_nearest_hub_m,
+hubs_within, n_hubs_within`. Lists are `;`-joined strings so the file reads the same in
+QGIS, ArcGIS, DuckDB and PostGIS.
+
+`hubs export-h3 --out FILE [--format gpkg|geojson|parquet|csv]` writes the base layer on
+its own (every cell, `role = base`) independently of a run.
 
 ## Measured against the shapefile stages (June 2026 inputs, 142 scored hubs)
 
@@ -82,10 +116,11 @@ tenths of a point; no hub changes tier and at most one rank position moves.
 
 ## What this changes for the golden reproduction
 
-With `spatial_source=h3_base` the June 2026 workbook is reproduced for group IDs,
-nodes, demand, lines, modes, tiers, names and terminals, but population and jobs are
-within a few percent rather than exact, and the four hubs above carry the corrected
-ring. `spatial_source=shapefiles` (the default) keeps the exact legacy path.
+The default run reproduces the June 2026 workbook for group IDs, nodes, demand, lines,
+modes, tiers, names and terminals; population and jobs are within about one percent
+rather than exact, and the four hubs above carry the corrected ring.
+`--set spatial_source=shapefiles` together with the legacy ring settings in
+`DEVIATIONS.md` reproduces the workbook's scores exactly (141 of 142 hubs).
 
 ## Rebuilding
 
@@ -93,22 +128,19 @@ ring. `spatial_source=shapefiles` (the default) keeps the exact legacy path.
 hubs prepare-base                                  # from data/reference/*.shp, writes h3_base.parquet + manifest
 hubs prepare-base --input-dir new_layers/          # same-named shapefiles there override the reference copies
 hubs prepare-base --resolution 10 --terminal-buffer-m 200
-python scripts/compare_base_layer.py --input-dir my_run --cell-rule fraction   # before switching
+python scripts/compare_base_layer.py --input-dir my_run    # H3 layer vs shapefile overlay on one run
 ```
 
 Rebuild whenever one of the four shapefiles changes; the manifest's hashes say which
-vintage a layer came from. A run whose `h3_resolution` differs from the layer's is refused.
+vintage a layer came from. The layer is committed to the repository (12 MB per vintage);
+no Git LFS is needed at this rate of change.
 
-## Open points before making it the default
+## Storage choices
 
-1. **Layer size in git.** 20 MB per vintage. Options: keep as is (a rebuild every year
-   or two is fine), Git LFS, or store `h3_index` as `uint64` and round the floats
-   (roughly halves it).
-2. **Coverage.** Cells the districts do not cover but a TAZ does are kept (416 k cells,
-   mostly desert zones with a few residents each). A node in a cell with no row is
-   reported, never silently zero.
-3. **Validation.** With `spatial_source=h3_base` the four shapefiles are no longer needed
-   at run time; `hubs validate` still requires them. To be relaxed once the layer is the
-   default.
-4. **Terminal buffer.** Baked into the layer; a run that sets a different
-   `terminal_buffer_m` gets a warning and the layer's value.
+- Population and jobs are float32 on disk (7 significant digits, far below the method's
+  precision) and float64 in memory. This halved the file from 20 MB to 12 MB.
+- H3 `compact_cells` was evaluated and not adopted: it only compresses the categorical
+  area/ring part (1.57 M cells to 55 k), saves about 1 MB, and would make the layer harder
+  to join as a plain table.
+- Cells that the districts do not cover but a TAZ does (mostly desert zones with a few
+  residents spread over many cells) are kept, so a node anywhere in a zone finds a row.

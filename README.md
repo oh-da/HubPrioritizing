@@ -47,12 +47,16 @@ hubs run --input-dir my_run --output-dir my_run/out
 | `hub_prioritization_results.xlsx` | The display workbook: one sheet, one Excel Table, the 70 columns the page reads |
 | `hub_prioritization_results.csv` | The same table as UTF-8 CSV |
 | `hub_identity.csv` | `group`, stable `hub_id`, node list and name per hub |
+| `h3_layer.gpkg` | Shareable H3 cell layer: every hub cell and its catchment with area, ring, terminal, 2050 population/jobs, hub identity and scores (`h3_layer_format`, `h3_layer_extent`) |
 | `run_report.md` / `.json` | Inputs, detected encodings, metrics, and every data-quality finding |
 | `run_config.json`, `run.log` | The effective configuration and the log |
 
 Stable layers (metropolitan rings, districts, bus terminals, TAZ 2050, hub names, manual merges,
 demand overrides) live in [`data/reference/`](data/reference/README.md) and do not need to be
 copied per run. A same-named file in the input directory overrides the reference copy.
+The four polygon layers are pre-allocated once to H3 cells (`data/reference/h3_base.parquet`,
+built by `hubs prepare-base`); a run reads that table and never touches a shapefile. See
+[`docs/H3_BASE_LAYER.md`](docs/H3_BASE_LAYER.md).
 
 See [INSTALL.md](INSTALL.md) for installation details.
 
@@ -69,9 +73,12 @@ hubs run --input-dir my_run --output-dir out --set mc_iterations=20000
 # reproduce the June 2026 workbook's numbers (the notebook's accidental ring geometry)
 hubs run --input-dir my_run --output-dir out --set influence_rings=600,1000,1200 --set pop_emp_decay_midpoints=250,750,1250
 
-# prototype: read the spatial context from the pre-allocated H3 layer instead of the shapefiles
-hubs prepare-base                                  # once per vintage of the reference shapefiles
-hubs run --input-dir my_run --output-dir out --set spatial_source=h3_base
+# the legacy path: overlay the shapefiles at run time instead of reading the H3 base layer
+hubs run --input-dir my_run --output-dir out --set spatial_source=shapefiles
+
+# maintain and share the H3 base layer
+hubs prepare-base                                  # rebuild after a reference shapefile changes (~2.5 min)
+hubs export-h3 --out israel_cells.gpkg             # every cell of Israel with all attributes, for GIS / SQL
 ```
 
 [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md) explains each flag and which notebook quirk it controls;
@@ -94,7 +101,8 @@ HubPrioritizing/
 │   │   ├── spatial_tags.py       #   metro ring / district -> area, location
 │   │   ├── demand.py             #   2050 demand workbook -> TotalDemand, TotalTransfers
 │   │   ├── aggregate.py          #   hexagons -> hubs, bus terminals, population/jobs rings
-│   │   ├── base_layer.py         #   H3 base layer: prepare-base builder + lookups (prototype)
+│   │   ├── base_layer.py         #   H3 base layer: prepare-base builder + run-time lookups
+│   │   ├── h3_export.py          #   shareable H3 cell layer (h3_layer.gpkg, hubs export-h3)
 │   │   ├── scoring.py            #   categories, mode score, tiers, normalisation, Monte Carlo
 │   │   ├── postprocess.py        #   display columns (incl. the former Excel formulas)
 │   │   ├── export.py             #   xlsx (Excel Table) and CSV writers, FINAL_COLUMNS

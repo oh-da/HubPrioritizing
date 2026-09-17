@@ -67,6 +67,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_base.add_argument("--terminal-buffer-m", type=float, default=None, help="terminal proximity distance (default: config value, 200 m)")
     p_base.add_argument("--file", action="append", default=[], metavar="KEY=PATH", help="pin a specific file for a layer key (repeatable)")
 
+    p_exp = sub.add_parser("export-h3", help="write the H3 base layer (every cell, all attributes) in a shareable GIS format")
+    p_exp.add_argument("--out", required=True, type=Path, help="output file; the extension follows --format")
+    p_exp.add_argument("--format", default="gpkg", choices=["gpkg", "geojson", "parquet", "csv"], help="GeoPackage (default), GeoJSON, GeoParquet or CSV with WKT")
+    p_exp.add_argument("--reference-dir", type=Path, default=REFERENCE_DATA_DIR, help=f"directory holding h3_base.parquet (default: {REFERENCE_DATA_DIR})")
+    p_exp.add_argument("--input-dir", type=Path, default=None, help="optional directory whose h3_base*.parquet overrides the reference copy")
+    p_exp.add_argument("--file", action="append", default=[], metavar="KEY=PATH", help="pin a specific file (h3_base=PATH)")
+
     return parser
 
 
@@ -91,7 +98,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
     cfg = _load_config_or_exit(args)
     report = RunReport()
     inputs = discover_inputs(args.input_dir, args.reference_dir, _parse_file_overrides(args.file))
-    problems = validate_inputs(inputs, report)
+    problems = validate_inputs(inputs, report, cfg.spatial_source)
 
     print(f"Input directory:     {inputs.input_dir}")
     print(f"Reference directory: {inputs.reference_dir}")
@@ -131,6 +138,12 @@ def cmd_prepare_base(args: argparse.Namespace) -> int:
     return prepare_base_from_cli(args)
 
 
+def cmd_export_h3(args: argparse.Namespace) -> int:
+    from .pipeline.run import export_h3_from_cli
+
+    return export_h3_from_cli(args)
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     try:
         from .pipeline.run import run_from_cli  # implemented in PR 8
@@ -142,7 +155,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    handlers = {"validate": cmd_validate, "show-config": cmd_show_config, "run": cmd_run, "prepare-base": cmd_prepare_base}
+    handlers = {"validate": cmd_validate, "show-config": cmd_show_config, "run": cmd_run, "prepare-base": cmd_prepare_base, "export-h3": cmd_export_h3}
     return handlers[args.command](args)
 
 

@@ -46,13 +46,14 @@ def test_decay_midpoints_must_match_rings():
 
 
 def test_spatial_source_and_cell_rule():
-    cfg = load_config(None, {"spatial_source": "h3_base", "influence_cell_rule": "fraction"})
-    assert cfg.spatial_source == "h3_base" and cfg.influence_cell_rule == "fraction"
-    assert PipelineConfig().spatial_source == "shapefiles"
-    with pytest.raises(ConfigError):
-        load_config(None, {"spatial_source": "geojson"})
-    with pytest.raises(ConfigError):
-        load_config(None, {"influence_cell_rule": "nearest"})
+    cfg = load_config(None, {"spatial_source": "shapefiles", "influence_cell_rule": "center"})
+    assert cfg.spatial_source == "shapefiles" and cfg.influence_cell_rule == "center"
+    default = PipelineConfig()
+    assert default.spatial_source == "h3_base" and default.influence_cell_rule == "fraction"
+    assert default.h3_layer_format == "gpkg" and default.h3_layer_extent == "influence"
+    for bad in ({"spatial_source": "geojson"}, {"influence_cell_rule": "nearest"}, {"h3_layer_format": "shp"}, {"h3_layer_extent": "country"}):
+        with pytest.raises(ConfigError):
+            load_config(None, bad)
 
 
 def test_drop_rules_from_strings_and_mappings():

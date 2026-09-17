@@ -36,17 +36,18 @@ processing starts. Nothing is ever replaced by placeholder data.
 
 | Key | File | Required | Fields | Used for |
 |---|---|---|---|---|
-| `metro` | `metro_2008.shp` | yes | `METRO_NAME`, `ZONE_NAME` | `area` and `location` (גלעין / טבעת פנימית / תיכונה / חיצונית) |
-| `districts` | `Districts.shp` | yes | `MACHOZ` | `area` fallback outside the metros |
-| `bus_terminals` | `BUS_TERMINAL_STRAT.shp` | yes | `term_type` | bus-terminal score (200 m) |
-| `taz` | `TAZ_1270.shp` | yes | `POP_2050`, `EMPL_2050` | population & jobs rings |
+| `h3_base` | `h3_base.parquet` (+ manifest) | yes (default `spatial_source=h3_base`) | `h3_index`, `area`, `location`, `term_type`, `term_id`, `bus_terminal`, `pop_2050`, `emp_2050` | the four polygon layers below, pre-allocated to H3 cells by `hubs prepare-base` |
+| `metro` | `metro_2008.shp` | to rebuild `h3_base`, or `spatial_source=shapefiles` | `METRO_NAME`, `ZONE_NAME` | `area` and `location` (גלעין / טבעת פנימית / תיכונה / חיצונית) |
+| `districts` | `Districts.shp` | idem | `MACHOZ` | `area` fallback outside the metros |
+| `bus_terminals` | `BUS_TERMINAL_STRAT.shp` | idem | `term_type` | bus-terminal score (200 m) |
+| `taz` | `TAZ_1270.shp` | idem | `POP_2050`, `EMPL_2050` | population & jobs rings |
 | `hub_names` | `hub_names.csv` | optional | `h3_index`, `HubNameHE` | Hebrew display names |
 | `line_names_extra` | `line_names_extra.csv` | optional | `LineName`, `Line_n_Mode` | names missing from the export |
 | `is_same_group` | `is_same_group.csv` | optional | `Nodes in group` | manual hub merges |
 | `manual_demand` | `manual_demand_updates.csv` | optional | `node`, `total_demand`, `total_transfers` | node-level demand overrides |
 
-See [`data/reference/README.md`](../../data/reference/README.md) for provenance and the layers
-still to be added.
+See [`data/reference/README.md`](../../data/reference/README.md) for provenance and
+[`H3_BASE_LAYER.md`](../H3_BASE_LAYER.md) for how the base layer is built and shared.
 
 ## 2.4 Coordinate reference systems
 

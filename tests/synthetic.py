@@ -15,7 +15,9 @@ from shapely.geometry import Point, box
 CRS_ITM = "EPSG:2039"
 
 
-def make_synthetic_dirs(root: Path) -> tuple[Path, Path]:
+def make_synthetic_dirs(root: Path, with_base_layer: bool = True) -> tuple[Path, Path]:
+    """Write the synthetic run inputs and reference layers; ``with_base_layer`` also builds
+    ``h3_base.parquet`` from them so the default (``spatial_source=h3_base``) path runs."""
     input_dir = root / "input"
     ref_dir = root / "reference"
     input_dir.mkdir(parents=True, exist_ok=True)
@@ -83,7 +85,23 @@ def make_synthetic_dirs(root: Path) -> tuple[Path, Path]:
     pd.DataFrame({"Nodes in group": ["1, 3"]}).to_csv(ref_dir / "is_same_group.csv", index=False)
     pd.DataFrame({"node": [4], "total_demand": [2500], "total_transfers": [""], "station_name": ["hub B override"], "notes": ["test"]}).to_csv(ref_dir / "manual_demand_updates.csv", index=False)
     pd.DataFrame({"LineName": ["Me1-N"], "Line_n_Mode": ["מטרו צפון (מטרו)"], "notes": ["x"]}).to_csv(ref_dir / "line_names_extra.csv", index=False, encoding="utf-8-sig")
+    if with_base_layer:
+        build_synthetic_base_layer(ref_dir)
     return input_dir, ref_dir
+
+
+def build_synthetic_base_layer(ref_dir: Path, resolution: int = 10) -> Path:
+    """``h3_base.parquet`` (+ manifest) from the synthetic shapefiles in ``ref_dir``."""
+    from src.pipeline.base_layer import build_base_layer, build_manifest, write_base_layer
+    from src.pipeline.inputs import read_shapefile
+
+    metro, _ = read_shapefile(ref_dir / "metro_2008.shp", hebrew_columns=["METRO_NAME", "ZONE_NAME"])
+    districts, _ = read_shapefile(ref_dir / "Districts.shp", hebrew_columns=["MACHOZ"])
+    terminals, _ = read_shapefile(ref_dir / "BUS_TERMINAL_STRAT.shp", hebrew_columns=["term_type"])
+    taz, _ = read_shapefile(ref_dir / "TAZ_1270.shp")
+    layer = build_base_layer(metro, districts, terminals, taz, resolution, 200.0)
+    sources = {k: ref_dir / f for k, f in (("metro", "metro_2008.shp"), ("districts", "Districts.shp"), ("bus_terminals", "BUS_TERMINAL_STRAT.shp"), ("taz", "TAZ_1270.shp"))}
+    return write_base_layer(layer, ref_dir / "h3_base.parquet", build_manifest(sources, resolution, 200.0, len(layer)))
 
 
 def write_hub_names(ref_dir: Path, hexes_by_group: dict[int, list[str]], names: dict[int, str]) -> Path:

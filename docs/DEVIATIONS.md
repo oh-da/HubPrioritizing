@@ -11,7 +11,8 @@ page lists every such place, plus the few spots where the pipeline deliberately 
 | Flag | Default (= notebook) | Alternative | What changes |
 |---|---|---|---|
 | `per_mode_lines_method` | `even` — `Line_Nunique` split evenly across the modes present | `exact` — true count of lines per mode | `<Mode> Lines` columns, `score`, `Num_Modes` unchanged |
-| `influence_rings` | `500,1000,1500` (matches the `pop_0_500…` column names and CLAUDE.md) | any increasing radii, e.g. `600,1000,1200` | The old `influence_area_processor` ignored its configuration and always buffered 600/1000/1200 m, so the June 2026 `pop_*`/`emp_*` values were computed on those radii despite their names. Use `600,1000,1200` to reproduce them exactly. |
+| `influence_rings` | `500,1000,1500` (matches the `pop_0_500…` column names and CLAUDE.md) | any increasing radii, e.g. `600,1000,1200` | The old `influence_area_processor` ignored its configuration and always buffered 600/1000/1200 m, so the June 2026 `pop_*`/`emp_*` values were computed on those radii despite their names. `600,1000,1200` reproduces them exactly (verified: zero difference on all 142 hubs). |
+| `pop_emp_decay_midpoints` | empty = midpoints of `influence_rings` (250/750/1250 for the defaults) | e.g. `250,750,1250` | The notebook applied the distance decay at 250/750/1250 m regardless of the actual buffers. **Legacy reproduction recipe:** `--set influence_rings=600,1000,1200 --set pop_emp_decay_midpoints=250,750,1250` reproduces the June 2026 `TotalScore_MC` for 141 of 142 hubs to 1e-12 (the exception is Netanya, below). With the defaults the geometry is consistent and the scores differ slightly. |
 | `apply_eligibility_filter` | `true` — keep groups with ≥ 1,000 passengers, ≥ 2 modes and a non-rail mode | `false` — score every group | Row count of the workbook (142 with the June 2026 inputs) |
 | `require_non_rail_mode` | `true` | `false` | Rail-only hubs (suburban + interurban only) become eligible |
 | `mc_scope` | `per_hubtype` — one seeded random stream consumed tier by tier | `all_hubs` — one weight matrix for the whole table | CLAUDE.md describes `all_hubs`; the notebook implemented `per_hubtype`. Scores differ slightly. |
@@ -58,7 +59,9 @@ page lists every such place, plus the few spots where the pipeline deliberately 
 ## Known inconsistencies in the June 2026 workbook itself
 
 - Group 25 (Netanya) carries a `TotalScore_MC` / `Rank_TS_MC` that do not match its own
-  `Average_Simulated_Score` / `Overall_Rank` (hand-edited after the run).
+  `Average_Simulated_Score` / `Overall_Rank` (hand-edited after the run), and its
+  `bus_terminal` is 1 although a class-2 terminal is also within 200 m (duplicate-row join).
+  It is the single hub whose score the pipeline does not reproduce under the legacy settings.
 - `Overall_Rank` reaches 147 on a 142-row table: the ranks were computed before some rows
   were removed.
 - `Line_Names` contains `\'` escape artifacts from CSV round-trips (rendered as `\` in

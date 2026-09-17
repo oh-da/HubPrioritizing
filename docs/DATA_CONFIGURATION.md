@@ -28,7 +28,8 @@ substitutes placeholder data.
 ```bash
 hubs show-config --defaults            # all parameters with their defaults, as YAML
 hubs run ... --config pipeline.yaml    # a YAML file with the values you want to change
-hubs run ... --set mc_iterations=20000 --set influence_rings=600,1000,1200
+hubs run ... --set mc_iterations=20000
+hubs run ... --set influence_rings=600,1000,1200 --set pop_emp_decay_midpoints=250,750,1250   # June 2026 geometry
 ```
 
 The effective configuration is saved as `run_config.json` next to the results. See

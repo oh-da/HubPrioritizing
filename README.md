@@ -64,7 +64,10 @@ with a YAML file or on the command line:
 ```bash
 hubs show-config --defaults > pipeline.yaml       # edit, then:
 hubs run --input-dir my_run --output-dir out --config pipeline.yaml
-hubs run --input-dir my_run --output-dir out --set mc_iterations=20000 --set influence_rings=600,1000,1200
+hubs run --input-dir my_run --output-dir out --set mc_iterations=20000
+
+# reproduce the June 2026 workbook's numbers (the notebook's accidental ring geometry)
+hubs run --input-dir my_run --output-dir out --set influence_rings=600,1000,1200 --set pop_emp_decay_midpoints=250,750,1250
 ```
 
 [`docs/DEVIATIONS.md`](docs/DEVIATIONS.md) explains each flag and which notebook quirk it controls.
@@ -152,7 +155,8 @@ pytest tests/golden          # regression against the June 2026 results; needs t
 
 `tests/fixtures/README.md` lists the real files the golden tests expect. On the June 2026 exports
 the pipeline reproduces all 142 hubs of the results workbook: group IDs, nodes, demand, lines, modes,
-tiers, names, and (given the same inputs) Monte Carlo scores to 1e-13.
+tiers, names, population and jobs, and, with the legacy ring settings, the Monte Carlo score of
+141 hubs to 1e-12 (the exception is a hand-edited row; see `docs/DEVIATIONS.md`).
 
 ---
 

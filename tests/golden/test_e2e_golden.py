@@ -47,6 +47,28 @@ def test_e2e_row_count_matches_golden(e2e, golden):
     assert len(result.results) == len(golden) == 142
 
 
+def test_e2e_legacy_settings_reproduce_golden_scores(real_inputs, golden):
+    """Full run with the notebook's accidental geometry (600/1000/1200 m buffers, 250/750/1250 m
+    decay midpoints) reproduces the golden pop/emp columns exactly and the Monte Carlo score for
+    every hub except Netanya (group 25: hand-edited score, terminal tie; see DEVIATIONS.md)."""
+    if not (real_inputs.has("taz") and real_inputs.has("bus_terminals")):
+        pytest.skip("TAZ or bus terminals layer not present")
+    from src.pipeline.settings import load_config
+
+    cfg = load_config(None, {"influence_rings": "600,1000,1200", "pop_emp_decay_midpoints": "250,750,1250"})
+    res = run_pipeline(cfg, real_inputs, RunReport()).results.set_index("group").loc[golden["group"]]
+    g = golden.set_index("group")
+    legacy_cols = {"pop_0_600": "pop_0_500", "emp_0_600": "emp_0_500", "pop_600_1000": "pop_500_1000", "emp_600_1000": "emp_500_1000", "pop_1000_1200": "pop_1000_1500", "emp_1000_1200": "emp_1000_1500"}
+    for ours, theirs in legacy_cols.items():
+        assert (res[ours].astype(float) - g[theirs].astype(float)).abs().max() < 1e-6, theirs
+    diff = (res["TotalScore_MC"] - g["Average_Simulated_Score"]).abs()
+    off = diff.index[diff > 1e-6].tolist()
+    print(f"\n[legacy e2e] hubs with a different score: {off}; max diff elsewhere {diff.drop(off).max():.2e}")
+    assert set(off) <= {25}
+    ok = diff.index.difference(off)
+    assert (res.loc[ok, "Overall_Rank"].rank(method="dense") == g.loc[ok, "Overall_Rank"].rank(method="dense")).all()
+
+
 def test_e2e_bus_terminal_matches_golden(e2e, golden, real_inputs):
     """With the terminals layer present, bus_terminal matches except where the notebook's
     duplicate-row spatial join picked a lower class (Netanya, group 25; see DEVIATIONS.md)."""

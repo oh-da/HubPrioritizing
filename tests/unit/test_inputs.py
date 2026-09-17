@@ -73,9 +73,9 @@ def test_discover_uses_input_dir_then_reference(tmp_path):
     assert inputs.path("nodeslines").name == "All_nodeslines_18062026.csv"
     assert inputs.files["metro"].source == "reference"
     assert inputs.files["hub_names"].source == "reference"
-    # bus terminals and TAZ are not in the repo yet
-    missing = {s.key for s in inputs.missing_required()}
-    assert missing == {"bus_terminals", "taz"}
+    for key in ("districts", "bus_terminals", "taz"):
+        assert inputs.files[key].source == "reference"
+    assert inputs.missing_required() == []
 
 
 def test_input_dir_overrides_reference_copy(tmp_path):
@@ -114,10 +114,8 @@ def test_validate_lists_every_problem_at_once(tmp_path):
 def test_validate_passes_for_complete_set(tmp_path):
     _write_minimal_inputs(tmp_path)
     inputs = discover_inputs(tmp_path, REFERENCE_DIR)
-    problems = validate_inputs(inputs)
-    # only the two layers not yet shipped should be reported
-    assert len(problems) == 2
-    assert all(("bus_terminals" in p) or ("taz" in p) for p in problems)
+    # every reference layer ships with the repo, so a minimal input directory is complete
+    assert validate_inputs(inputs) == []
 
 
 # ---------------------------------------------------------------------------- readers

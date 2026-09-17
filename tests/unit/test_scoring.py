@@ -109,6 +109,19 @@ def test_normalize_scores_per_type(groups):
     assert nat["PopEmp_Score_Raw"] == pytest.approx(expected)
 
 
+def test_pop_emp_decay_midpoints_override(groups):
+    from src.pipeline.scoring import pop_emp_raw_score
+
+    df = classify(add_mode_score(prepare_scoring_frame(groups)))
+    derived = pop_emp_raw_score(df, (500, 1000, 1500), 1.5)
+    explicit = pop_emp_raw_score(df, (500, 1000, 1500), 1.5, midpoints=(250, 750, 1250))
+    np.testing.assert_allclose(derived, explicit)
+    other = pop_emp_raw_score(df, (500, 1000, 1500), 1.5, midpoints=(300, 800, 1100))
+    assert not np.allclose(derived, other)
+    with pytest.raises(ValueError):
+        pop_emp_raw_score(df, (500, 1000, 1500), 1.5, midpoints=(250, 750))
+
+
 def test_normalize_scores_type_with_two_members():
     df = pd.DataFrame({"HubType": ["x", "x", "y"], "RegionLocation": [1, 3, 2], "score": [0, 10, 5], "bus_terminal": [0, 3, 3], "TotalDemand": [1000.0, 10000.0, 0.0]})
     out = normalize_scores(df)

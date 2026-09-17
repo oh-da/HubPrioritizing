@@ -216,18 +216,25 @@ def normalize_log_demand_by_type(df: pd.DataFrame, type_col: str = "HubType") ->
     return log_demand, norm
 
 
-def pop_emp_raw_score(df: pd.DataFrame, rings: Sequence[int] = (500, 1000, 1500), decay_beta: float = 1.5) -> pd.Series:
+def pop_emp_raw_score(
+    df: pd.DataFrame,
+    rings: Sequence[int] = (500, 1000, 1500),
+    decay_beta: float = 1.5,
+    midpoints: Sequence[float] | None = None,
+) -> pd.Series:
     """Σ over rings of (mix-weighted population + jobs) / midpoint^beta.
 
     National and metropolitan hubs weight jobs 80 % / population 20 %, local hubs the
-    reverse. Ring midpoints derive from ``rings`` (250/750/1250 m for the defaults).
+    reverse. Ring midpoints derive from ``rings`` (250/750/1250 m for the defaults) unless
+    ``midpoints`` is given (the notebook always used 250/750/1250, whatever the buffers).
     """
     cols = ring_column_names(rings)
-    inner = 0
-    mids = []
-    for _, _, i, o in cols:
-        mids.append((i + o) / 2)
-        inner = o
+    if midpoints:
+        if len(midpoints) != len(cols):
+            raise ValueError("one decay midpoint per ring is required")
+        mids = [float(m) for m in midpoints]
+    else:
+        mids = [(i + o) / 2 for _, _, i, o in cols]
     decay = np.asarray(mids, dtype=float) ** decay_beta
     pop = df[[c[0] for c in cols]].astype(float).to_numpy()
     emp = df[[c[1] for c in cols]].astype(float).to_numpy()
@@ -243,6 +250,7 @@ def normalize_scores(
     rings: Sequence[int] = (500, 1000, 1500),
     decay_beta: float = 1.5,
     report: RunReport | None = None,
+    decay_midpoints: Sequence[float] | None = None,
 ) -> pd.DataFrame:
     """Produce the five ``*_Norm`` criteria (1-10, per HubType) plus ``LogDemand`` and ``PopEmp_Score_Raw``."""
     out = df.copy()
@@ -252,7 +260,7 @@ def normalize_scores(
 
     needed = [c for pair in ring_column_names(rings) for c in pair[:2]]
     if all(c in out.columns for c in needed):
-        out["PopEmp_Score_Raw"] = pop_emp_raw_score(out, rings, decay_beta)
+        out["PopEmp_Score_Raw"] = pop_emp_raw_score(out, rings, decay_beta, decay_midpoints)
         out["PopEmp_Score_Norm"] = normalize_by_type(out, "PopEmp_Score_Raw")
     else:
         out["PopEmp_Score_Norm"] = 5.0
@@ -334,6 +342,7 @@ def score_hubs(
     alpha: float = 0.1,
     rings: Sequence[int] = (500, 1000, 1500),
     decay_beta: float = 1.5,
+    decay_midpoints: Sequence[float] | None = None,
     n_iter: int = MONTE_CARLO_ITERATIONS,
     seed: int = MONTE_CARLO_RANDOM_SEED,
     scope: str = "per_hubtype",
@@ -344,5 +353,5 @@ def score_hubs(
     df = add_mode_score(df, mode_weights, alpha)
     df = classify(df, require_non_rail)
     df = filter_eligible(df, apply_eligibility_filter, report)
-    df = normalize_scores(df, rings, decay_beta, report)
+    df = normalize_scores(df, rings, decay_beta, report, decay_midpoints)
     return monte_carlo(df, n_iter, seed, scope, report=report)

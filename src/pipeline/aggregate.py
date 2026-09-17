@@ -245,6 +245,13 @@ def add_influence_area(
 
     taz_p = taz.to_crs(CRS_ISRAEL_TM)[[TAZ_POP_COL, TAZ_EMP_COL, taz.geometry.name]].copy()
     taz_p = taz_p.rename_geometry("geometry") if taz_p.geometry.name != "geometry" else taz_p
+    # the 2050 fields are stored as text in the delivered DBF; coerce and report bad values
+    for c in (TAZ_POP_COL, TAZ_EMP_COL):
+        numeric = pd.to_numeric(taz_p[c], errors="coerce")
+        bad = int(numeric.isna().sum())
+        if bad and report is not None:
+            report.warn("influence", f"{bad} TAZ rows have a non-numeric {c}; treated as 0")
+        taz_p[c] = numeric.fillna(0.0).astype(float)
     taz_p["_taz_area"] = taz_p.geometry.area
     taz_p = taz_p[taz_p["_taz_area"] > 0].reset_index(drop=True)
     taz_p["_taz_id"] = np.arange(len(taz_p))

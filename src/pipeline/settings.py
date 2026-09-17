@@ -64,6 +64,10 @@ class PipelineConfig:
     # --- Part 3: terminals and influence area -------------------------------------------
     terminal_buffer_m: float = TERMINAL_PROXIMITY_DISTANCE_M
     influence_rings: tuple[int, ...] = (500, 1000, 1500)
+    # Distance-decay midpoints for the pop/jobs score. Empty = derived from influence_rings
+    # (250/750/1250 for the defaults). The June 2026 notebook buffered at 600/1000/1200 but
+    # decayed at 250/750/1250; set both to reproduce it.
+    pop_emp_decay_midpoints: tuple[int, ...] = ()
 
     # --- Part 4: scoring ----------------------------------------------------------------
     apply_eligibility_filter: bool = True
@@ -97,6 +101,8 @@ class PipelineConfig:
         rings = list(self.influence_rings)
         if len(rings) < 1 or rings != sorted(rings) or rings[0] <= 0 or len(set(rings)) != len(rings):
             raise ConfigError("influence_rings must be strictly increasing positive radii")
+        if self.pop_emp_decay_midpoints and len(self.pop_emp_decay_midpoints) != len(rings):
+            raise ConfigError("pop_emp_decay_midpoints must have one value per influence ring")
         if self.mc_iterations < 1:
             raise ConfigError("mc_iterations must be >= 1")
         if self.h3_resolution not in range(0, 16):
@@ -120,7 +126,7 @@ def _coerce(name: str, value: Any) -> Any:
         return tuple(_coerce_rule(v) for v in _as_list(value))
     if isinstance(default, tuple):
         items = _as_list(value)
-        if name == "influence_rings":
+        if name in ("influence_rings", "pop_emp_decay_midpoints"):
             return tuple(int(x) for x in items)
         return tuple(str(x) for x in items)
     if isinstance(default, bool):

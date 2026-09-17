@@ -38,6 +38,13 @@ def test_set_coercions():
     assert cfg.mc_seed == 7
 
 
+def test_decay_midpoints_must_match_rings():
+    cfg = load_config(None, {"influence_rings": "600,1000,1200", "pop_emp_decay_midpoints": "250,750,1250"})
+    assert cfg.pop_emp_decay_midpoints == (250, 750, 1250)
+    with pytest.raises(ConfigError):
+        load_config(None, {"pop_emp_decay_midpoints": "250,750"})
+
+
 def test_drop_rules_from_strings_and_mappings():
     cfg = load_config(None, {"drop_line_rules": ["Haifa:^m", {"pattern": "^X$"}]})
     assert cfg.drop_line_rules == (LineDropRule("^m", "Haifa"), LineDropRule("^X$", None))

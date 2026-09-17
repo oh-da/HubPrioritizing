@@ -147,6 +147,7 @@ def run_pipeline(
         alpha=cfg.mode_diversity_alpha,
         rings=cfg.influence_rings,
         decay_beta=cfg.distance_decay_beta,
+        decay_midpoints=cfg.pop_emp_decay_midpoints or None,
         n_iter=cfg.mc_iterations,
         seed=cfg.mc_seed,
         scope=cfg.mc_scope,

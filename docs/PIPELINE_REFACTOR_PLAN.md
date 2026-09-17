@@ -3,10 +3,10 @@
 # HubPrioritizing: review and "one stop shop" pipeline plan
 
 > **Status (2026-09-16): implemented.** PRs 1–9 landed on `claude/lucid-lovelace-riqjaa`;
-> `hubs run` reproduces the June 2026 results workbook (see `tests/golden/`). Still open:
-> the TAZ 2050 layer for `data/reference/` (Part D; the bus terminals arrived 2026-09-16),
-> and the optional stage 0 that would build `All_nodeslines` from `Routes_and_Nodes` + node
-> coordinates.
+> `hubs run` reproduces the June 2026 results workbook (see `tests/golden/`): every reference
+> layer is in `data/reference/` (TAZ 2050 arrived 2026-09-17) and, with the legacy ring
+> settings, the final scores match for 141/142 hubs. Still open: the optional stage 0 that would
+> build `All_nodeslines` from `Routes_and_Nodes` + node coordinates.
 > The pre-cleanup repository is on the branch `legacy/v1-notebooks`. `docs/DEVIATIONS.md` records the
 > behaviour flags and fixes that came out of the golden comparisons.
 
@@ -158,9 +158,9 @@ Report sections: inputs + detected encodings; lines dropped by pattern; lines wi
 Test layout: `tests/unit/` (synthetic, always), `tests/golden/` (uses the uploaded samples + target workbook under `tests/fixtures/real/`, skipped if absent), `tests/test_smoke.py`.
 
 ## Part D: What the user must still provide
-1. ~~`metro_2008`, `Districts`, `BUS_TERMINAL_STRAT`~~ (received 2026-09-16, in `data/reference/`; the terminal score matches the golden for 141/142 hubs, the exception being documented in `DEVIATIONS.md`). Still missing: `TAZ_1270.shp`. Until it arrives, the population/jobs stage is verified only against synthetic fixtures.
+1. ~~All four shapefiles~~ (received 2026-09-16/17, in `data/reference/`). The population/jobs columns match the golden exactly with 600/1000/1200 m rings, and the final scores match for 141/142 hubs under the legacy settings documented in `DEVIATIONS.md`.
 2. ~~Hub names and IsSameGroup~~ (received 2026-09-16 as `Hubs_Names_H3_exploded_V1.01.csv` and `IsSameGroup_V1.01.csv`).
-3. Ring radii: defaulting to 500/1000/1500 m (B5) unless told otherwise. Later, a node-coordinates layer if stage 0 (auto-build of `All_nodeslines`) is wanted.
+3. Ring radii: the default stays 500/1000/1500 m (B5); the legacy geometry is one `--set` away. Later, a node-coordinates layer if stage 0 (auto-build of `All_nodeslines`) is wanted.
 
 ## Part E: Verification (end-to-end)
 1. `pip install -e .[dev] && pytest` green after every PR.

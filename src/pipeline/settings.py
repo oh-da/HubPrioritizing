@@ -75,6 +75,9 @@ class PipelineConfig:
     # (within ~1 % of the polygon overlay); 'center' counts it wholly in the ring its
     # centre falls in (faster, coarser).
     influence_cell_rule: str = "fraction"
+    # h3_base only: what to do when a reference shapefile present next to the layer no
+    # longer matches the hash its manifest recorded ('error' stops, 'warn' continues).
+    on_stale_base_layer: str = "error"
     terminal_buffer_m: float = TERMINAL_PROXIMITY_DISTANCE_M
     influence_rings: tuple[int, ...] = (500, 1000, 1500)
     # Distance-decay midpoints for the pop/jobs score. Empty = derived from influence_rings
@@ -121,6 +124,8 @@ class PipelineConfig:
             raise ConfigError("spatial_source must be 'shapefiles' or 'h3_base'")
         if self.influence_cell_rule not in ("center", "fraction"):
             raise ConfigError("influence_cell_rule must be 'center' or 'fraction'")
+        if self.on_stale_base_layer not in ("warn", "error"):
+            raise ConfigError("on_stale_base_layer must be 'warn' or 'error'")
         if self.on_node_position_conflict not in ("warn", "error"):
             raise ConfigError("on_node_position_conflict must be 'warn' or 'error'")
         if self.node_position_tolerance_m < 0:

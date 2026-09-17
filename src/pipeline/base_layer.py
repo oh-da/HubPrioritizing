@@ -378,6 +378,40 @@ def build_manifest(sources: dict[str, Path | None], resolution: int, terminal_bu
     }
 
 
+def stale_sources(manifest: dict | None, current: dict[str, Path | None]) -> list[str]:
+    """Which source layers changed since the manifest was written.
+
+    ``current`` maps the manifest's source keys to the files present now (``None`` when a
+    layer is absent, which is allowed: the layer is then simply not verifiable). A
+    different file name or a different SHA-256 of the main file or any sidecar counts as
+    a change. Returns one message per changed source (empty = the layer is current).
+    """
+    if not manifest:
+        return ["h3_base has no manifest, so it cannot be checked against the source layers; rebuild it with 'hubs prepare-base'"]
+    built = manifest.get("built", "an unknown date")
+    out: list[str] = []
+    for key, recorded in manifest.get("sources", {}).items():
+        path = current.get(key)
+        if path is None:
+            continue
+        path = Path(path)
+        if not path.exists():
+            continue
+        reasons = []
+        if path.name != recorded.get("file"):
+            reasons.append(f"file is {path.name}, the layer was built from {recorded.get('file')}")
+        elif _sha256(path) != recorded.get("sha256"):
+            reasons.append(f"{path.name} changed")
+        else:
+            for name, digest in recorded.get("sidecars", {}).items():
+                side = path.with_name(name)
+                if side.exists() and _sha256(side) != digest:
+                    reasons.append(f"{name} changed")
+        if reasons:
+            out.append(f"h3_base is stale for '{key}': {'; '.join(reasons)} since the layer was built on {built}; run 'hubs prepare-base'")
+    return out
+
+
 def manifest_path(layer_path: Path | str) -> Path:
     p = Path(layer_path)
     return p.with_name(p.name[: -len(p.suffix)] + MANIFEST_SUFFIX)

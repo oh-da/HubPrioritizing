@@ -90,7 +90,7 @@ def run_pipeline(
     report = report or RunReport()
     log = logging.getLogger("hubs.run")
 
-    problems = validate_inputs(inputs, report, cfg.spatial_source)
+    problems = validate_inputs(inputs, report, cfg.spatial_source, cfg.on_stale_base_layer)
     if allow_missing_layers and cfg.spatial_source == "shapefiles":
         problems = [p for p in problems if not any(f"'{k}'" in p for k in OPTIONAL_LAYER_KEYS)]
         for k in OPTIONAL_LAYER_KEYS:

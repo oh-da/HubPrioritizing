@@ -1113,7 +1113,7 @@ This document should be updated when:
 - **Score range**: 1–10 (normalized per tier)
 - **Catchment rings**: 0–500, 500–1000, 1000–1500 meters (configurable: `influence_rings`)
 - **Bus terminal buffer**: 200 m (baked into the base layer)
-- **Spatial source**: `h3_base` (pre-allocated cells, `influence_cell_rule=fraction`); `shapefiles` = legacy overlay
+- **Spatial source**: `h3_base` (pre-allocated cells, `influence_cell_rule=fraction`); `shapefiles` = legacy overlay. A source shapefile whose hash differs from the layer's manifest stops the run (`on_stale_base_layer=error`): rerun `hubs prepare-base`
 - **Node identity**: node ID + location (the hexagon's area selects the demand model; recorded per node as `demand_models`); one position per node, spreads ≤ `node_position_tolerance_m` (150 m) snapped, larger ones reported and fixed in `node_position_overrides.csv`
 - **Cell layer output**: `h3_layer.gpkg`, hub + catchment cells (`h3_layer_format`, `h3_layer_extent`)
 

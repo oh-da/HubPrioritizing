@@ -98,7 +98,7 @@ def cmd_validate(args: argparse.Namespace) -> int:
     cfg = _load_config_or_exit(args)
     report = RunReport()
     inputs = discover_inputs(args.input_dir, args.reference_dir, _parse_file_overrides(args.file))
-    problems = validate_inputs(inputs, report, cfg.spatial_source)
+    problems = validate_inputs(inputs, report, cfg.spatial_source, cfg.on_stale_base_layer)
 
     print(f"Input directory:     {inputs.input_dir}")
     print(f"Reference directory: {inputs.reference_dir}")

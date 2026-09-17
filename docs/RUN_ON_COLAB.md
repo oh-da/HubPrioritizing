@@ -87,6 +87,11 @@ Step 7 downloads the workbook to your computer straight away if you prefer.
   and 6 again. `docs/DEVIATIONS.md` lists the settings.
 - **Node position conflicts** in step 4 are warnings, not errors: the run continues.
   `docs/full_documentation/06_manual_corrections.md` explains how to resolve them.
+- **`h3_base is stale for 'taz' …`** — somebody replaced a reference shapefile (demographics,
+  terminals, rings, districts) without rebuilding the H3 base layer. This needs a developer:
+  in the repository run `hubs prepare-base` and commit the new `h3_base.parquet` and its
+  manifest. Do not work around it with `on_stale_base_layer=warn` unless you accept results
+  computed on the old data.
 
 The notebook is generated from `colab/build_notebook.py`; edit that file, run it, and commit
 both if the cells need to change.

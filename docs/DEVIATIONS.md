@@ -20,6 +20,7 @@ page lists every such place, plus the few spots where the pipeline deliberately 
 | `drop_line_rules` | Haifa lines starting with `m` (old Metronit), Netanya `LRT151`/`LRT152` | any list of `area:regex` | Which lines are excluded before hexagon aggregation |
 | `spatial_source` | `h3_base` — area/ring, terminals and pop/jobs looked up in `data/reference/h3_base.parquet` (`hubs prepare-base`) | `shapefiles` — the notebook's run-time overlay of the four polygon layers | Terminals and tiers identical; pop/emp within ~1 %; ring tags of hexagons straddling a ring boundary follow the cell centre instead of shapefile order (4 of the 142 June 2026 hubs, see `H3_BASE_LAYER.md`). `shapefiles` is needed for an exact reproduction of the June 2026 scores. |
 | `influence_cell_rule` | `fraction` — a cell counts by the share of its polygon inside the ring | `center` — a cell counts wholly in the ring its centre falls in (faster, coarser) | `h3_base` only; see `H3_BASE_LAYER.md` for the measured difference. |
+| `on_stale_base_layer` | `error` — a source shapefile whose hash differs from the layer's manifest stops the run | `warn` — report it and continue with the old layer | `h3_base` only. Rebuild with `hubs prepare-base`. |
 
 ## Notebook behaviours reproduced on purpose
 

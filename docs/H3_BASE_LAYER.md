@@ -135,6 +135,15 @@ Rebuild whenever one of the four shapefiles changes; the manifest's hashes say w
 vintage a layer came from. The layer is committed to the repository (12 MB per vintage);
 no Git LFS is needed at this rate of change.
 
+**You cannot forget the rebuild.** `hubs validate` and `hubs run` compare the SHA-256 of every
+source shapefile present next to the layer (main file and sidecars) with the manifest. A
+changed or renamed source stops the run with
+`h3_base is stale for 'taz': TAZ_1270.dbf changed since the layer was built on …; run 'hubs prepare-base'`.
+`--set on_stale_base_layer=warn` turns that into a report warning; a source that is absent is
+not checked (the layer is then simply not verifiable), and `spatial_source=shapefiles` skips
+the check because it does not read the layer. After the rebuild, commit the shapefile, the
+layer and the manifest together.
+
 ## Storage choices
 
 - Population and jobs are float32 on disk (7 significant digits, far below the method's

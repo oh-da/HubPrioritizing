@@ -98,9 +98,9 @@ HubPrioritizing/
 │   │   ├── inputs.py             #   input directory contract, discovery, validation, readers
 │   │   ├── network.py            #   nodes x lines -> H3 hexagons -> per-mode line counts
 │   │   ├── grouping.py           #   120 m union-find groups, manual merges, stable hub_id
-│   │   ├── spatial_tags.py       #   metro ring / district -> area, location
+│   │   ├── spatial_tags.py       #   metro ring / district -> area, location (shapefile path)
 │   │   ├── demand.py             #   2050 demand workbook -> TotalDemand, TotalTransfers
-│   │   ├── aggregate.py          #   hexagons -> hubs, bus terminals, population/jobs rings
+│   │   ├── aggregate.py          #   hexagons -> hubs; terminals and pop/jobs rings (shapefile path)
 │   │   ├── base_layer.py         #   H3 base layer: prepare-base builder + run-time lookups
 │   │   ├── h3_export.py          #   shareable H3 cell layer (h3_layer.gpkg, hubs export-h3)
 │   │   ├── scoring.py            #   categories, mode score, tiers, normalisation, Monte Carlo
@@ -129,9 +129,9 @@ HubPrioritizing/
 
 1. **Network**: node x line rows joined to planned modes; H3 resolution-10 hexagons with node, mode and line lists.
 2. **Grouping**: hexagons within 120 m (edge to edge) form a hub; manual merges from `is_same_group.csv`.
-3. **Spatial tagging**: metropolitan area and ring (core / inner / middle / outer) or district.
+3. **Spatial tagging**: metropolitan area and ring (core / inner / middle / outer) or district, looked up per hexagon in the H3 base layer.
 4. **Demand**: 2050 boardings + alightings per node from the regional models; overlay models override; node-level manual overrides.
-5. **Aggregation**: per hub demand, lines, modes, bus terminal within 200 m, population and jobs in 500 / 1000 / 1500 m rings.
+5. **Aggregation**: per hub demand, lines, modes, bus terminal within 200 m, population and jobs in 500 / 1000 / 1500 m rings, all from the pre-allocated H3 cells.
 6. **Scoring**: eligibility (≥ 1,000 passengers, ≥ 2 modes, a non-rail mode), tier, five criteria normalised 1–10 per tier, Monte Carlo aggregation, ranks.
 7. **Display table**: Hebrew names, line status counts, transfer rate, formula columns, xlsx export.
 

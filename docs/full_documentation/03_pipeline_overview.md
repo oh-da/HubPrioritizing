@@ -12,8 +12,11 @@ below match the archived notebook (`notebooks/archive/COMPLETE_TRANSIT_PIPELINE.
 so older documents remain readable.
 
 ```
+ONCE     hubs prepare-base:  metro_2008 · Districts · BUS_TERMINAL_STRAT · TAZ_1270
+         -> data/reference/h3_base.parquet  (area, ring, terminal, pop/emp per H3 cell)
+
 INPUTS   All_nodeslines · Lines_and_Planned_Mode · Nodes_w_results (demand)
-         metro_2008 · Districts · BUS_TERMINAL_STRAT · TAZ_1270 · curated tables
+         h3_base.parquet · curated tables
                                    │  inputs.discover_inputs / validate_inputs
    ┌─ PART 1  network.py, grouping.py ────────────────────────────────────────┐
    │ 1.3 load_nodeslines            nodes × lines -> points (EPSG:2039)       │
@@ -22,16 +25,17 @@ INPUTS   All_nodeslines · Lines_and_Planned_Mode · Nodes_w_results (demand)
    │ 1.5.1 🔧 apply_manual_groups   is_same_group.csv, renumber              │
    │ 1.7 add_mode_line_columns      <Mode> Lines (even split or exact)        │
    └──────────────────────────────────────────────────────────────────────────┘
-   ┌─ PART 2  spatial_tags.py, demand.py ─────────────────────────────────────┐
-   │ 2.3 tag_area_and_location      metro rings, then districts              │
+   ┌─ PART 2  base_layer.py, demand.py ───────────────────────────────────────┐
+   │ 2.3 tag_area_and_location_from_base   area, ring by h3_index lookup     │
    │ 2.5 load_demand_workbook       sheet -> region -> node demand           │
    │ 2.6 assign_demand              area's candidate models; overlays override│
    │ 2.6.1 🔧 apply_manual_demand   manual_demand_updates.csv                │
    └──────────────────────────────────────────────────────────────────────────┘
-   ┌─ PART 3  aggregate.py ───────────────────────────────────────────────────┐
+   ┌─ PART 3  aggregate.py, base_layer.py ────────────────────────────────────┐
    │ 2.7 aggregate_to_groups        one row per hub, dissolved geometry      │
-   │ 2.7.1 tag_bus_terminals        term_type within 200 m -> bus_terminal   │
-   │ 3.4 add_influence_area         pop/emp in 500/1000/1500 m rings         │
+   │ 2.7.1 tag_bus_terminals_from_base   max terminal class over hub cells   │
+   │ 3.4 add_influence_area_from_base    pop/emp in 500/1000/1500 m rings    │
+   │                                     (cells in a grid disk, fraction rule)│
    └──────────────────────────────────────────────────────────────────────────┘
    ┌─ PART 4  scoring.py ─────────────────────────────────────────────────────┐
    │ 4.2 prepare_scoring_frame      Region/Location categories, RegionLocation│
@@ -45,19 +49,27 @@ INPUTS   All_nodeslines · Lines_and_Planned_Mode · Nodes_w_results (demand)
    │                                Line_Names_forPlot, RankByHubTypeMetro   │
    │ write_results_xlsx / csv       hub_prioritization_results.xlsx (Table)  │
    └──────────────────────────────────────────────────────────────────────────┘
-OUTPUTS  workbook · csv · hub_identity.csv · run_report.md/json · run_config.json · run.log
+   ┌─ h3_export.py ───────────────────────────────────────────────────────────┐
+   │ build_h3_layer / write_h3_layer   hub + catchment cells with every       │
+   │                                   attribute -> h3_layer.gpkg             │
+   └──────────────────────────────────────────────────────────────────────────┘
+OUTPUTS  workbook · csv · hub_identity.csv · h3_layer.gpkg · run_report.md/json · run_config.json · run.log
 ```
 
 🔧 = human-in-the-loop input, all of them data files (see
 [`06_manual_corrections.md`](06_manual_corrections.md)).
+
+`--set spatial_source=shapefiles` replaces the three `*_from_base` steps with the notebook's
+run-time overlay (`spatial_tags.tag_area_and_location`, `aggregate.tag_bus_terminals`,
+`aggregate.add_influence_area`); see [`H3_BASE_LAYER.md`](../H3_BASE_LAYER.md).
 
 ## 3.1 Parts at a glance
 
 | Part | Produces | Key inputs |
 |------|----------|-----------|
 | 1 Network & grouping | hexagons with node / mode / line lists, `group`, `hub_id`, per-mode line counts | nodes × lines, lines/modes, `is_same_group.csv` |
-| 2 Tags & demand | `area`, `location`, `TotalDemand`, `TotalTransfers` per hexagon | metro, districts, demand workbook, `manual_demand_updates.csv` |
-| 3 Hubs, terminals, catchment | one row per hub; `term_type`, `bus_terminal`; `pop_*`, `emp_*` | bus terminals, TAZ 2050 |
+| 2 Tags & demand | `area`, `location`, `TotalDemand`, `TotalTransfers` per hexagon | `h3_base.parquet` (metro rings, districts), demand workbook, `manual_demand_updates.csv` |
+| 3 Hubs, terminals, catchment | one row per hub; `term_type`, `bus_terminal`; `pop_*`, `emp_*` | `h3_base.parquet` (bus terminals, TAZ 2050) |
 | 4 Scoring | `HubType`, five `*_Norm`, `Average_Simulated_Score`, ranks | config thresholds and weights |
 | 5 Display table | the 70 columns of the workbook | line names, statuses, corrections, hub names |
 

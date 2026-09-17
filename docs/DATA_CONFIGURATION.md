@@ -8,10 +8,13 @@ and every parameter is a configuration value.
 | Kind | Location | Examples |
 |---|---|---|
 | Per-run model exports | the directory you pass to `--input-dir` | `All_nodeslines_18062026.csv`, `Lines_and_Planned_Mode_18-06-2026.csv`, `Nodes_w_results_04022026.xlsx`, `linesNames_noDuplicates.csv`, `lines_exploded.csv`, `BS_lines.csv` |
-| Stable layers and curated tables | `data/reference/` (committed) or `--reference-dir` | `metro_2008.shp`, `Districts.shp`, `BUS_TERMINAL_STRAT.shp`, `TAZ_1270.shp`, `hub_names.csv`, `is_same_group.csv`, `manual_demand_updates.csv`, `line_names_extra.csv` |
+| Stable layers and curated tables | `data/reference/` (committed) or `--reference-dir` | `h3_base.parquet` (+ manifest), `hub_names.csv`, `is_same_group.csv`, `manual_demand_updates.csv`, `line_names_extra.csv` |
+| Sources of the base layer | `data/reference/`; read only by `hubs prepare-base` (or with `spatial_source=shapefiles`) | `metro_2008.shp`, `Districts.shp`, `BUS_TERMINAL_STRAT.shp`, `TAZ_1270.shp` |
 
 A file placed in the input directory with a reference file's name overrides the reference copy
 for that run. The newest file per input (by the date in its name) is used when several match.
+When one of the four shapefiles changes, run `hubs prepare-base` to rebuild `h3_base.parquet`
+(about 2.5 minutes) and commit both the layer and its manifest; see `H3_BASE_LAYER.md`.
 
 ## Check before you run
 

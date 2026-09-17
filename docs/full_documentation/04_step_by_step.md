@@ -13,11 +13,12 @@ which the `hubs run` command replaces. The implementation of each step now lives
 | 1.6 | not ported (geocoding off; `address` = `Not geocoded`) |
 | 1.7 | `network.add_mode_line_columns` |
 | 1.8, 2.8, 3.6, 4.7 | no intermediate files; `run.write_outputs` (optionally `intermediate/`) |
-| 2.3 | `spatial_tags.tag_area_and_location` |
+| 2.3 | `base_layer.tag_area_and_location_from_base` (`spatial_tags.tag_area_and_location` with `spatial_source=shapefiles`) |
 | 2.4 / 2.5 | `demand.SHEET_COLUMN_CONFIG`, `demand.load_demand_workbook` |
 | 2.6 / 2.6.1–2.6.3 | `demand.assign_demand`, `demand.apply_manual_demand` (all overrides are rows of `manual_demand_updates.csv`) |
-| 2.7 / 2.7.1 | `aggregate.aggregate_to_groups`, `aggregate.tag_bus_terminals` |
-| 3.x | `aggregate.add_influence_area` |
+| 2.7 / 2.7.1 | `aggregate.aggregate_to_groups`, `base_layer.tag_bus_terminals_from_base` (`aggregate.tag_bus_terminals` with shapefiles) |
+| 3.x | `base_layer.add_influence_area_from_base` (`aggregate.add_influence_area` with shapefiles) |
+| once per vintage | `base_layer.build_base_layer` via `hubs prepare-base` |
 | 4.2–4.6 | `scoring.prepare_scoring_frame`, `add_mode_score`, `classify`, `filter_eligible`, `normalize_scores`, `monte_carlo` |
 | post-processing | `postprocess.finalize_columns`, `export.write_results_xlsx` |
 
@@ -109,14 +110,18 @@ Reads the CSV produced in 1.8, parses WKT back into geometries and
 restores `node` as a list type.
 
 ### Step 2.3 — Tag hubs with area and location
-Spatial-joins each hub centroid against `METRO_SHP` and `DISTRICTS_SHP`
-to produce:
-- `area` — national district (תל אביב / חיפה / צפון / דרום / ירושלים),
-- `location` — metropolitan position (גלעין / טבעת / periphery).
+Looks each hexagon up in the H3 base layer (`h3_base.parquet`, built once by
+`hubs prepare-base` from `metro_2008` and `Districts`) to produce:
+- `area` — metro name or national district (תל אביב / חיפה / צפון / דרום / ירושלים),
+- `location` — metropolitan position (גלעין / טבעת פנימית / תיכונה / חיצונית, or the district).
 
-Shapefile text is decoded byte-exact by `src/pipeline/inputs.py::read_shapefile`, so the
-Hebrew names arrive complete; `spatial_tags.fix_hebrew_name` still applies the notebook's
-repairs (`גלעי` → `גלעין`, `מחוז צפון` → `צפון`) for consistency of the `area` vocabulary.
+The base layer tags a cell by the polygon containing its **centre** (metro ring first,
+district fallback). A hexagon with no row in the layer is reported and tagged `Unknown`.
+With `spatial_source=shapefiles` the notebook's spatial join runs instead: the hexagon
+polygon against the metro layer by intersection (first match in layer order), then the
+districts by containment; shapefile text is decoded byte-exact by
+`src/pipeline/inputs.py::read_shapefile`. Both paths apply the notebook's name repairs
+(`גלעי` → `גלעין`, `מחוז חיפה` → `חיפה`) so the `area` vocabulary is identical.
 
 ### Step 2.4 — Per-sheet column configuration for the demand Excel
 The demand Excel contains multiple regional models, each with slightly
@@ -168,10 +173,12 @@ scoring: one row per hub with `TotalDemand`, `TotalTransfers`, modes,
 per-mode line counts, `area`, `location`, geometry.
 
 ### Step 2.7.1 — Add bus terminal data
-Reads the strategic bus terminals layer (≈673 terminals), buffers each terminal by 200 m
-(EPSG:2039), and tags hubs whose geometry intersects a buffer with `term_type`, `term_id`
-and the 0–3 `bus_terminal` class score. When several terminals touch a hub the
-highest-scoring one is kept (the notebook produced duplicate rows) and the tie is reported.
+Every cell of the base layer carries the class of the strategic terminal (≈673 terminals)
+whose 200 m buffer touches the cell polygon; a hub takes the highest class over its cells
+(`term_type`, `term_id`, 0–3 `bus_terminal`). Because a hub polygon is the union of its
+cell polygons this is identical to buffering the terminals and intersecting the hub, which
+is what `spatial_source=shapefiles` does at run time. When several terminals touch a hub
+the highest-scoring one is kept (the notebook produced duplicate rows).
 
 ### Step 2.7.2 — Verify scoring columns
 Runs a checklist over the dataframe to ensure every column the scoring
@@ -190,27 +197,36 @@ hand-off file between Part 2 and Parts 3 / 4.
 `TAZ_SHAPEFILE`, `OUTPUT_FINAL`, `OUTPUT_FINAL_EXCEL`.
 
 ### Step 3.2 — Influence-area computation
-`src/pipeline/aggregate.py::add_influence_area` buffers each hub centroid into concentric
-rings (default 0–500 / 500–1 000 / 1 000–1 500 m, `influence_rings`), overlays them with the
-TAZ polygons and allocates `POP_2050` / `EMPL_2050` proportionally to the overlap area.
-(The former `influence_area_processor` ignored its ring configuration and always used
-600 / 1 000 / 1 200 m; see `docs/DEVIATIONS.md`.)
+`hubs prepare-base` spreads each TAZ's `POP_2050` / `EMPL_2050` over the H3 cells it
+overlaps, proportionally to the intersection area (uniform density inside a zone, shares
+normalised so zone totals are conserved exactly). At run time
+`src/pipeline/base_layer.py::add_influence_area_from_base` sums those cells around each hub
+centroid into concentric rings (default 0–500 / 500–1 000 / 1 000–1 500 m,
+`influence_rings`). With `spatial_source=shapefiles`,
+`src/pipeline/aggregate.py::add_influence_area` overlays the rings with the TAZ polygons
+directly. (The former `influence_area_processor` ignored its ring configuration and always
+used 600 / 1 000 / 1 200 m; see `docs/DEVIATIONS.md`.)
 
-### Step 3.3 — TAZ layer availability
-The TAZ layer is **required**: `hubs validate` lists it as missing and `hubs run` refuses
-to start without it. Only the test/dry-run escape hatch `HUBS_ALLOW_MISSING_LAYERS=1`
-lets the run continue with zero population and employment.
+### Step 3.3 — Layer availability
+The base layer is **required** for the default run: `hubs validate` lists it as missing and
+`hubs run` refuses to start without it, pointing to `hubs prepare-base`. The TAZ shapefile
+is needed only to rebuild the layer or with `spatial_source=shapefiles`, where the
+test/dry-run escape hatch `HUBS_ALLOW_MISSING_LAYERS=1` lets a run continue with zero
+population and employment.
 
-### Step 3.4 — Run the influence-area pipeline
+### Step 3.4 — Run the influence-area computation
 For each hub:
-1. Build three concentric rings: 0–500 m, 500–1 000 m, 1 000–1 500 m
-   (in EPSG:2039).
-2. Intersect each ring with the TAZ polygons.
-3. Distribute each TAZ's 2050 population and employment proportionally
-   to the area inside each ring.
+1. Find the cell under the hub centroid and take a grid disk around it that covers the
+   outer ring.
+2. Compute each cell's distance to the centroid (EPSG:2039). With
+   `influence_cell_rule=fraction` (default) a cell contributes the share of its polygon
+   inside each ring; exact fractions are only computed for cells a ring boundary can
+   cross. With `center` a cell counts wholly in the ring its centre falls in.
+3. Sum the cells' 2050 population and employment per ring.
 
 Result columns: `pop_0_500`, `emp_0_500`, `pop_500_1000`, `emp_500_1000`,
-`pop_1000_1500`, `emp_1000_1500`.
+`pop_1000_1500`, `emp_1000_1500`. Against the polygon overlay the fraction rule is within
+about 1 % (median 0.3 %); see `docs/H3_BASE_LAYER.md` for the measurement.
 
 ### Step 3.5 — Explore results
 Diagnostic counts/checks for sanity.

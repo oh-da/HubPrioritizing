@@ -36,16 +36,20 @@ See `README.md` and `docs/DATA_CONFIGURATION.md` for the input directory contrac
 
 ## Dependencies worth knowing about
 
-- **geopandas / pyogrio / shapely 2** read the shapefiles under `data/reference/` and do the
-  metre-based buffering in EPSG:2039.
-- **h3 4.x** is required. The code uses the v4 API (`latlng_to_cell`, `cell_to_boundary`);
-  h3 3.x will fail with `AttributeError`.
+- **pyarrow** reads and writes `data/reference/h3_base.parquet`, the pre-allocated H3 base
+  layer a run reads instead of the shapefiles.
+- **geopandas / pyogrio / shapely 2** read the shapefiles when the base layer is rebuilt
+  (`hubs prepare-base`), write `h3_layer.gpkg`, and do the metre-based geometry in EPSG:2039.
+- **h3 4.1+** is required. The code uses the v4 API (`latlng_to_cell`, `cell_to_boundary`,
+  `h3shape_to_cells_experimental`); h3 3.x will fail with `AttributeError`.
 - **openpyxl** writes the final `hub_prioritization_results.xlsx` workbook.
 
 ## Reference data
 
-Stable inputs (metropolitan zones, districts, hub display names, manual group merges) ship
-under `data/reference/`. See `data/reference/README.md` for the list and provenance.
+Stable inputs (the H3 base layer with metropolitan rings, districts, bus terminals and 2050
+population/jobs per cell; the four shapefiles it is built from; hub display names; manual
+group merges; demand overrides) ship under `data/reference/`. See `data/reference/README.md`
+for the list and provenance, and `docs/H3_BASE_LAYER.md` for when to rerun `hubs prepare-base`.
 
 ## Troubleshooting
 

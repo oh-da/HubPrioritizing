@@ -12,7 +12,7 @@ and, for Metropolitan / Local hubs, **per geographic area**.
 | 2 | Service & Hierarchy of Modes | `score_Norm` | `scoring.add_mode_score`, `normalize_by_type` | per **tier** (min-max) |
 | 3 | Location (Geographic + Metropolitan) | `RegionLocation_Norm` | `scoring.prepare_scoring_frame`, `normalize_by_type` | per **tier** (min-max) |
 | 4 | Population & Jobs (2050) | `PopEmp_Score_Norm` | `scoring.pop_emp_raw_score`, `normalize_by_type` | per **tier** (min-max) |
-| 5 | Bus Terminal Proximity | `bus_terminal_Norm` | `aggregate.tag_bus_terminals`, `normalize_by_type` | per **tier** (min-max) |
+| 5 | Bus Terminal Proximity | `bus_terminal_Norm` | `base_layer.tag_bus_terminals_from_base`, `normalize_by_type` | per **tier** (min-max) |
 
 > "Per tier" means: every Metropolitan hub is normalised against every
 > other Metropolitan hub *regardless of metropolitan area*; National
@@ -122,10 +122,12 @@ RegionLocation_Norm = minmax_per_tier(RegionLocation, [1, 10])
 Normalisation is per tier, like the other criteria (the canonical notebook did so;
 CLAUDE.md previously described a global normalisation that was never implemented).
 
-Hebrew labels come out of the shapefiles intact (`src/pipeline/inputs.py::read_shapefile`
-decodes the DBF bytes itself); the notebook's truncation repairs (`גלעי` → `גלעין`) are kept
-in `src/pipeline/spatial_tags.py::fix_hebrew_name` for unusual inputs, together with the
-district-name fixes (`מחוז צפון` → `צפון`).
+`area` and `location` come from the H3 base layer (the polygon containing the cell centre;
+`docs/H3_BASE_LAYER.md`). Hebrew labels come out of the shapefiles intact
+(`src/pipeline/inputs.py::read_shapefile` decodes the DBF bytes itself); the notebook's
+truncation repairs (`גלעי` → `גלעין`) and district-name fixes (`מחוז חיפה` → `חיפה`) in
+`src/pipeline/spatial_tags.py::fix_hebrew_name` are applied when the layer is built, so the
+vocabulary is the same on both paths.
 
 ---
 
@@ -137,7 +139,9 @@ projected to 2050.
 
 ### 5.4.1 Ring weights
 
-Three concentric rings around each hub centroid (in EPSG:2039):
+Three concentric rings around each hub centroid (in EPSG:2039), filled from the 2050
+population and jobs pre-allocated to H3 cells (`docs/H3_BASE_LAYER.md`; a cell counts by the
+share of its polygon inside the ring):
 
 | Ring | Range (m) | Midpoint | Raw weight `1 / midpoint^1.5` | Normalised weight |
 |-----:|-----------|---------:|------------------------------:|------------------:|
@@ -194,10 +198,11 @@ bus_terminal      = class score of the highest-scoring strategic terminal within
 bus_terminal_Norm = minmax_per_tier(bus_terminal, [1, 10])
 ```
 
-Implementation: `src/pipeline/aggregate.py::tag_bus_terminals`, `bus_terminal_score`.
+Implementation: `src/pipeline/base_layer.py::tag_bus_terminals_from_base` (max class over
+the hub's cells; `terminals_to_cells` at build time) and `aggregate.bus_terminal_score`;
+`aggregate.tag_bus_terminals` is the equivalent run-time buffer test of the shapefile path.
 
-Global normalisation: terminal capability is treated as a system-wide
-attribute and is compared across tiers.
+Normalisation is per tier, like the other criteria.
 
 ---
 

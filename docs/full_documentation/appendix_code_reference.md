@@ -45,9 +45,21 @@ collects findings.
 - `apply_manual_groups(hexes, is_same_group_df, report, renumber=True)`.
 - `assign_hub_ids(hexes)` → `hub_id`; `hub_identity_table(hexes)`; `stable_hub_id(nodes)`.
 
-### `spatial_tags.py`
+### `base_layer.py` (the default spatial source)
+- `build_base_layer(metro, districts, terminals, taz, resolution=10, terminal_buffer_m=200, report) -> DataFrame` — one row per cell: `h3_index, area, location, term_type, term_id, bus_terminal, pop_2050, emp_2050` (`allocate_taz`, `terminals_to_cells`, `tag_cells_area_and_location`).
+- `write_base_layer(df, path, manifest)`, `read_base_layer(path) -> (DataFrame indexed by h3_index, manifest)`, `build_manifest(sources, resolution, buffer_m, n_rows)`.
+- `tag_area_and_location_from_base(hexes, base, report)` → `area`, `location`.
+- `tag_bus_terminals_from_base(groups, hexes, base, report)` → `term_type`, `term_id`, `bus_terminal`.
+- `add_influence_area_from_base(groups, base, rings, resolution, cell_rule='fraction'|'center', report)` → `pop_<a>_<b>`, `emp_<a>_<b>`.
+- Helpers: `cells_covering(geoms, resolution)`, `cell_polygons_itm(cells)`, `cell_centres_itm(cells)`, `grid_disk_radius(outer_m, resolution)`.
+
+### `h3_export.py`
+- `build_h3_layer(base, hexes, results, groups, rings, resolution, extent='hubs'|'influence'|'all') -> GeoDataFrame` (`LAYER_COLUMNS`, EPSG:2039).
+- `write_h3_layer(layer, path, fmt='gpkg'|'geojson'|'parquet'|'csv') -> Path`; `hub_cell_table`, `influence_cells`.
+
+### `spatial_tags.py` (shapefile path, `spatial_source=shapefiles`)
 - `tag_area_and_location(hexes, metro, districts, report)` → `area` (str), `location` (list).
-- `get_regions_for_area(area) -> list[str]` — candidate demand models; `fix_hebrew_name(text)`.
+- `get_regions_for_area(area) -> list[str]` — candidate demand models; `fix_hebrew_name(text)` (also used when the base layer is built).
 
 ### `demand.py`
 - `SHEET_NAME_MAPPING`, `SHEET_COLUMN_CONFIG`, `DEFAULT_COLUMN_CONFIG`.
@@ -57,9 +69,9 @@ collects findings.
 
 ### `aggregate.py`
 - `aggregate_to_groups(hexes)` — one row per group, dissolved geometry, `Num_Modes`.
-- `tag_bus_terminals(groups, terminals, buffer_m=200, report)` → `term_type`, `term_id`, `bus_terminal`.
-- `add_influence_area(groups, taz, rings=(500,1000,1500), report)` → `pop_<a>_<b>`, `emp_<a>_<b>`.
-- `bus_terminal_score(term_type) -> int`; `ring_column_names(rings)`.
+- `tag_bus_terminals(groups, terminals, buffer_m=200, report)` → `term_type`, `term_id`, `bus_terminal` (shapefile path).
+- `add_influence_area(groups, taz, rings=(500,1000,1500), report)` → `pop_<a>_<b>`, `emp_<a>_<b>` (shapefile path).
+- `bus_terminal_score(term_type) -> int`; `ring_column_names(rings)` (both paths).
 
 ### `scoring.py`
 - `prepare_scoring_frame(groups)` → `Total_Unique_Lines`, `Region_category`, `Location_category`, `RegionLocation`.
@@ -82,8 +94,9 @@ collects findings.
 - `RunReport` — `info/warn/error(section, message, **data)`, `record_input`, `set_metric`, `to_markdown`, `to_json`, `write(out_dir)`.
 
 ### `run.py`
-- `run_pipeline(cfg, inputs, report=None, allow_missing_layers=False) -> RunResult(results, groups, scored, hexes, report, config)`.
-- `write_outputs(result, output_dir) -> {name: Path}`; `run_from_cli(args)`.
+- `run_pipeline(cfg, inputs, report=None, allow_missing_layers=False) -> RunResult(results, groups, scored, hexes, report, config, base)`.
+- `write_outputs(result, output_dir) -> {name: Path}` (workbook, csv, identity, `h3_layer.<ext>`, report, config); `run_from_cli(args)`.
+- `prepare_base_layer(inputs, out_path, resolution, terminal_buffer_m, report)`; `prepare_base_from_cli(args)`; `export_h3_from_cli(args)`.
 
 ## A.2 `src/config.py` — constants used by the pipeline
 
@@ -98,7 +111,7 @@ collects findings.
 | `MODE_WEIGHTS` | Funicular 2 … HighSpeed Rail 8 | scoring.add_mode_score |
 | `MODE_LINE_COLS`, `MODE_TO_COLUMN` | the eight `<Mode> Lines` columns | network, aggregate, scoring |
 | `MONTE_CARLO_ITERATIONS`, `MONTE_CARLO_RANDOM_SEED`, `MAX_CRITERION_WEIGHT` | 10000, 42, 0.5 | scoring.monte_carlo |
-| `TERMINAL_PROXIMITY_DISTANCE_M` | 200 | aggregate.tag_bus_terminals |
+| `TERMINAL_PROXIMITY_DISTANCE_M` | 200 | base_layer.terminals_to_cells (prepare-base), aggregate.tag_bus_terminals |
 | `CRS_WGS84`, `CRS_ISRAEL_TM` | EPSG:4326, EPSG:2039 | all spatial stages |
 | `REFERENCE_DATA_DIR` | `data/reference` | inputs |
 

@@ -385,6 +385,8 @@ pop_jobs_score = normalize_by_tier(Σ(ring_weight × (job_mix × jobs + pop_mix 
 
 **Normalization**: Per tier (all hubs of the same tier normalized together, regardless of metro area)
 
+**Implementation**: the 2050 TAZ population and jobs are pre-allocated to H3 cells (`hubs prepare-base`); at run time the rings are filled from the cells around the hub centroid, each cell weighted by the share of its polygon inside the ring (`influence_cell_rule=fraction`). This is within about 1 % of the polygon overlay; `spatial_source=shapefiles` runs the overlay itself.
+
 **Rationale**:
 - Higher-tier hubs serve employment centers
 - Local hubs serve residential areas
@@ -411,6 +413,8 @@ terminal_score = normalize_global(Σ(terminal_weight × proximity_factor))
 ```
 
 **Normalization**: Per tier (`bus_terminal_Norm`); the raw score is 0–3 by terminal class (חניון לילה 1, מסוף קטן/בינוני 2, מסוף גדול/מתקן משולב 3)
+
+**Implementation**: each H3 cell of the base layer carries the class of the terminal whose 200 m buffer touches it; a hub takes the highest class over its cells, which is identical to buffering the terminals against the hub polygon.
 
 **Rationale**:
 - Bus integration critical for first/last mile
@@ -592,9 +596,9 @@ HubPrioritizing/
 │   │   ├── report.py            #   RunReport (findings, metrics, inputs)
 │   │   ├── network.py           #   nodes x lines -> H3 hexagons -> per-mode line counts
 │   │   ├── grouping.py          #   120 m union-find groups, manual merges, stable hub_id
-│   │   ├── spatial_tags.py      #   metro ring / district -> area, location
+│   │   ├── spatial_tags.py      #   metro ring / district -> area, location (shapefile path)
 │   │   ├── demand.py            #   demand workbook -> TotalDemand, TotalTransfers, overrides
-│   │   ├── aggregate.py         #   hexagons -> hubs, bus terminals, pop/jobs rings
+│   │   ├── aggregate.py         #   hexagons -> hubs; terminals, pop/jobs rings (shapefile path)
 │   │   ├── base_layer.py        #   H3 base layer: prepare-base builder + the run-time lookups
 │   │   ├── h3_export.py         #   shareable H3 cell layer (h3_layer.gpkg, hubs export-h3)
 │   │   ├── scoring.py           #   categories, mode score, tiers, normalisation, Monte Carlo
@@ -633,6 +637,8 @@ HubPrioritizing/
 - One module per stage, each a pure function (DataFrame in, DataFrame out) recording findings on a `RunReport`
 - `settings.py` holds every run-time parameter; `inputs.py` is the only place that resolves files
 - Column names follow the canonical notebook so the workbook schema is unchanged
+- `base_layer.py` is the default spatial source: `hubs prepare-base` allocates the four polygon layers to H3 cells once (`data/reference/h3_base.parquet`, manifest with source hashes) and the run looks area/ring, terminal class and 2050 population/jobs up by `h3_index`. `spatial_tags.py` and the terminal/TAZ functions of `aggregate.py` are the run-time overlay kept behind `spatial_source=shapefiles`
+- `h3_export.py` writes the shareable cell layer (`h3_layer.gpkg`) with base attributes, hub identity, network and scores per cell
 
 #### `src/spatial/`, `src/classification/`
 - H3 helpers and union-find proximity grouping; tier rules
@@ -678,6 +684,13 @@ HubPrioritizing/
 
 **Format**: GeoJSON or Shapefile
 
+#### H3 Base Layer (what a run actually reads)
+- The demographic, bus terminal and boundary layers above are pre-allocated once to H3 resolution-10 cells by `hubs prepare-base` → `data/reference/h3_base.parquet` (1.57 M cells, 11 MB) plus a manifest with the source files' SHA-256
+- Per cell: `area`, `location` (polygon containing the cell centre), `term_type` / `bus_terminal` (terminal buffered 200 m intersects the cell), `pop_2050` / `emp_2050` (intersection-area share of the TAZ, totals conserved)
+- Rebuild only when one of the four source layers changes; the shapefiles are not needed at run time (`spatial_source=shapefiles` restores the run-time overlay)
+
+**Format**: Parquet (zstd, pop/emp float32); see `docs/H3_BASE_LAYER.md`
+
 ### 10.2 Data Standards
 
 #### Coordinate System
@@ -708,12 +721,11 @@ HubPrioritizing/
 **Format**: GeoJSON + CSV
 
 #### Spatial Layers
-- Hub points (colored by tier)
-- Hub areas (hexes)
-- Service area buffers
-- Network connections
+- `h3_layer.gpkg`, written by every run: the hub hexagons and every cell within the outer catchment ring of a scored hub, each with area, ring, terminal class, 2050 population/jobs, hub identity, network, scores and nearest hub (`h3_layer_format`: gpkg / geojson / parquet / csv; `h3_layer_extent`: hubs / influence / all)
+- `hubs export-h3`: the whole base layer (every cell of Israel) for GIS or SQL use
+- Hub points and dissolved hub polygons (`intermediate/` with `keep_intermediates=true`)
 
-**Format**: GeoJSON for web, Shapefile for GIS
+**Format**: GeoPackage (EPSG:2039) by default; GeoJSON for web, GeoParquet or CSV+WKT for SQL
 
 #### Reports
 - Summary statistics
@@ -1211,6 +1223,11 @@ See the full review documents for detailed code examples and implementation guid
 ## 19. Document Maintenance
 
 ### Version History
+- **v2.1** (2026-09-17): H3 base layer
+  - The four reference shapefiles are pre-allocated once to H3 cells (`hubs prepare-base` → `data/reference/h3_base.parquet`); `hubs run` reads that table by default (`spatial_source=h3_base`) and never opens a shapefile
+  - Population/jobs rings filled from cells with the `fraction` rule (within ~1 % of the overlay); terminals and tiers identical; ring tags of boundary hexagons follow the cell centre instead of shapefile order (4 hubs)
+  - Every run writes `h3_layer.gpkg`; `hubs export-h3` shares the whole base layer
+  - `hubs validate` requires the shapefiles only to rebuild the layer or with `spatial_source=shapefiles`
 - **v2.0** (2026-09-16): One-command pipeline
   - `hubs run --input-dir … --output-dir …` replaces the Colab notebooks and the two Excel formulas
   - Notebook logic ported into `src/pipeline/` with golden tests against the June 2026 workbook
@@ -1257,7 +1274,9 @@ This document should be updated when:
 - **Max criterion weight**: 50% (on the raw draw)
 - **Score range**: 1–10 (normalized per tier)
 - **Catchment rings**: 0–500, 500–1000, 1000–1500 meters (configurable: `influence_rings`)
-- **Bus terminal buffer**: 200 m
+- **Bus terminal buffer**: 200 m (baked into the base layer)
+- **Spatial source**: `h3_base` (pre-allocated cells, `influence_cell_rule=fraction`); `shapefiles` = legacy overlay
+- **Cell layer output**: `h3_layer.gpkg`, hub + catchment cells (`h3_layer_format`, `h3_layer_extent`)
 
 ### Key Commands
 ```bash
@@ -1271,10 +1290,13 @@ pytest                                    # unit + smoke tests
 
 ### Key Files
 - `src/pipeline/run.py`: stage order
+- `src/pipeline/base_layer.py`: the H3 base layer (builder + run-time lookups)
 - `src/pipeline/scoring.py`: tiers, normalisation, Monte Carlo
 - `src/pipeline/export.py`: the 70-column workbook schema
+- `src/pipeline/h3_export.py`: the shareable cell layer
 - `src/config.py`: thresholds and weights
 - `data/reference/README.md`: reference layers and curated tables
+- `docs/H3_BASE_LAYER.md`: how the base layer is built, validated against the overlay, and shared
 - `docs/DEVIATIONS.md`: flags and fixes
 
 ---
@@ -1290,6 +1312,6 @@ For questions about:
 
 ---
 
-**Last Updated**: 2025-12-29
-**Document Version**: 1.3
-**Status**: Framework with Clarified Scoring Methodology
+**Last Updated**: 2026-09-17
+**Document Version**: 2.1
+**Status**: One-command pipeline on the H3 base layer

@@ -1,40 +1,22 @@
-# Hub Prioritization Framework - Requirements
-# ===========================================
+# Hub Prioritization Framework - runtime requirements
+# ===================================================
+# The authoritative dependency list lives in pyproject.toml.
+# Install with:  pip install -e .            (runtime)
+#                pip install -e .[dev]       (runtime + tests/lint)
+#
+# This file mirrors the runtime set for tools that still read requirements.txt.
 
-# Core dependencies
-pandas>=2.0.0
-numpy>=1.24.0
-geopandas>=0.13.0
-shapely>=2.0.0
-
-# Spatial indexing
-h3>=3.7.0
-
-# Visualization (optional but recommended)
-folium>=0.14.0
-matplotlib>=3.7.0
-
-# Excel support (optional)
-openpyxl>=3.1.0
-
-# Geocoding (optional)
-geopy>=2.3.0
-
-# Additional spatial libraries
-pyproj>=3.5.0
-rtree>=1.0.1
-
-# Testing (development)
-pytest>=7.4.0
-pytest-cov>=4.1.0
-
-# Code quality (development)
-black>=23.0.0
-flake8>=6.0.0
-
-# Documentation (development)
-sphinx>=6.0.0
-
-# Streamlit App
-streamlit>=1.28.0
-plotly>=5.18.0
+pandas>=2.2
+numpy>=1.26
+geopandas>=1.0
+shapely>=2.0
+pyproj>=3.6
+pyogrio>=0.9
+rtree>=1.1
+# The code uses the h3 v4 API (latlng_to_cell, cell_to_boundary, grid_disk,
+# h3shape_to_cells_experimental for the base layer).
+h3>=4.1,<5
+openpyxl>=3.1
+pyyaml>=6.0
+# Parquet read/write for the H3 base layer (data/reference/h3_base.parquet).
+pyarrow>=15

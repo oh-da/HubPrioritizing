@@ -1,100 +1,91 @@
 # 3. Pipeline Overview
 
-The pipeline runs as four parts, totalling twelve numbered steps. The
-canonical implementation is `COMPLETE_TRANSIT_PIPELINE.ipynb`; the same
-logic is exposed programmatically through `scripts/run_complete_pipeline.py`
-which delegates the scoring stage to `src/scoring/monte_carlo.py::run_complete_scoring_pipeline`.
+One command runs everything:
 
-```
-                          ┌─────────────────────────────────────────────────┐
-INPUTS                    │   Transit nodes ─── Lines/modes ─── 2050 demand │
-                          │   Metro+Districts shp ─── TAZ shp ─── Terminals │
-                          └────────────────────┬────────────────────────────┘
-                                               │
-   ┌─── PART 1 ─ H3 hexagons ──────────────────▼──────────────────┐
-   │  1.1 Setup / master config                                   │
-   │  1.2 Configure Part-1 paths                                  │
-   │  1.3 Load transit nodes                                      │
-   │  1.4 Assign H3 indices + aggregate lines per node            │
-   │  1.5 Group adjacent hexagons (120 m edge-to-edge buffer)     │
-   │  1.5.1 🔧 Apply IsSameGroup.csv manual group corrections     │
-   │  1.6 Geocode addresses (optional)                            │
-   │  1.7 Create per-mode line-count columns                      │
-   │  1.8 Export `transit_h3_hexagons.csv`                        │
-   └──────────────────────────────────────────────────────────────┘
-                                ▼
-   ┌─── PART 2 ─ Demand & spatial tagging ────────────────────────┐
-   │  2.1 Configure Part-2 paths                                  │
-   │  2.2 Load H3 output from Part 1                              │
-   │  2.3 Tag each hub with `area` + `location` (metro / district)│
-   │  2.4 Per-sheet column config for the demand Excel            │
-   │  2.5 Load demand Excel                                       │
-   │  2.6 Match demand to hubs by area                            │
-   │  2.6.1 🔧 Load manual demand updates CSV (optional)          │
-   │  2.6.2 🔧 Apply 4 hardcoded National-Model node updates      │
-   │  2.6.3 🔧 Update Shefaim LRT stop (node 511248)              │
-   │  2.7 Create grouped hubs with demand                         │
-   │  2.7.1 Add bus-terminal data (200 m proximity)               │
-   │  2.7.2 Verify scoring columns                                │
-   │  2.8 Export `grouped_hubs.csv`                               │
-   └──────────────────────────────────────────────────────────────┘
-                                ▼
-   ┌─── PART 3 ─ Influence area (optional) ───────────────────────┐
-   │  3.1 Configure Part-3 paths                                  │
-   │  3.2 Load influence_area_processor                           │
-   │  3.3 Check TAZ availability                                  │
-   │  3.4 Initialize processor + run pipeline                     │
-   │  3.5 Explore results                                         │
-   │  3.6 Export `hubs_complete.xlsx`                             │
-   └──────────────────────────────────────────────────────────────┘
-                                ▼
-   ┌─── PART 4 ─ Scoring & ranking ───────────────────────────────┐
-   │  4.1 Scoring configuration (incl. AHP / MC distribution)     │
-   │  4.2 Data cleaning + preparation                             │
-   │  4.3 Calculate mode-service + bus-terminal scores            │
-   │  4.4 Filter eligible hubs + classify tier                    │
-   │  4.5 Normalize scores + calculate Pop/Emp score              │
-   │  4.6 Monte Carlo aggregation + tier-aware ranking            │
-   │  4.7 Export `scored_hubs_final.csv` / `.xlsx`                │
-   └──────────────────────────────────────────────────────────────┘
-                                ▼
-OUTPUTS               scored hubs CSV / Excel / GeoJSON, interactive map
+```bash
+hubs run --input-dir DIR --output-dir OUT [--reference-dir data/reference] [--config pipeline.yaml] [--set key=value]
 ```
 
-🔧 = manual / human-in-the-loop correction. See
-[`06_manual_corrections.md`](06_manual_corrections.md) for the full list.
+The orchestrator (`src/pipeline/run.py::run_pipeline`) chains pure functions that take a
+DataFrame and return a DataFrame; no stage reads or writes files itself. The step numbers
+below match the Colab notebook this command replaced (kept on the branch
+`legacy/v1-notebooks`) so older documents remain readable.
+
+```
+ONCE     hubs prepare-base:  metro_2008 · Districts · BUS_TERMINAL_STRAT · TAZ_1270
+         -> data/reference/h3_base.parquet  (area, ring, terminal, pop/emp per H3 cell)
+
+INPUTS   All_nodeslines · Lines_and_Planned_Mode · Nodes_w_results (demand)
+         h3_base.parquet · curated tables
+                                   │  inputs.discover_inputs / validate_inputs
+   ┌─ PART 1  network.py, grouping.py ────────────────────────────────────────┐
+   │ 1.3 load_nodeslines            nodes × lines -> points (EPSG:2039)       │
+   │ 1.4 attach_modes, aggregate_to_hexes   drop rules, modes, H3 res 10      │
+   │ 1.5 group_hexes                120 m edge-to-edge union-find -> group    │
+   │ 1.5.1 🔧 apply_manual_groups   is_same_group.csv, renumber              │
+   │ 1.7 add_mode_line_columns      <Mode> Lines (even split or exact)        │
+   └──────────────────────────────────────────────────────────────────────────┘
+   ┌─ PART 2  base_layer.py, demand.py ───────────────────────────────────────┐
+   │ 2.3 tag_area_and_location_from_base   area, ring by h3_index lookup     │
+   │ 2.5 load_demand_workbook       sheet -> region -> node demand           │
+   │ 2.6 assign_demand              area's candidate models; overlays override│
+   │ 2.6.1 🔧 apply_manual_demand   manual_demand_updates.csv                │
+   └──────────────────────────────────────────────────────────────────────────┘
+   ┌─ PART 3  aggregate.py, base_layer.py ────────────────────────────────────┐
+   │ 2.7 aggregate_to_groups        one row per hub, dissolved geometry      │
+   │ 2.7.1 tag_bus_terminals_from_base   max terminal class over hub cells   │
+   │ 3.4 add_influence_area_from_base    pop/emp in 500/1000/1500 m rings    │
+   │                                     (cells in a grid disk, fraction rule)│
+   └──────────────────────────────────────────────────────────────────────────┘
+   ┌─ PART 4  scoring.py ─────────────────────────────────────────────────────┐
+   │ 4.2 prepare_scoring_frame      Region/Location categories, RegionLocation│
+   │ 4.3 add_mode_score             score = Σ lines·weight × diversity bonus  │
+   │ 4.4 classify, filter_eligible  HubType; ≥1000 pax, ≥2 modes, non-rail   │
+   │ 4.5 normalize_scores           five *_Norm criteria, per HubType        │
+   │ 4.6 monte_carlo                10,000 weight sets, seed 42, ranks       │
+   └──────────────────────────────────────────────────────────────────────────┘
+   ┌─ PART 5  postprocess.py, export.py ──────────────────────────────────────┐
+   │ finalize_columns               display columns, names, statuses,        │
+   │                                Line_Names_forPlot, RankByHubTypeMetro   │
+   │ write_results_xlsx / csv       hub_prioritization_results.xlsx (Table)  │
+   └──────────────────────────────────────────────────────────────────────────┘
+   ┌─ h3_export.py ───────────────────────────────────────────────────────────┐
+   │ build_h3_layer / write_h3_layer   hub + catchment cells with every       │
+   │                                   attribute -> h3_layer.gpkg             │
+   └──────────────────────────────────────────────────────────────────────────┘
+OUTPUTS  workbook · csv · hub_identity.csv · h3_layer.gpkg · run_report.md/json · run_config.json · run.log
+```
+
+🔧 = human-in-the-loop input, all of them data files (see
+[`06_manual_corrections.md`](06_manual_corrections.md)).
+
+`--set spatial_source=shapefiles` replaces the three `*_from_base` steps with the notebook's
+run-time overlay (`spatial_tags.tag_area_and_location`, `aggregate.tag_bus_terminals`,
+`aggregate.add_influence_area`); see [`H3_BASE_LAYER.md`](../H3_BASE_LAYER.md).
 
 ## 3.1 Parts at a glance
 
-| Part | What it produces | Key inputs | Key output |
-|------|------------------|-----------|------------|
-| **1. H3 hexagons** | A geodataframe where every transit node has an H3 index and belongs to a *hub group* (120 m buffer clusters) with per-mode line counts | Nodes CSV, Lines+modes CSV, IsSameGroup.csv | `transit_h3_hexagons.csv` |
-| **2. Demand + tagging** | Each hub group tagged with metropolitan position, district, 2050 demand, transfers, and nearby bus terminals | Part-1 output, Demand Excel, Metro/Districts shapefiles, Bus terminals shapefile, manual demand CSV, hardcoded overrides | `grouped_hubs.csv` |
-| **3. Influence area** *(optional)* | Population and employment 2050 totals in concentric 0–500 / 500–1 000 / 1 000–1 500 m rings | Part-2 output, TAZ shapefile | `hubs_complete.csv/.xlsx` |
-| **4. Scoring & ranking** | The five normalized scores, the Monte Carlo final score, the tier-aware rank, and (optionally) AHP scores + MC distributions | Part-2 or Part-3 output | `scored_hubs_final.csv/.xlsx` |
+| Part | Produces | Key inputs |
+|------|----------|-----------|
+| 1 Network & grouping | hexagons with node / mode / line lists, `group`, `hub_id`, per-mode line counts | nodes × lines, lines/modes, `is_same_group.csv` |
+| 2 Tags & demand | `area`, `location`, `TotalDemand`, `TotalTransfers` per hexagon | `h3_base.parquet` (metro rings, districts), demand workbook, `manual_demand_updates.csv` |
+| 3 Hubs, terminals, catchment | one row per hub; `term_type`, `bus_terminal`; `pop_*`, `emp_*` | `h3_base.parquet` (bus terminals, TAZ 2050) |
+| 4 Scoring | `HubType`, five `*_Norm`, `Average_Simulated_Score`, ranks | config thresholds and weights |
+| 5 Display table | the 70 columns of the workbook | line names, statuses, corrections, hub names |
 
-## 3.2 How to run the pipeline
+## 3.2 Configuration
 
-There are two equivalent entry points:
-
-1. **Notebook (canonical):** `COMPLETE_TRANSIT_PIPELINE.ipynb`. Edit the
-   *MASTER CONFIGURATION* section, then run all cells. This is the path
-   most planners use because they want to inspect each step.
-
-2. **Script:** `python scripts/run_complete_pipeline.py`. Wraps the
-   loaders, spatial operations, classification and scoring into a class
-   (`HubPrioritizationPipeline`) and ends by calling
-   `monte_carlo.run_complete_scoring_pipeline` and `maps.create_hub_map`.
-
-Both paths share the same `src/` package and therefore the same
-configuration, scoring formulas, and output schema.
+`hubs show-config --defaults` prints every parameter with its default; pass a YAML file with
+`--config` or single values with `--set key=value`. The effective configuration is written
+to `OUT/run_config.json`. [`docs/DEVIATIONS.md`](../DEVIATIONS.md) describes the flags that
+switch between notebook behaviour and the documented method.
 
 ## 3.3 Reproducibility
 
-- Monte Carlo uses a fixed seed (`MONTE_CARLO_RANDOM_SEED = 42`).
-- The notebook commits the file paths for every intermediate artefact,
-  so re-running any single part produces byte-identical downstream
-  outputs as long as the inputs and config are unchanged.
-- The H3 resolution (10) and merge threshold (120 m) are configuration
-  constants — changing either will change which nodes end up in which
-  hub group and will therefore change the downstream ranks.
+- Same inputs, same configuration → byte-identical CSV (verified by `tests/test_smoke.py`).
+- Monte Carlo uses `numpy.random.RandomState(42)` with the notebook's draw order, so scores
+  match the notebook to ~1e-13.
+- Hexagons are processed in H3-index order, which fixes group numbering; `hub_id` (a hash of
+  the group's node set) additionally identifies a hub across runs when its nodes are unchanged.
+- The run report records the chosen input files, their encodings and every data-quality
+  finding; keep it with the results.

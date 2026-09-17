@@ -24,12 +24,6 @@ wheels/
 .ipynb_checkpoints
 
 # Data files (too large for git)
-data/raw/*
-data/processed/*
-data/results/*
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-!data/results/.gitkeep
 
 # Logs
 logs/
@@ -65,3 +59,7 @@ htmlcov/
 *.bak
 *.orig
 *.backup
+
+# Real sample inputs and golden workbook for regression tests (not committed; see tests/fixtures/README.md)
+tests/fixtures/real/*
+!tests/fixtures/real/.gitkeep

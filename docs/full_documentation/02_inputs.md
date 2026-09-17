@@ -1,125 +1,64 @@
 # 2. Inputs
 
-The pipeline is configured in the **MASTER CONFIGURATION** section near the
-top of `COMPLETE_TRANSIT_PIPELINE.ipynb` (lines ~248–310). Every input file
-path is set there and propagates through the rest of the notebook. When
-running outside the notebook (e.g. via `scripts/run_complete_pipeline.py`),
-the same paths are read from `src/config.py`.
+The pipeline is driven by **one input directory** (`hubs run --input-dir DIR`) holding the
+per-run model exports, plus a **reference directory** of stable layers shipped with the
+repository (`data/reference/`, overridable with `--reference-dir`). File discovery,
+validation and the readers live in `src/pipeline/inputs.py`.
 
-This document lists every input the model expects, what it is for, and
-what column / field structure is required.
+`hubs validate --input-dir DIR` prints which file was chosen for every input, the detected
+encodings, and every problem (missing file, missing column, unreadable layer) before any
+processing starts. Nothing is ever replaced by placeholder data.
 
----
+## 2.1 Discovery rules
 
-## 2.1 Core required inputs
+- Each input has a list of filename patterns (below). When several files match, the newest
+  by the **date in the filename** wins (`18062026`, `18-06-2026`, `2026-06-18` are all
+  recognised), then by modification time. Ignored older files are listed by `hubs validate`.
+- A file in the input directory with a reference layer's name **overrides** the reference copy.
+- `--file KEY=PATH` pins a specific file for a key.
+- CSVs are read as `utf-8-sig` first and `cp1255` second; the Hebrew columns are checked for
+  mojibake before an encoding is accepted. Shapefiles are read byte-exact and decoded with the
+  code page from their `.cpg` (or detected), which avoids GDAL's truncated-Hebrew quirk.
 
-### 2.1.1 Transit nodes — `INPUT_NODES_CSV`
+## 2.2 Per-run inputs (`--input-dir`)
 
-| Field | Description |
-|-------|-------------|
-| `node` | Stable integer node ID (this is what manual corrections key off) |
-| `LINE_ID` | Line identifier that visits this node |
-| `X`, `Y` | Coordinates in **EPSG:2039 (Israel TM Grid)** — used for accurate metric buffers |
-| `geometry` *(optional)* | WKT geometry; if absent, `X`/`Y` is used |
+| Key | Filename pattern | Required | Columns | Notes |
+|---|---|---|---|---|
+| `nodeslines` | `All_nodeslines*.csv` | yes | `node`, `LINE_ID`, `X`,`Y` or WKT `geometry` (EPSG:2039) | One row per node × line. Built in GIS from `Routes_and_Nodes` + model node coordinates. |
+| `lines_mode` | `Lines_and_Planned_Mode*.csv` | yes | `Line_ModelName`, `Mode_Planned`, `Area` (+ `Line_Name`, `Line_Description`) | Duplicated keys are collapsed (first wins) and reported; lines matching the drop rules (Haifa `m*`, Netanya `LRT151/152`) are removed. |
+| `demand` | `Nodes_w_results*.xlsx` | yes | sheets `5040_Daily` (Haifa), `Daily_5087` (Tel Aviv), `Daily_BS`, `Daily_Hadera`, `Daily_Jerusalem`, `HaifaNewMetronit`, `Daily_5093` (Ashdod-Ashkelon), `National` | Per-sheet column aliases in `src/pipeline/demand.py::SHEET_COLUMN_CONFIG`; other sheets are ignored. |
+| `line_names` | `linesNames*.csv` | optional | two columns: line ID, Hebrew name `(mode)`; headerless accepted | Gaps are filled from `data/reference/line_names_extra.csv`; still-unnamed lines are reported. |
+| `line_status` | `line_status*.csv` or legacy `lines_exploded*.csv` | optional | `LineName`, `StatusID` (0–7) | Legacy files repeating a line with different statuses: last wins, conflicts reported. |
+| `line_corrections` | `BS_lines*.csv` | optional | `LineName`, `LineName_Correct` | Spelling fixes applied before name/status lookups. |
+| `routes` | `Routes_and_Nodes*.xlsx` | optional | — | Recorded in the report; not yet used (future stage 0). |
 
-- **Encoding:** `windows-1255` (Hebrew).
-- **Default path in notebook:** `…/Hubs/All_nodes+lines_29102025.csv`.
-- **Purpose:** Every row is one (node × line) pairing. The pipeline
-  aggregates this to a unique node, then assigns each node to an H3
-  hexagon, then groups hexagons into hubs.
+## 2.3 Reference layers (`data/reference/`)
 
-### 2.1.2 Lines and planned modes — `LINES_MODE_CSV`
+| Key | File | Required | Fields | Used for |
+|---|---|---|---|---|
+| `h3_base` | `h3_base.parquet` (+ manifest) | yes (default `spatial_source=h3_base`) | `h3_index`, `area`, `location`, `term_type`, `term_id`, `bus_terminal`, `pop_2050`, `emp_2050` | the four polygon layers below, pre-allocated to H3 cells by `hubs prepare-base` |
+| `metro` | `metro_2008.shp` | to rebuild `h3_base`, or `spatial_source=shapefiles` | `METRO_NAME`, `ZONE_NAME` | `area` and `location` (גלעין / טבעת פנימית / תיכונה / חיצונית) |
+| `districts` | `Districts.shp` | idem | `MACHOZ` | `area` fallback outside the metros |
+| `bus_terminals` | `BUS_TERMINAL_STRAT.shp` | idem | `term_type` | bus-terminal score (200 m) |
+| `taz` | `TAZ_1270.shp` | idem | `POP_2050`, `EMPL_2050` | population & jobs rings |
+| `hub_names` | `hub_names.csv` | optional | `h3_index`, `HubNameHE` | Hebrew display names |
+| `line_names_extra` | `line_names_extra.csv` | optional | `LineName`, `Line_n_Mode` | names missing from the export |
+| `is_same_group` | `is_same_group.csv` | optional | `Nodes in group`, optional `model` | manual hub merges |
+| `manual_demand` | `manual_demand_updates.csv` | optional | `node`, `total_demand`, `total_transfers`, optional `model` | node-level demand overrides |
+| `node_positions` | `node_position_overrides.csv` | optional | `node`, `X`, `Y` | corrected coordinates for nodes whose network rows disagree on position (see `06_manual_corrections.md`) |
 
-| Field | Description |
-|-------|-------------|
-| `LINE_ID` | Same identifier as in the nodes file |
-| `Mode_Planned` | Planned 2050 mode for the line (`Rail`, `Metro`, `LRT`, `BRT`, `Bus`, …) |
-| `Area` *(optional)* | Metropolitan area; used to drop Metronit duplicates and similar cleanup |
+See [`data/reference/README.md`](../../data/reference/README.md) for provenance and
+[`H3_BASE_LAYER.md`](../H3_BASE_LAYER.md) for how the base layer is built and shared.
 
-- **Encoding:** `windows-1255`.
-- **Default path in notebook:** `…/Hubs/Lines_and_Planned_Mode_30-10-2025.csv`.
-- **Purpose:** Joined onto the nodes file so each node knows which modes
-  serve it, how many distinct lines per mode, and which Hebrew/English
-  mode tags apply.
-
-### 2.1.3 Demand forecasts — `DEMAND_EXCEL`
-
-- **Format:** Excel workbook with multiple sheets, one per metropolitan
-  area / region.
-- **Default path in notebook:** `…/Hubs/Nodes_w_results_28122025.xlsx`.
-- **Per-sheet columns** are mapped in **Step 2.4** of the notebook
-  (`## Step 2.4: Per-Sheet Column Configuration`). Each sheet provides at
-  minimum a node identifier and 2050 boardings / alightings / transfers
-  columns; the notebook normalises these to a common
-  `TotalDemand` / `TotalTransfers` schema.
-- **Purpose:** Provides the 2050 ridership used both for tier assignment
-  and for the **Passenger Activity** score (criterion 1).
-
-### 2.1.4 Geographic context layers
-
-| Variable | Default file | Used for |
-|----------|--------------|---------|
-| `METRO_SHP` | `Location/metro_2008.shp` | Tagging each hub with its metropolitan position (גלעין / טבעת / periphery) — the **Location** score |
-| `DISTRICTS_SHP` | `Location/Districts.shp` | Tagging each hub with its national region (תל אביב / חיפה / צפון / דרום / ירושלים) — the **Location** score |
-| `TAZ_SHAPEFILE` | `InfluenceArea/Israel2050/TAZ_1270.shp` | 2050 traffic-analysis zones with population and employment, used by the **Population & Jobs** score |
-
-All shapefiles are read with attention to Hebrew encoding (see
-`src/utils/encoding_fix.py`).
-
-### 2.1.5 Bus terminals — `BUS_TERMINALS_SHP`
-
-- **Default file:** `BusHubs/BUS_TERMINAL_STRAT.shp` (≈673 terminals in
-  the current dataset).
-- **Key field:** `term_type` — one of:
-  - `חניון לילה` (night parking) → weight 1.0
-  - `מסוף קטן` (small terminal) → 2.0
-  - `מסוף בינוני` (medium terminal) → 2.0
-  - `מסוף גדול` (large terminal) → 3.0
-  - `מתקן משולב` (integrated facility) → 3.0
-- **Used by:** the **Bus Terminal Proximity** score (criterion 5), with a
-  200 m buffer around each hub center.
-
----
-
-## 2.2 Optional / manual-correction inputs
-
-All four of these are **optional** — the pipeline runs without them — but
-they are how planners inject expert knowledge into the model. They are
-documented in detail in [`06_manual_corrections.md`](06_manual_corrections.md);
-this section lists them so the input catalogue is complete.
-
-| Variable | Default file | What it overrides |
-|----------|--------------|-------------------|
-| `MANUAL_GROUP_CSV` 🔧 | `data/IsSameGroup.csv` | Forces a set of nodes into the same hub group, even when 120 m buffering would not merge them |
-| `MANUAL_DEMAND_UPDATES_CSV` 🔧 | `data/manual_demand_updates.csv` | Overrides 2050 demand and transfer totals for specific node IDs (e.g. from a more accurate National Model run) |
-| `AHP_EXPERT_CSV_PATH` 🔧 | `data/ahp_expert_comparisons.csv` | Provides expert pairwise comparisons that drive the AHP scoring alternative (used only when `AHP_ENABLED=True`) |
-| `hub_names.csv` 🔧 | `data/hub_names_TEMPLATE.csv` | Provides human-curated display names for hubs in maps and exports |
-
-There are also **two hardcoded overrides** burned into the notebook
-itself: Step 2.6.2 (four nodes from the National Model) and Step 2.6.3
-(Shefaim LRT stop). See [`06_manual_corrections.md`](06_manual_corrections.md).
-
----
-
-## 2.3 Coordinate reference systems
+## 2.4 Coordinate reference systems
 
 | CRS | Used where |
 |-----|-----------|
-| `EPSG:4326` (WGS84) | H3 indexing, output GeoJSON, web maps |
-| `EPSG:2039` (Israel TM Grid) | All meter-based work: 120 m hex grouping, 200 m terminal buffers, 1.5 km catchment rings |
+| `EPSG:4326` (WGS84) | H3 indexing, hexagon geometry, output `x`/`y` (longitude, latitude) |
+| `EPSG:2039` (Israel TM Grid) | every metre-based operation: 120 m grouping, 200 m terminal buffer, catchment rings |
 
-Helpers in `src/config.py` (`CRS_WGS84`, `CRS_ISRAEL_TM`) and in
-`src/spatial/h3_operations.py` handle conversions consistently.
+## 2.5 Encoding
 
----
-
-## 2.4 Encoding
-
-Hebrew text is everywhere in the input data. The pipeline uses:
-
-- `windows-1255` for reading the original CSVs (`config.DEFAULT_ENCODING`).
-- `utf-8-sig` for everything written by the pipeline
-  (`config.UTF8_ENCODING`) so that downstream Excel and BI tools display
-  Hebrew correctly.
-- `src/utils/encoding_fix.py` provides validation, diagnosis and
-  shapefile readers that fall back across encodings.
+- Model CSVs arrive as `cp1255`; curated tables as UTF-8. Both are detected automatically.
+- Everything written by the pipeline is UTF-8 (`utf-8-sig` for CSV so Excel shows Hebrew correctly).
+- Add a `.cpg` next to any new shapefile (`CP1255` or `UTF-8`).

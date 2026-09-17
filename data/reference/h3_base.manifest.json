@@ -1,0 +1,65 @@
+{
+  "format": 1,
+  "built": "2026-09-17T08:48:47+00:00",
+  "h3_version": "4.5.0",
+  "resolution": 10,
+  "terminal_buffer_m": 200,
+  "rows": 1568080,
+  "columns": [
+    "h3_index",
+    "area",
+    "location",
+    "term_type",
+    "term_id",
+    "bus_terminal",
+    "pop_2050",
+    "emp_2050"
+  ],
+  "allocation": {
+    "pop_emp": "TAZ value x (cell ∩ zone area / Σ cell ∩ zone areas)",
+    "terminal": "cell polygon intersects terminal buffered by terminal_buffer_m; highest class kept",
+    "area_location": "polygon containing the cell centre; metro ring first, district fallback"
+  },
+  "sources": {
+    "metro": {
+      "file": "metro_2008.shp",
+      "sha256": "a599489deaf654c508aff497daee247eddb75593d3bffb4b2372844d0f77ebb1",
+      "sidecars": {
+        "metro_2008.cpg": "f6eac09c0eb93fe0f8b53eac9a9756aa06dd49999b6803b42d9b9b7f3f706d86",
+        "metro_2008.dbf": "115f2a92d0d1119d3bfa9d2a50f753da0879265b36d45edde62b84cec5165599",
+        "metro_2008.prj": "ecaaa121ca8d2b60897a0d0697b88882dc0d9fe904fa8d03a2148f5fd30891ce",
+        "metro_2008.shx": "b4a30b5bdc6d339b2265ce2eafaee7379560cda80c9dec31b27b8fb8d3f2e481"
+      }
+    },
+    "districts": {
+      "file": "Districts.shp",
+      "sha256": "77b55d71057821ea2d393e2456852b62dee98f0d72a301536038441ce9763af9",
+      "sidecars": {
+        "Districts.cpg": "3ad3031f5503a4404af825262ee8232cc04d4ea6683d42c5dd0a2f2a27ac9824",
+        "Districts.dbf": "2a1cd9b916ddf4749fea79cd6dc3f1e62ae7b67acb040f1132e1c690323932b5",
+        "Districts.prj": "ecaaa121ca8d2b60897a0d0697b88882dc0d9fe904fa8d03a2148f5fd30891ce",
+        "Districts.shx": "b17a2444cd7bb2cbe81e557ee097112dba4a4391c8f1194fc6753c281ae8d993"
+      }
+    },
+    "bus_terminals": {
+      "file": "BUS_TERMINAL_STRAT.shp",
+      "sha256": "c90691e596b0a20742384dc0808653cb50241bb40320d0ee4a0c1576cc2df306",
+      "sidecars": {
+        "BUS_TERMINAL_STRAT.cpg": "3ad3031f5503a4404af825262ee8232cc04d4ea6683d42c5dd0a2f2a27ac9824",
+        "BUS_TERMINAL_STRAT.dbf": "141c9e8f1251283f0e3f54029d9cad999b29e971f1e47ec86d3ffcfc26922ceb",
+        "BUS_TERMINAL_STRAT.prj": "6cec3f6b7f2bffd045719b147ff35859b9b9d4b7fd6d6d0a4abf7b4829709550",
+        "BUS_TERMINAL_STRAT.shx": "96eba721b975ff3de8ef6b96e153fd2fe9123ba1844282ce78558e0eb3712c15"
+      }
+    },
+    "taz": {
+      "file": "TAZ_1270.shp",
+      "sha256": "230bb31f5bc224907a4c0ea0403aa69d5bac6a1d63385f2b48dc86c052ec7480",
+      "sidecars": {
+        "TAZ_1270.cpg": "f6eac09c0eb93fe0f8b53eac9a9756aa06dd49999b6803b42d9b9b7f3f706d86",
+        "TAZ_1270.dbf": "23de8f7d72331fd1d76a5e57a45e98ccff5a4a64aa9ab6c92d0c787c6aa6599e",
+        "TAZ_1270.prj": "42bb49929b31e0de75e7870f619b4df3f76beebdd7207a341e032fb0fcbbd1c8",
+        "TAZ_1270.shx": "d954195b6b8f685700ab484abd2b3c894fb0f4ea822925e3699eca7701f38ca9"
+      }
+    }
+  }
+}

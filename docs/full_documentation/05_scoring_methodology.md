@@ -2,22 +2,24 @@
 
 Every eligible hub is scored on **five criteria**, each normalised to a
 1–10 scale. The five criterion scores are then aggregated into a single
-**final score** using **Monte Carlo simulation** (default) or
-**AHP** (optional alternative). Ranking is finally applied **per tier**
+**final score** using **Monte Carlo simulation**. Ranking is finally applied **per tier**
 and, for Metropolitan / Local hubs, **per geographic area**.
 
-| # | Criterion | Source code | Normalization |
-|---|-----------|------------|---------------|
-| 1 | Passenger Activity | `src/scoring/activity.py` | per **tier** (log₁₀ + min-max) |
-| 2 | Service & Hierarchy of Modes | `src/scoring/service.py` | per **tier** (min-max) |
-| 3 | Location (Geographic + Metropolitan) | `src/scoring/location.py` | **global** (min-max) |
-| 4 | Population & Jobs (2050) | `src/scoring/demographics.py` | per **tier** (min-max) |
-| 5 | Bus Terminal Proximity | `src/scoring/terminals.py` | **global** (min-max) |
+| # | Criterion | Column | Source code | Normalization |
+|---|-----------|--------|------------|---------------|
+| 1 | Passenger Activity | `TotalDemand_Norm` | `src/pipeline/scoring.py::normalize_log_demand_by_type` | per **tier** (log₁₀ + min-max) |
+| 2 | Service & Hierarchy of Modes | `score_Norm` | `scoring.add_mode_score`, `normalize_by_type` | per **tier** (min-max) |
+| 3 | Location (Geographic + Metropolitan) | `RegionLocation_Norm` | `scoring.prepare_scoring_frame`, `normalize_by_type` | per **tier** (min-max) |
+| 4 | Population & Jobs (2050) | `PopEmp_Score_Norm` | `scoring.pop_emp_raw_score`, `normalize_by_type` | per **tier** (min-max) |
+| 5 | Bus Terminal Proximity | `bus_terminal_Norm` | `base_layer.tag_bus_terminals_from_base`, `normalize_by_type` | per **tier** (min-max) |
 
 > "Per tier" means: every Metropolitan hub is normalised against every
 > other Metropolitan hub *regardless of metropolitan area*; National
 > hubs against other National hubs; Local hubs against other Local
-> hubs. "Global" means: all hubs of all tiers normalised together.
+> hubs (and likewise `Train Station` and `Not Hub` rows when the
+> eligibility filter leaves them in). All five criteria are normalised
+> per tier, as the canonical notebook did; a type whose values are all
+> equal receives 5.5.
 
 ---
 
@@ -112,17 +114,19 @@ Two factors are combined multiplicatively:
 | **Metropolitan position** | `location` | גלעין (core) → **3** ; טבעת (any ring) → **2** ; periphery → **1** |
 
 ```text
-raw            = region_weight × metro_position_weight
-location_score = minmax_global(raw, [1, 10])
+RegionLocation      = Region_category × Location_category      (0, 1, 2 or 3)
+RegionLocation_Norm = minmax_per_tier(RegionLocation, [1, 10])
 ```
 
-Global normalisation here is intentional — geography signals (core vs.
-periphery, centre vs. North/South) should be comparable across tiers,
-not reset within each tier.
+Normalisation is per tier, like the other criteria (the canonical notebook did so;
+CLAUDE.md previously described a global normalisation that was never implemented).
 
-Hebrew labels are repaired by
-`src/scoring/location.py::fix_truncated_hebrew` (e.g. `גלעי` → `גלעין`,
-`תל אבי` → `תל אביב`) before the lookups.
+`area` and `location` come from the H3 base layer (the polygon containing the cell centre;
+`docs/H3_BASE_LAYER.md`). Hebrew labels come out of the shapefiles intact
+(`src/pipeline/inputs.py::read_shapefile` decodes the DBF bytes itself); the notebook's
+truncation repairs (`גלעי` → `גלעין`) and district-name fixes (`מחוז חיפה` → `חיפה`) in
+`src/pipeline/spatial_tags.py::fix_hebrew_name` are applied when the layer is built, so the
+vocabulary is the same on both paths.
 
 ---
 
@@ -134,7 +138,9 @@ projected to 2050.
 
 ### 5.4.1 Ring weights
 
-Three concentric rings around each hub centroid (in EPSG:2039):
+Three concentric rings around each hub centroid (in EPSG:2039), filled from the 2050
+population and jobs pre-allocated to H3 cells (`docs/H3_BASE_LAYER.md`; a cell counts by the
+share of its polygon inside the ring):
 
 | Ring | Range (m) | Midpoint | Raw weight `1 / midpoint^1.5` | Normalised weight |
 |-----:|-----------|---------:|------------------------------:|------------------:|
@@ -186,93 +192,53 @@ For each hub, the closest bus terminal within **200 m**
 | — *(no terminal in 200 m)* | — | 0 |
 
 ```text
-raw            = terminal_weight × proximity_factor
-terminal_score = minmax_global(raw, [1, 10])
+bus_terminal      = class score of the highest-scoring strategic terminal within 200 m
+                    (חניון לילה 1 · מסוף קטן / בינוני 2 · מסוף גדול / מתקן משולב 3 · none 0)
+bus_terminal_Norm = minmax_per_tier(bus_terminal, [1, 10])
 ```
 
-Global normalisation: terminal capability is treated as a system-wide
-attribute and is compared across tiers.
+Implementation: `src/pipeline/base_layer.py::tag_bus_terminals_from_base` (max class over
+the hub's cells; `terminals_to_cells` at build time) and `aggregate.bus_terminal_score`;
+`aggregate.tag_bus_terminals` is the equivalent run-time buffer test of the shapefile path.
+
+Normalisation is per tier, like the other criteria.
 
 ---
 
-## 5.6 Aggregation — Monte Carlo (default)
+## 5.6 Aggregation — Monte Carlo
 
 Aggregating five scores by hand-picking weights is fragile: small
 changes in one weight can flip the ranking. The pipeline instead runs a
 **weight-space simulation**.
 
-For `MONTE_CARLO_ITERATIONS = 10_000` runs:
+For `mc_iterations = 10_000` runs (per hub type, see below):
 
-1. Draw five weights `w₁ … w₅` each uniformly in
-   `[MIN_CRITERION_WEIGHT, MAX_CRITERION_WEIGHT]` = `[0, 0.5]`.
+1. Draw five weights `w₁ … w₅` uniformly in `[0, 1]`; redraw the whole vector while
+   any weight exceeds `MAX_CRITERION_WEIGHT = 0.5`.
 2. Re-normalise so `Σ wᵢ = 1`.
-3. For every hub compute `iteration_score = Σ wᵢ · scoreᵢ`.
+3. For every hub compute `iteration_score = Σ wᵢ · scoreᵢ` over
+   `RegionLocation_Norm, bus_terminal_Norm, score_Norm, TotalDemand_Norm, PopEmp_Score_Norm`
+   (this order fixes which random number applies to which criterion).
 
-The hub's `final_score` is the mean of its 10,000 iteration scores.
-Random seed is fixed (`MONTE_CARLO_RANDOM_SEED = 42`) so results are
-deterministic.
+The hub's `Average_Simulated_Score` (= `TotalScore_MC`) is the mean of its iteration scores.
+One random stream (`numpy.random.RandomState(42)`) is consumed **tier by tier** in order of
+first appearance (`mc_scope = per_hubtype`, the notebook's behaviour); `mc_scope = all_hubs`
+draws a single weight matrix for the whole table instead.
 
-**Implementation:**
-`src/scoring/monte_carlo.py::monte_carlo_scoring`,
-`run_complete_scoring_pipeline`.
+**Implementation:** `src/pipeline/scoring.py::draw_weight_matrix`, `monte_carlo`.
 
-### Distribution analysis (optional)
+## 5.7 Ranking
 
-When `RUN_MC_DISTRIBUTION` is set, the raw iteration scores are kept
-and the pipeline reports:
+Three rankings are written:
 
-- per-hub mean / median / std / p5 / p25 / p75 / p95,
-- per-hub rank robustness — probability of ending in Top 1 / Top 3 /
-  Top 5 across iterations,
-- box-plots, top-K probability charts, and per-hub histograms
-  (`MC_DIST_TOP_N_HUBS = 30` by default).
+- `Rank_TS_MC` (= `Overall_Rank`) — all scored hubs together, dense ranking.
+- `Rank_By_TS_MC_By_Metro` (= `Rank_within_HubType`) — within each hub type, dense ranking.
+- `RankByHubTypeMetro` — the tier-aware rank used for prioritisation:
+  **ארצי (National)** hubs ranked **nationwide**; **מטרופוליני** and **עירוני** hubs ranked
+  **within their metropolitan area** (`Metro`). Competition ranking (ties share the best rank),
+  matching the `COUNTIFS` formula that used to be typed into the workbook by hand.
 
-This is the recommended way to characterise *which* rankings are
-weight-sensitive and which are stable.
+This ensures Metropolitan hubs compete with peers serving comparable catchments rather than
+against National hubs in the centre.
 
-| Implementation | `src/scoring/mc_distribution.py` |
-
----
-
-## 5.7 Aggregation — AHP (optional alternative)
-
-When `config.AHP_ENABLED = True`, the Analytic Hierarchy Process runs
-alongside Monte Carlo and produces an `ahp_score` and `ahp_rank` for
-each hub.
-
-**Inputs**: `data/ahp_expert_comparisons.csv` — a long or matrix-form
-table of expert pairwise comparisons on the Saaty scale
-(1 = equal, 3 = moderate, 5 = strong, 7 = very strong, 9 = extreme).
-
-**Pipeline:**
-1. Validate each expert's pairwise matrix (square, positive,
-   reciprocal, diagonal = 1).
-2. Compute priority weights via the principal eigenvector method.
-3. Compute the Consistency Ratio. CR ≥ 0.10 flags a logically
-   inconsistent expert (`AHP_CONSISTENCY_RATIO_THRESHOLD = 0.10`).
-4. Aggregate experts using the geometric mean
-   (`AHP_AGGREGATION_METHOD = 'geometric_mean'`).
-5. Apply the aggregated weights to the normalised criterion scores.
-
-Running both methods and comparing their rankings is the best practice:
-agreement is evidence of robustness; disagreement isolates the hubs
-whose rank is most sensitive to weight choice.
-
-| Implementation | `src/scoring/ahp.py` |
-
----
-
-## 5.8 Ranking
-
-After scoring, hubs are ranked **per tier**:
-
-- **ארצי (National)** — ranked **globally** (one ranking covers the
-  whole country).
-- **מטרופוליני (Metropolitan)** — ranked **within geographic area**
-  (e.g. Tel Aviv + Center, Haifa + North, South).
-- **עירוני (Local)** — ranked **within geographic area**.
-
-This ensures Metropolitan hubs compete with peers serving comparable
-catchments rather than against National hubs in the centre.
-
-| Implementation | `src/scoring/monte_carlo.py::_calculate_tier_based_ranking` |
+| Implementation | `src/pipeline/scoring.py::monte_carlo`, `src/pipeline/postprocess.py::rank_by_hubtype_metro` |

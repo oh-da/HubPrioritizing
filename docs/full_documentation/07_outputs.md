@@ -1,89 +1,49 @@
 # 7. Outputs
 
-The pipeline produces three kinds of artefacts: **tabular** (CSV /
-Excel), **geospatial** (GeoJSON), and **interactive** (HTML maps). All
-of them are derived from the same scored-hubs GeoDataFrame, so column
-schemas are consistent across formats.
+`hubs run --output-dir OUT` writes:
 
-## 7.1 Intermediate outputs (between parts)
-
-| Step | File | What it contains |
-|------|------|------------------|
-| 1.8 | `transit_h3_hexagons.csv` | Every H3 hexagon that contains at least one transit node, with `node` list, `Mode_Planned`, per-mode line counts, `group`, geometry (WKT) |
-| 2.8 | `hubs_with_demand.csv` | Ungrouped: one row per hub-hexagon with demand and area/location tags |
-| 2.8 | `grouped_hubs.csv` | One row per hub group with aggregated demand, modes, line counts, terminal flags |
-| 3.6 | `hubs_complete.csv` / `.xlsx` | Same as `grouped_hubs.csv` plus the 2050 population/employment ring totals (`pop_0_500`, `emp_0_500`, … `pop_1000_1500`, `emp_1000_1500`) |
-
-These intermediate files are auditable — if a hub's final score looks
-wrong, the cause can be diagnosed by tracing back through them.
-
-## 7.2 Primary outputs (after scoring)
-
-Written by Step 4.7.
-
-### `scored_hubs_final.csv` / `scored_hubs_final.xlsx`
-
-| Column | Description |
-|--------|-------------|
-| `group` | Hub group ID (stable within a run; renumbered after IsSameGroup corrections) |
-| `HubName` | Human display name (from `data/hub_names.csv`) when available |
-| `node` | List of node IDs that compose the hub |
-| `Mode_Planned` | Set / list of modes serving the hub |
-| `BRT Lines`, `LRT Lines`, `Metro Lines`, … | Per-mode line counts |
-| `TotalDemand`, `TotalTransfers` | 2050 demand and transfers (after manual corrections) |
-| `area`, `location` | Region (district) and metropolitan position |
-| `pop_0_500`, `emp_0_500`, `pop_500_1000`, `emp_500_1000`, `pop_1000_1500`, `emp_1000_1500` | 2050 population/employment in each ring (when Part 3 ran) |
-| `near_bus_terminal`, `term_type` | Terminal proximity flag and type |
-| `tier` | ארצי / מטרופוליני / עירוני |
-| `activity_score`, `service_score`, `location_score`, `pop_jobs_score`, `terminal_score` | Five 1–10 criterion scores |
-| `final_score` | Monte Carlo aggregated score (mean over 10 000 iterations) |
-| `rank` | Tier-aware rank (Nationals globally; Metro/Local per area) |
-| `ahp_score`, `ahp_rank` | Present only when `AHP_ENABLED=True` |
-| `geometry` | WKT (CSV) or GeoJSON geometry |
-
-Encoding: **`utf-8-sig`** (so Excel renders Hebrew correctly).
-
-### `hub_results_{timestamp}.geojson`
-
-Identical content, geometry as proper GeoJSON, suitable for QGIS / ArcGIS
-/ web maps.
-
-### `hub_map_{timestamp}.html`
-
-Interactive Folium map (`src/visualization/maps.py::create_hub_map`):
-
-- centred on Israel (`MAP_CENTER_ISRAEL = [31.5, 34.9]`),
-- coloured by `final_score` or by `tier` (`TIER_COLORS = {National: red,
-  Metro: orange, Local: green}`),
-- click-through popups with the hub's modes, demand, tier, and scores,
-- OpenStreetMap tiles by default (`config.MAP_TILES`).
-
-## 7.3 Optional Monte Carlo distribution outputs
-
-Produced by `src/scoring/mc_distribution.py::run_mc_distribution_analysis`
-when MC distribution analysis is enabled. Files land under
-`data/results/mc_distribution_{timestamp}/`:
-
-| File | Purpose |
+| File | Content |
 |------|---------|
-| `mc_hub_stats.csv` | Per-hub mean, median, std, p5/p25/p75/p95, top-K probabilities, rank statistics |
-| `raw_scores_long_format.csv` | One row per (hub × iteration); used for downstream sensitivity analysis. ~10 000 × #hubs rows |
-| `boxplot_scores.png` | Score box-plot for the top-N (default 30) hubs |
-| `top_k_probability_chart.png` | Stacked-bar chart: P(Top 1), P(Top 3), P(Top 5) per hub |
-| `histogram_hub_<id>.png` | Per-hub score distribution histograms (50 bins by default) |
+| `hub_prioritization_results.xlsx` | The display workbook: one sheet (`hubs_final_results`), one Excel Table (`טבלה1`), values only, the 70 columns below in this order. Sorted by `Rank_TS_MC`. |
+| `hub_prioritization_results.csv` | Same table, `utf-8-sig` |
+| `hub_identity.csv` | `group, hub_id, n_hexes, nodes, demand_models, HubNameHE, HubType` — the stable identity of each hub and the demand model(s) its nodes were read from |
+| `h3_layer.gpkg` | Shareable H3 cell layer (GeoPackage, layer `h3_cells`, EPSG:2039): every hub cell and every cell within the outer catchment ring of a scored hub, with the base attributes (area, ring, terminal, 2050 population and jobs), the hub identity, network, demand model and scores, and the nearest hub. `h3_layer_format` (gpkg / geojson / parquet / csv / none) and `h3_layer_extent` (hubs / influence / all); see `docs/H3_BASE_LAYER.md`. |
+| `run_report.md`, `run_report.json` | Inputs and encodings, metrics (nodes, hexagons, groups, matched demand nodes, hub type counts…), and every finding: lines without a mode, duplicated keys, nodes without demand, manual rows applied or unmatched, unnamed lines, status conflicts, hubs without a name, top 10 hubs |
+| `run_config.json` | The effective configuration |
+| `run.log` | Log of the run |
+| `intermediate/` (with `keep_intermediates=true`) | `hexes.geojson`, `groups.geojson`, `scored.csv` for auditing |
 
-These let analysts answer questions like *"how often does Hub X end up
-in the top 10?"* and *"which ranking is fragile to weight choice?"*.
+Sheet and table names, the file stem and extra columns (e.g. `hub_id`, `eligible`) are
+configurable (`output_sheet_name`, `output_table_name`, `output_basename`, `extra_columns`).
 
-## 7.4 Logging
+## 7.1 Columns of `hub_prioritization_results.xlsx`
 
-If `config.LOG_TO_FILE = True`, every run also writes a timestamped log
-file under `logs/`. Format:
+Defined once in `src/pipeline/export.py::FINAL_COLUMNS`; the writer refuses to emit a table
+whose columns differ.
 
-```
-2026-05-31 09:14:22 - hub_pipeline - INFO - Stage 3 complete: 86 hub groups
-```
+| # | Column | Meaning |
+|---|--------|---------|
+| 1 | `group` | Hub ID (sequential after manual merges; reproducible for unchanged inputs) |
+| 2–3 | `x`, `y` | Longitude, latitude of the hub centroid (WGS84) |
+| 4 | `h3_index` | List of the hub's resolution-10 H3 cells |
+| 5 | `node` | List of model node IDs |
+| 6–7 | `Mode_Planned`, `Modes_ForPlot` | Planned modes (list) and their Hebrew comma-joined form |
+| 8–9 | `Line_Unique`, `Line_Names` | Line IDs (list) and their Hebrew names (list) |
+| 10 | `address` | `Not geocoded` (geocoding is off) |
+| 11–14 | `area`, `Metro`, `location`, `LocationForChart` | Metropolitan area / district, its copy, ring list, ring in Hebrew (גלעין / טבעת / חוץ) |
+| 15–17 | `TotalDemand`, `TotalTransfers`, `TransferRate` | 2050 daily passengers, transfers, transfers ÷ demand |
+| 18–25 | `BRT Lines` … `Suburban Rail Lines` | Lines per mode |
+| 26–33 | `pop_0_500` … `emp_1000_1500`, `TotalPop_2050`, `TotalEmp_2050` | Population / jobs per ring and totals |
+| 34–39 | `Region_category`, `Location_category`, `RegionLocation`, `Num_Modes`, `score`, `bus_terminal` | Raw criterion inputs |
+| 40–43 | `HubType`, `HubType_Filtered`, `HubTypeHE`, `BusTERMINAL_Clone` | Tier, TLV low-transfer flag, tier (Hebrew), copy of `bus_terminal` |
+| 44–48 | `RegionLocation_Norm`, `score_Norm`, `bus_terminal_Norm`, `TotalDemand_Norm`, `PopEmp_Score_Norm` | The five 1–10 criteria (per tier) |
+| 49–51 | `TotalScore_MC`, `Rank_TS_MC`, `Rank_By_TS_MC_By_Metro` | Monte Carlo score, overall rank, rank within tier |
+| 52 | `TotalNumLines` | Sum of the per-mode line columns |
+| 53–61 | `NumLinesStatus_0` … `NumLinesStatus_7`, `TotalLinesAllStatuses` | Lines per planning-status code |
+| 62–67 | `Line_Nunique`, `Average_Simulated_Score`, `Overall_Rank`, `Rank_within_HubType`, `LogDemand`, `PopEmp_Score` | Notebook-era columns kept for compatibility (`Average_Simulated_Score` = `TotalScore_MC`) |
+| 68 | `HubNameHE` | Hebrew display name (from `hub_names.csv`, keyed by H3 index) |
+| 69 | `Line_Names_forPlot` | `Line_Names` comma-joined (formerly an Excel formula) |
+| 70 | `RankByHubTypeMetro` | National hubs ranked nationwide, others within (tier, metro); competition rank (formerly an Excel formula) |
 
-These logs include every manual correction that was applied (which
-nodes, which CSV rows, how many groups were merged), making the run
-fully auditable.
+List-valued columns are written as their Python representation (`[400080, 513001]`,
+`['Metro', 'LRT']`) to match the previous workbook.

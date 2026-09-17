@@ -1,0 +1,7 @@
+node,total_demand,total_transfers,station_name,notes
+400424,64985,43032,Moshe Dayan (Rishon),National Model correction; formerly hardcoded in notebook step 2.6.2
+400021,23083,10140,Netanya Sapir,National Model correction; formerly hardcoded in notebook step 2.6.2
+400030,14518,6101,Beit Yehoshua Rail,National Model correction; formerly hardcoded in notebook step 2.6.2
+511246,13601,6101,Beit Yehoshua LRT,National Model correction; formerly hardcoded in notebook step 2.6.2
+511248,255.3,,Shefaim LRT,Demand only (transfers kept); formerly hardcoded in notebook step 2.6.3
+400020,108409,84490,Netanya,National Model value listed in notebook step 2.6.2 as a CSV update; reproduces the June 2026 results

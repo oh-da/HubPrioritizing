@@ -16,14 +16,11 @@ from typing import Dict, Tuple
 
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
-RAW_DATA_DIR = DATA_DIR / "raw"
-PROCESSED_DATA_DIR = DATA_DIR / "processed"
-RESULTS_DIR = DATA_DIR / "results"
 LOGS_DIR = PROJECT_ROOT / "logs"
+REFERENCE_DATA_DIR = DATA_DIR / "reference"  # stable inputs shipped with the repo
 
-# Ensure directories exist
-for directory in [DATA_DIR, RAW_DATA_DIR, PROCESSED_DATA_DIR, RESULTS_DIR, LOGS_DIR]:
-    directory.mkdir(parents=True, exist_ok=True)
+# NOTE: importing this module must have no side effects. Callers that write
+# files are responsible for creating the directory they write to.
 
 # ============================================================================
 # COORDINATE REFERENCE SYSTEMS
@@ -126,32 +123,6 @@ MONTE_CARLO_RANDOM_SEED = 42  # For reproducibility
 MAX_CRITERION_WEIGHT = 0.5  # Maximum weight for any single criterion (50%)
 MIN_CRITERION_WEIGHT = 0.0  # Minimum weight
 
-# Monte Carlo Distribution Reporting parameters
-MC_DIST_TOP_N_HUBS = 30  # Number of hubs for portfolio-level plots
-MC_DIST_HISTOGRAM_BINS = 50  # Number of bins for per-hub histograms
-MC_DIST_EXPORT_RAW_SCORES = True  # Whether to export raw scores in long format
-MC_DIST_PRECISION = 6  # Decimal precision for exported statistics
-MC_DIST_MAX_HUB_HISTOGRAMS = None  # None = all hubs, or set a number to limit
-
-# AHP (Analytic Hierarchy Process) parameters
-AHP_ENABLED = False  # Set to True to enable AHP scoring alongside Monte Carlo
-AHP_CONSISTENCY_RATIO_THRESHOLD = 0.10  # Maximum acceptable CR (Saaty recommends 0.10)
-AHP_AGGREGATION_METHOD = 'geometric_mean'  # How to combine expert weights: 'geometric_mean', 'arithmetic_mean', 'median'
-AHP_EXPERT_CSV_PATH = DATA_DIR / "ahp_expert_comparisons.csv"  # Path to expert pairwise comparisons
-
-# Saaty Scale for AHP pairwise comparisons
-AHP_SAATY_SCALE = {
-    1: 'Equal importance',
-    2: 'Weak or slight',
-    3: 'Moderate importance',
-    4: 'Moderate plus',
-    5: 'Strong importance',
-    6: 'Strong plus',
-    7: 'Very strong importance',
-    8: 'Very, very strong',
-    9: 'Extreme importance',
-}
-
 # ============================================================================
 # SCORING CRITERIA CONFIGURATION
 # ============================================================================
@@ -176,6 +147,29 @@ MODE_WEIGHTS = {
     'Rail': 7.0,  # Generic rail (treat as Interurban)
     'Express Bus': 3.0,
     'Bus': 1.0,  # Regular bus (lowest weight)
+}
+
+# Per-mode line-count columns carried through the pipeline and into the final workbook
+MODE_LINE_COLS = [
+    'BRT Lines', 'Cable Line Lines', 'Funicular Lines',
+    'HighSpeed Rail Lines', 'Interurban Rail Lines', 'LRT Lines',
+    'Metro Lines', 'Suburban Rail Lines',
+]
+
+# Planned-mode label -> per-mode line column (None = excluded from mode line counts)
+MODE_TO_COLUMN = {
+    'BRT': 'BRT Lines',
+    'Metro': 'Metro Lines',
+    'LRT': 'LRT Lines',
+    'Light Rail': 'LRT Lines',
+    'Rail': 'Interurban Rail Lines',
+    'Interurban Rail': 'Interurban Rail Lines',
+    'HighSpeed Rail': 'HighSpeed Rail Lines',
+    'Suburban Rail': 'Suburban Rail Lines',
+    'Cable Line': 'Cable Line Lines',
+    'Funicular': 'Funicular Lines',
+    'Bus': None,
+    'Express Bus': None,
 }
 
 # Diminishing returns for multiple lines of same mode
@@ -306,7 +300,7 @@ TIER_COLORS = {
 LOG_LEVEL = 'INFO'  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
-LOG_TO_FILE = True
+LOG_TO_FILE = False  # file logging is opt-in: pass log_file= to setup_logger()
 LOG_TO_CONSOLE = True
 
 # ============================================================================

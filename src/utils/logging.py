@@ -26,12 +26,17 @@ def setup_logger(
     log_file: Optional[Path] = None,
 ) -> logging.Logger:
     """
-    Set up a logger with file and console handlers.
+    Set up a logger with a console handler and, optionally, a file handler.
+
+    File logging is opt-in: a file handler is added only when ``log_file`` is
+    given, or when ``config.LOG_TO_FILE`` is True (in which case a timestamped
+    file under ``config.LOGS_DIR`` is created). Importing or calling this with
+    the defaults never touches the filesystem.
 
     Args:
         name: Logger name (typically __name__)
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        log_file: Path to log file (if None, uses default naming)
+        log_file: Path to log file; its parent directory is created if needed
 
     Returns:
         Configured logger instance
@@ -55,13 +60,15 @@ def setup_logger(
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
 
-    # File handler
-    if LOG_TO_FILE:
+    # File handler (opt-in)
+    if log_file is not None or LOG_TO_FILE:
         if log_file is None:
             # Create default log file name with timestamp
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             log_file = LOGS_DIR / f"hub_prioritization_{timestamp}.log"
 
+        log_file = Path(log_file)
+        log_file.parent.mkdir(parents=True, exist_ok=True)
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)

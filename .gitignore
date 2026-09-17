@@ -24,12 +24,6 @@ wheels/
 .ipynb_checkpoints
 
 # Data files (too large for git)
-data/raw/*
-data/processed/*
-data/results/*
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-!data/results/.gitkeep
 
 # Logs
 logs/

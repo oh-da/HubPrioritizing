@@ -3,7 +3,6 @@
 # The authoritative dependency list lives in pyproject.toml.
 # Install with:  pip install -e .            (runtime)
 #                pip install -e .[dev]       (runtime + tests/lint)
-#                pip install -e .[ahp,viz]   (optional extras)
 #
 # This file mirrors the runtime set for tools that still read requirements.txt.
 

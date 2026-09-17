@@ -23,7 +23,7 @@ s # CLAUDE.md
 15. [Results Overview](#15-results-overview-current-state)
 16. [Future Directions](#16-future-directions)
 17. [References & Sources](#17-references--sources)
-18. [Code Quality & Architecture](#18-code-quality--architecture)
+18. [Code Quality](#18-code-quality)
 19. [Document Maintenance](#19-document-maintenance)
 20. [Quick Reference](#20-quick-reference)
 21. [Contact & Support](#21-contact--support)
@@ -212,24 +212,13 @@ Apply all scoring criteria (see Section 7)
 
 #### Step 7: Aggregation
 
-Two complementary methods are available:
-
-**Option A: Monte Carlo Simulation (Default)**
+**Monte Carlo Simulation**
 - 10,000 iterations with random weight sets
 - Each criterion 0–50% per iteration (raw draws are capped at 0.5, then normalised to sum to 1)
 - **Runs per hub type** with one seeded random stream consumed type by type (`mc_scope = per_hubtype`, the notebook's behaviour); `mc_scope = all_hubs` runs a single simulation across the entire dataset
 - Final score = weighted mean across simulations (`Average_Simulated_Score` = `TotalScore_MC`)
 - Prevents single-criterion dominance
 - Robust to weighting uncertainty
-
-**Option B: AHP (Analytic Hierarchy Process)**
-- Expert-driven pairwise comparisons
-- Systematic weight derivation via eigenvector method
-- Built-in consistency checking (CR < 0.10)
-- Multiple expert aggregation (geometric mean)
-- Transparent, reproducible weighting
-
-**Usage**: Both methods can run simultaneously for comparative analysis. AHP is optional and disabled by default.
 
 #### Step 8: Ranking
 
@@ -244,7 +233,6 @@ This ensures hubs compete within comparable geographic contexts while national h
 #### Step 9: Validation
 - Expert review
 - Sensitivity analysis
-- Method comparison (Monte Carlo vs AHP)
 - Update with new data/plans
 
 ---
@@ -272,13 +260,9 @@ This means:
 - A tier whose values are all equal receives 5.5 for that criterion
 - `renormalize_globally=true` reproduces the older results workbook's globally re-normalised display columns (see `docs/DEVIATIONS.md`)
 
-### Aggregation Methods
+### Aggregation
 
-Final weights are derived through either:
-- **Monte Carlo weighted scoring** (default): Random weight simulation to prevent single-criterion dominance
-- **AHP (Analytic Hierarchy Process)**: Expert-driven pairwise comparisons for systematic weight derivation
-
-Both methods can be used simultaneously for comparative analysis.
+Final weights come from **Monte Carlo weighted scoring**: random weight simulation that prevents single-criterion dominance (Step 7).
 
 ### 7.1 Passenger Activity Score
 
@@ -421,82 +405,6 @@ terminal_score = normalize_global(Σ(terminal_weight × proximity_factor))
 - Terminal proximity indicates planned integration
 - Larger terminals indicate higher importance
 
-### 7.6 AHP Scoring Methodology (Optional)
-
-**What it is**: Analytic Hierarchy Process - expert-driven alternative to Monte Carlo
-
-**How it works**:
-
-1. **Expert Pairwise Comparisons**
-   - Domain experts compare criteria two at a time
-   - Use Saaty scale (1-9): 1=Equal, 3=Moderate, 5=Strong, 7=Very Strong, 9=Extreme
-   - Example: "Is passenger activity more important than location?" → Answer: 5 (Strong)
-
-2. **Priority Weight Calculation**
-   - Construct pairwise comparison matrix from expert input
-   - Calculate weights using principal eigenvector method
-   - Normalize weights to sum to 1.0
-
-3. **Consistency Validation**
-   - Calculate Consistency Ratio (CR) for each expert
-   - CR < 0.10 indicates acceptable logical consistency
-   - High CR (≥0.10) flags contradictory judgments
-
-4. **Multi-Expert Aggregation**
-   - Combine multiple expert opinions using geometric mean
-   - Alternative methods: arithmetic mean, median
-   - Produces single set of aggregated weights
-
-5. **AHP Score Calculation**
-   - Apply aggregated weights to normalized criterion scores
-   - Calculate final AHP score per hub
-   - Compare with Monte Carlo results for validation
-
-**Saaty Scale Reference**:
-```
-1 = Equal importance
-3 = Moderate importance
-5 = Strong importance
-7 = Very strong importance
-9 = Extreme importance
-(2, 4, 6, 8 are intermediate values)
-```
-
-**When to use AHP**:
-- ✅ Expert knowledge should drive weighting
-- ✅ Stakeholder transparency is critical
-- ✅ Systematic, reproducible weights are needed
-- ✅ Validation against Monte Carlo is desired
-
-**When to use Monte Carlo**:
-- ✅ Expert consensus is difficult
-- ✅ Robustness to weighting is priority
-- ✅ Sensitivity analysis is needed
-- ✅ Avoiding single-weight bias is important
-
-**Best Practice**: Run both methods and compare. Agreement indicates robust results; disagreement highlights weight-sensitive hubs.
-
-**Configuration**:
-```python
-# In src/config.py
-AHP_ENABLED = True  # Set to True to enable
-AHP_CONSISTENCY_RATIO_THRESHOLD = 0.10  # Saaty's recommendation
-AHP_AGGREGATION_METHOD = 'geometric_mean'  # Recommended
-AHP_EXPERT_CSV_PATH = DATA_DIR / "ahp_expert_comparisons.csv"
-```
-
-**Output**: When AHP is enabled, hubs receive both:
-- `final_score`: Monte Carlo aggregated score
-- `ahp_score`: AHP weighted score
-- `rank`: Monte Carlo ranking
-- `ahp_rank`: AHP ranking
-
-**Documentation**: See `docs/AHP_SCORING_GUIDE.md` and `AHP_QUICKSTART.md` for full details.
-
-**References**:
-- Saaty, T.L. (1980). The Analytic Hierarchy Process. McGraw-Hill.
-- Saaty, T.L. (2008). Decision making with the analytic hierarchy process. IJSSCI 1(1), 83-98.
-
 ---
 
 ## 8. Technical Implementation
@@ -528,22 +436,10 @@ This framework should be implemented using:
 - Aggregation across simulations
 - Prevents single-criterion dominance
 
-**AHP Method (Optional)**:
-- Expert pairwise comparison matrix
-- Eigenvector weight calculation
-- Consistency ratio validation (CR < 0.10)
-- Multi-expert aggregation (geometric mean)
-- Transparent, systematic weighting
-
 **Normalization**:
 - Min-max scaling to 1–10
 - Per-category normalization
 - Log transformation for skewed distributions
-
-**Comparison Tools**:
-- Correlation analysis between methods
-- Rank overlap assessment
-- Disagreement identification
 
 #### Visualization
 - **Interactive Maps**:
@@ -577,13 +473,13 @@ Key files for reference:
 - `src/pipeline/scoring.py` — eligibility, tiers, normalisation, Monte Carlo
 - `src/pipeline/export.py` — `FINAL_COLUMNS`, the 70-column schema the display page reads
 - `docs/DEVIATIONS.md` — every notebook quirk kept behind a flag and every intentional fix
-- `notebooks/archive/COMPLETE_TRANSIT_PIPELINE.ipynb`, `create_results_csv.ipynb` — the superseded Colab notebooks (provenance only; branch `legacy/v1-notebooks` has the pre-cleanup repo)
+- Branch `legacy/v1-notebooks` holds the Colab notebooks and the earlier code this pipeline replaced (provenance only; not in the working tree)
 
 ### Organization
 
 ```
 HubPrioritizing/
-├── README.md, INSTALL.md, CLAUDE.md, LICENSE, AHP_QUICKSTART.md
+├── README.md, INSTALL.md, CLAUDE.md, LICENSE
 ├── pyproject.toml               # package metadata, `hubs` console script, pytest config
 ├── requirements.txt             # runtime deps (mirror of pyproject)
 │
@@ -607,13 +503,9 @@ HubPrioritizing/
 │   │   └── run.py               #   orchestrator, write_outputs, run_from_cli
 │   ├── spatial/                 # h3_operations.py, merging.py (UnionFind)
 │   ├── classification/          # hierarchy.py (classify_hub_tier)
-│   ├── scoring/                 # optional extras: ahp.py, mc_distribution.py, normalization.py
 │   └── utils/                   # encoding_fix.py, logging.py
 │
-├── data/
-│   ├── reference/               # stable layers + curated tables shipped with the repo
-│   ├── ahp_expert_comparisons_*.csv
-│   └── raw/ processed/ results/ # scratch (gitignored)
+├── data/reference/              # stable layers + curated tables shipped with the repo
 │
 ├── tests/
 │   ├── unit/                    # synthetic tests per stage
@@ -621,10 +513,8 @@ HubPrioritizing/
 │   ├── synthetic.py, test_smoke.py
 │   └── fixtures/real/           # place the real exports + golden workbook here (not committed)
 │
-├── notebooks/archive/           # superseded notebooks
-├── app/                         # Streamlit AHP questionnaire (optional)
-├── scripts/                     # generate_demo_excel.py, test_ahp_scoring.py
-└── docs/                        # full_documentation/, DEVIATIONS.md, PIPELINE_REFACTOR_PLAN.md, ...
+├── scripts/                     # compare_base_layer.py (H3 layer vs shapefile overlay)
+└── docs/                        # full_documentation/, DEVIATIONS.md, H3_BASE_LAYER.md, DATA_CONFIGURATION.md
 ```
 
 ### Module Responsibilities
@@ -642,9 +532,6 @@ HubPrioritizing/
 
 #### `src/spatial/`, `src/classification/`
 - H3 helpers and union-find proximity grouping; tier rules
-
-#### `src/scoring/`
-- Optional analyses: AHP expert weighting, Monte Carlo distribution reporting
 
 #### `src/utils/`
 - Hebrew text validation for encoding detection; logger setup (file logging opt-in)
@@ -1164,59 +1051,9 @@ The results workbook feeds the display page; `RankByHubTypeMetro` gives the tier
 
 ---
 
-## 18. Code Quality & Architecture
+## 18. Code Quality
 
-### SOLID Principles Review
-
-The codebase has been comprehensively reviewed for adherence to SOLID design principles. See [docs/SOLID_PRINCIPLES_REVIEW.md](docs/SOLID_PRINCIPLES_REVIEW.md) and [docs/EXECUTIVE_SUMMARY.md](docs/EXECUTIVE_SUMMARY.md) for detailed findings.
-
-**Overall Assessment: VERY GOOD (Grade: A-)**
-**Last Review: 2025-12-17**
-
-#### Strengths
-- ✅ **Single Responsibility Principle** - Excellent (Grade: A)
-  - Clear module boundaries
-  - Focused functions
-  - Strong separation of concerns
-  - New modules maintain excellent SRP (AHP, MC distribution)
-
-- ✅ **Interface Segregation Principle** - Good (Grade: A-)
-  - Minimal function parameters
-  - No "god functions"
-  - Separation of data and configuration
-
-- ✅ **Recent Architectural Improvements** (2025-12-17)
-  - AHP scoring module for expert-driven weighting
-  - Monte Carlo distribution analysis for robustness metrics
-  - Enhanced configuration integration
-
-#### Improvement Opportunities
-- ⚠️ **Open/Closed Principle** - Partial (Grade: B-)
-  - Currently requires code changes to add new scoring criteria
-  - Recommended: Implement Strategy Pattern with scorer registry
-
-- ⚠️ **Dependency Inversion Principle** - Needs Work (Grade: C+)
-  - Direct dependencies on concrete implementations
-  - Recommended: Use Protocol classes and dependency injection
-
-#### Implementation Recommendations
-
-**COMPLETED (✅):**
-- AHP Scoring Module - Alternative expert-driven methodology
-- Monte Carlo Distribution Analysis - Robustness and uncertainty metrics
-- Configuration Integration - Enhanced config.py usage
-
-**HIGH PRIORITY (⚠️):**
-1. **Strategy Pattern for Scoring** - Enable adding new scorers without modifying existing code
-2. **Abstract Interfaces** - Use Protocol classes for loose coupling
-
-**MEDIUM PRIORITY (🔲):**
-3. **Configuration-Driven Pipeline** - Make pipeline behavior configurable (partial implementation)
-4. **Dependency Injection** - Improve testability and flexibility
-
-**Progress:** ~25% of recommendations implemented
-
-See the full review documents for detailed code examples and implementation guidance.
+The pipeline is a chain of pure DataFrame stages under `src/pipeline/`, each recording its findings on a `RunReport`; every human correction is a data file under `data/reference/`; no stage reads or writes files itself; the golden tests in `tests/golden/` guard the June 2026 results. Keep it that way: a new criterion or data source is a new stage plus its unit test, not a change to the orchestrator's contract.
 
 ---
 
@@ -1310,7 +1147,6 @@ For questions about:
 - **Code**: Check inline documentation and tests
 - **Data**: See data dictionary in `docs/`
 - **Issues**: Use GitHub issue tracker
-- **Code Quality**: See SOLID review in `docs/SOLID_PRINCIPLES_REVIEW.md`
 
 ---
 

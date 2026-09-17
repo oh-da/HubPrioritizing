@@ -16,9 +16,6 @@ from typing import Dict, Tuple
 
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
-RAW_DATA_DIR = DATA_DIR / "raw"
-PROCESSED_DATA_DIR = DATA_DIR / "processed"
-RESULTS_DIR = DATA_DIR / "results"
 LOGS_DIR = PROJECT_ROOT / "logs"
 REFERENCE_DATA_DIR = DATA_DIR / "reference"  # stable inputs shipped with the repo
 
@@ -125,32 +122,6 @@ MONTE_CARLO_ITERATIONS = 10000  # Number of simulation runs
 MONTE_CARLO_RANDOM_SEED = 42  # For reproducibility
 MAX_CRITERION_WEIGHT = 0.5  # Maximum weight for any single criterion (50%)
 MIN_CRITERION_WEIGHT = 0.0  # Minimum weight
-
-# Monte Carlo Distribution Reporting parameters
-MC_DIST_TOP_N_HUBS = 30  # Number of hubs for portfolio-level plots
-MC_DIST_HISTOGRAM_BINS = 50  # Number of bins for per-hub histograms
-MC_DIST_EXPORT_RAW_SCORES = True  # Whether to export raw scores in long format
-MC_DIST_PRECISION = 6  # Decimal precision for exported statistics
-MC_DIST_MAX_HUB_HISTOGRAMS = None  # None = all hubs, or set a number to limit
-
-# AHP (Analytic Hierarchy Process) parameters
-AHP_ENABLED = False  # Set to True to enable AHP scoring alongside Monte Carlo
-AHP_CONSISTENCY_RATIO_THRESHOLD = 0.10  # Maximum acceptable CR (Saaty recommends 0.10)
-AHP_AGGREGATION_METHOD = 'geometric_mean'  # How to combine expert weights: 'geometric_mean', 'arithmetic_mean', 'median'
-AHP_EXPERT_CSV_PATH = DATA_DIR / "ahp_expert_comparisons.csv"  # Path to expert pairwise comparisons
-
-# Saaty Scale for AHP pairwise comparisons
-AHP_SAATY_SCALE = {
-    1: 'Equal importance',
-    2: 'Weak or slight',
-    3: 'Moderate importance',
-    4: 'Moderate plus',
-    5: 'Strong importance',
-    6: 'Strong plus',
-    7: 'Very strong importance',
-    8: 'Very, very strong',
-    9: 'Extreme importance',
-}
 
 # ============================================================================
 # SCORING CRITERIA CONFIGURATION

@@ -110,16 +110,17 @@ HubPrioritizing/
 │   │   └── run.py                #   orchestrator
 │   ├── spatial/                  # H3 helpers, union-find proximity grouping
 │   ├── classification/           # tier rules (classify_hub_tier)
-│   ├── scoring/                  # optional extras: AHP, Monte Carlo distribution analysis
 │   └── utils/                    # encoding detection, logging
 ├── data/reference/               # stable inputs shipped with the repo (see its README)
 ├── tests/                        # unit (synthetic), golden (real exports, gitignored), smoke
-├── notebooks/archive/            # the superseded Colab notebooks, kept for provenance
-├── app/                          # Streamlit AHP questionnaire (optional)
-├── docs/                         # methodology, inputs, outputs, deviations, refactor plan
+├── scripts/compare_base_layer.py # H3 base layer vs shapefile overlay on one run
+├── docs/                         # methodology, inputs, outputs, deviations, the H3 base layer
 ├── pyproject.toml                # package + `hubs` console script
 └── CLAUDE.md                     # framework specification
 ```
+
+The Colab notebooks and the earlier code this pipeline replaced are on the branch
+`legacy/v1-notebooks`; they are not part of the working tree.
 
 ---
 
@@ -179,10 +180,9 @@ tiers, names, population and jobs, and, with the legacy ring settings, the Monte
 - **[CLAUDE.md](CLAUDE.md)** — framework specification and methodology
 - **[docs/full_documentation/](docs/full_documentation/)** — inputs, pipeline, step-by-step, scoring, manual corrections, outputs, code reference
 - **[docs/DEVIATIONS.md](docs/DEVIATIONS.md)** — notebook quirks kept behind flags and intentional fixes
-- **[docs/PIPELINE_REFACTOR_PLAN.md](docs/PIPELINE_REFACTOR_PLAN.md)** — the review and plan that produced the current structure
+- **[docs/H3_BASE_LAYER.md](docs/H3_BASE_LAYER.md)** — the pre-allocated H3 layer and the shareable cell layer
+- **[docs/DATA_CONFIGURATION.md](docs/DATA_CONFIGURATION.md)** — where files go and how to set parameters
 - **[data/reference/README.md](data/reference/README.md)** — the stable reference layers and tables
-- **[AHP_QUICKSTART.md](AHP_QUICKSTART.md)**, **[docs/AHP_SCORING_GUIDE.md](docs/AHP_SCORING_GUIDE.md)** — optional expert weighting
-- **[docs/PROJECT_EXECUTIVE_SUMMARY.md](docs/PROJECT_EXECUTIVE_SUMMARY.md)**, **[docs/SCORING_CRITERIA_EXECUTIVE_SUMMARY.md](docs/SCORING_CRITERIA_EXECUTIVE_SUMMARY.md)** — summaries for stakeholders
 
 ---
 

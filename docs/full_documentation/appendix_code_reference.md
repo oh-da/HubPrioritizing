@@ -4,16 +4,15 @@
 
 ```
 src/
-  cli.py                 hubs validate | run | show-config
+  cli.py                 hubs validate | run | show-config | prepare-base | export-h3
   config.py              thresholds, weights, CRS, MODE_LINE_COLS, MODE_TO_COLUMN, tier labels
   pipeline/              the one-command pipeline
   spatial/               h3_operations.py (H3 helpers), merging.py (UnionFind, proximity groups)
   classification/        hierarchy.py (classify_hub_tier)
-  scoring/               optional extras: ahp.py, mc_distribution.py, normalization.py
   utils/                 encoding_fix.py (Hebrew validation), logging.py
 data/reference/          stable layers and curated tables (see its README)
 tests/                   unit/ (synthetic), golden/ (real exports, gitignored fixtures), test_smoke.py
-notebooks/archive/       superseded Colab notebooks (provenance only)
+scripts/                 compare_base_layer.py (H3 base layer vs shapefile overlay)
 ```
 
 ## A.1 `src/pipeline` — public functions
@@ -118,18 +117,7 @@ collects findings.
 Run-time parameters (rings, filter flags, MC scope, output names) live in
 `PipelineConfig`, not in `config.py`.
 
-## A.3 Optional extras
-
-- `src/scoring/ahp.py` — `run_ahp_scoring_pipeline(df, expert_csv_path, score_columns=...)`,
-  `compare_monte_carlo_vs_ahp`; pass `score_columns=list(SCORING_COLS)` and
-  `monte_carlo_col='TotalScore_MC'` to use it on the pipeline output.
-- `src/scoring/mc_distribution.py` — `run_mc_distribution_analysis(score_matrix, output_dir, ...)`
-  over the five `*_Norm` columns.
-- `app/ahp_questionnaire.py` — Streamlit questionnaire producing the expert CSV (`pip install -e .[ahp]`).
-- `scripts/generate_demo_excel.py` — regenerates `data/results/demo_scoring_walkthrough.xlsx` for the
-  scoring walkthrough document; `scripts/test_ahp_scoring.py` — AHP demo script.
-
-## A.4 Tests
+## A.3 Tests
 
 | Location | Needs | Covers |
 |---|---|---|

@@ -8,8 +8,8 @@ hubs run --input-dir DIR --output-dir OUT [--reference-dir data/reference] [--co
 
 The orchestrator (`src/pipeline/run.py::run_pipeline`) chains pure functions that take a
 DataFrame and return a DataFrame; no stage reads or writes files itself. The step numbers
-below match the archived notebook (`notebooks/archive/COMPLETE_TRANSIT_PIPELINE.ipynb`)
-so older documents remain readable.
+below match the Colab notebook this command replaced (kept on the branch
+`legacy/v1-notebooks`) so older documents remain readable.
 
 ```
 ONCE     hubs prepare-base:  metro_2008 · Districts · BUS_TERMINAL_STRAT · TAZ_1270

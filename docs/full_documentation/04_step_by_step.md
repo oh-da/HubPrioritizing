@@ -1,9 +1,8 @@
 # 4. Step-by-Step Details
 
 This document walks through every step the pipeline performs. Steps are
-numbered to match the archived notebook (`notebooks/archive/COMPLETE_TRANSIT_PIPELINE.ipynb`),
-which the `hubs run` command replaces. The implementation of each step now lives in
-`src/pipeline/`:
+numbered to match the Colab notebook the `hubs run` command replaced (kept on the branch
+`legacy/v1-notebooks`). The implementation of each step lives in `src/pipeline/`:
 
 | Step(s) | Function |
 |---|---|
@@ -33,10 +32,9 @@ Where the text below says "the notebook", the same logic runs in the function na
 ## Part 1 — H3 hexagon processing
 
 ### Step 1.1 — Setup and configuration
-Imports libraries, sets random seeds, configures matplotlib/folium. The
-**MASTER CONFIGURATION** cell sets every input/output path used by the
-remaining cells, and the notebook prints a summary so the user can
-sanity-check paths before running.
+Replaced by `hubs validate`: inputs are discovered by name in the input and reference
+directories, every parameter comes from `PipelineConfig` (`--config` / `--set`), and the
+effective values are written to `run_config.json` with the results.
 
 ### Step 1.2 — Configure Part-1 paths
 Resolves Part-1-specific paths: `INPUT_NODES_CSV`, `LINES_MODE_CSV`,
@@ -239,9 +237,9 @@ Final pre-scoring snapshot.
 ## Part 4 — Scoring and ranking
 
 ### Step 4.1 — Scoring configuration
-Echoes back the active configuration: `MONTE_CARLO_ITERATIONS`,
-`MAX_CRITERION_WEIGHT`, `MONTE_CARLO_RANDOM_SEED`, `AHP_ENABLED`,
-distribution-analysis parameters.
+The active configuration (`mc_iterations`, `mc_seed`, `mc_scope`, `influence_rings`,
+`distance_decay_beta`, `mode_diversity_alpha`, the eligibility flags) is recorded in the run
+report and in `run_config.json`.
 
 ### Step 4.2 — Data cleaning and preparation
 Final column cleanup, dtype coercion, missing-value handling.
@@ -285,9 +283,6 @@ For 10,000 iterations per hub type (one seeded stream, `mc_scope = per_hubtype`)
 `Overall_Rank` / `Rank_TS_MC` (dense, all hubs), `Rank_within_HubType` /
 `Rank_By_TS_MC_By_Metro` (dense, per type) and, in post-processing, `RankByHubTypeMetro`
 (national hubs nationwide, other tiers within their metropolitan area, competition rank).
-
-The optional AHP (`src/scoring/ahp.py`) and Monte Carlo distribution analysis
-(`src/scoring/mc_distribution.py`) can be run on the scored table separately.
 
 | Implementation | `src/pipeline/scoring.py::monte_carlo`, `src/pipeline/postprocess.py::rank_by_hubtype_metro` |
 

@@ -2,8 +2,7 @@
 
 Every eligible hub is scored on **five criteria**, each normalised to a
 1–10 scale. The five criterion scores are then aggregated into a single
-**final score** using **Monte Carlo simulation** (default) or
-**AHP** (optional alternative). Ranking is finally applied **per tier**
+**final score** using **Monte Carlo simulation**. Ranking is finally applied **per tier**
 and, for Metropolitan / Local hubs, **per geographic area**.
 
 | # | Criterion | Column | Source code | Normalization |
@@ -206,7 +205,7 @@ Normalisation is per tier, like the other criteria.
 
 ---
 
-## 5.6 Aggregation — Monte Carlo (default)
+## 5.6 Aggregation — Monte Carlo
 
 Aggregating five scores by hand-picking weights is fragile: small
 changes in one weight can flip the ranking. The pipeline instead runs a
@@ -228,53 +227,7 @@ draws a single weight matrix for the whole table instead.
 
 **Implementation:** `src/pipeline/scoring.py::draw_weight_matrix`, `monte_carlo`.
 
-### Distribution analysis (optional)
-
-When `RUN_MC_DISTRIBUTION` is set, the raw iteration scores are kept
-and the pipeline reports:
-
-- per-hub mean / median / std / p5 / p25 / p75 / p95,
-- per-hub rank robustness — probability of ending in Top 1 / Top 3 /
-  Top 5 across iterations,
-- box-plots, top-K probability charts, and per-hub histograms
-  (`MC_DIST_TOP_N_HUBS = 30` by default).
-
-This is the recommended way to characterise *which* rankings are
-weight-sensitive and which are stable.
-
-| Implementation | `src/scoring/mc_distribution.py` |
-
----
-
-## 5.7 Aggregation — AHP (optional alternative)
-
-When `config.AHP_ENABLED = True`, the Analytic Hierarchy Process runs
-alongside Monte Carlo and produces an `ahp_score` and `ahp_rank` for
-each hub.
-
-**Inputs**: `data/ahp_expert_comparisons.csv` — a long or matrix-form
-table of expert pairwise comparisons on the Saaty scale
-(1 = equal, 3 = moderate, 5 = strong, 7 = very strong, 9 = extreme).
-
-**Pipeline:**
-1. Validate each expert's pairwise matrix (square, positive,
-   reciprocal, diagonal = 1).
-2. Compute priority weights via the principal eigenvector method.
-3. Compute the Consistency Ratio. CR ≥ 0.10 flags a logically
-   inconsistent expert (`AHP_CONSISTENCY_RATIO_THRESHOLD = 0.10`).
-4. Aggregate experts using the geometric mean
-   (`AHP_AGGREGATION_METHOD = 'geometric_mean'`).
-5. Apply the aggregated weights to the normalised criterion scores.
-
-Running both methods and comparing their rankings is the best practice:
-agreement is evidence of robustness; disagreement isolates the hubs
-whose rank is most sensitive to weight choice.
-
-| Implementation | `src/scoring/ahp.py` |
-
----
-
-## 5.8 Ranking
+## 5.7 Ranking
 
 Three rankings are written:
 

@@ -76,10 +76,8 @@ The runnable pipeline produces:
 3. A **tier assignment** (ארצי / מטרופוליני / עירוני).
 4. A **score** for each criterion (1–10) and an **aggregated final score**
    per hub, plus a **rank** per tier / per geographic area.
-5. An **interactive map** and tabular exports (CSV / Excel / GeoJSON) for
-   downstream use.
-6. (Optional) **AHP** alternative scoring and **Monte Carlo distribution**
-   analysis (uncertainty / rank robustness).
+5. The results workbook for the display page, a CSV twin, and the H3 cell layer
+   (`h3_layer.gpkg`) for GIS and SQL use.
 
 ## 1.6 Headline configuration
 
@@ -98,5 +96,4 @@ others are listed in the [Code Reference appendix](appendix_code_reference.md).
 | Metropolitan tier threshold | **5,000 – 50,000 pax/day** | `config.METRO_HUB_MIN_PASSENGERS` |
 | Monte Carlo iterations | **10,000** | `config.MONTE_CARLO_ITERATIONS` |
 | Max weight per criterion (MC) | **0.5 (50 %)** | `config.MAX_CRITERION_WEIGHT` |
-| AHP enabled by default? | **False** | `config.AHP_ENABLED` |
 | Score range | **1 – 10** | `config.SCORE_MIN/MAX` |

@@ -47,10 +47,3 @@ whose columns differ.
 
 List-valued columns are written as their Python representation (`[400080, 513001]`,
 `['Metro', 'LRT']`) to match the previous workbook.
-
-## 7.2 Optional analyses
-
-- **AHP** (`src/scoring/ahp.py`, `AHP_QUICKSTART.md`): expert-weighted score and rank; run
-  separately on the scored table.
-- **Monte Carlo distribution** (`src/scoring/mc_distribution.py`): per-hub score
-  distributions, top-K probabilities and plots for sensitivity analysis.

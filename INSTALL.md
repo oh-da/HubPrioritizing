@@ -10,13 +10,6 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e .[dev]              # runtime + test tooling
 ```
 
-Optional extras:
-
-```bash
-pip install -e .[ahp]              # Streamlit questionnaire for AHP expert weights
-pip install -e .[viz]              # folium maps, matplotlib charts
-```
-
 Verify:
 
 ```bash

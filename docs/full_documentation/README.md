@@ -20,7 +20,7 @@ to understand the model without reading the source code first.
 | 02 | [Inputs](02_inputs.md) | The input directory contract and the reference layers |
 | 03 | [Pipeline Overview](03_pipeline_overview.md) | The `hubs run` stages at a glance |
 | 04 | [Step-by-Step Details](04_step_by_step.md) | What each step does, in detail |
-| 05 | [Scoring Methodology](05_scoring_methodology.md) | The five criteria + Monte Carlo + AHP |
+| 05 | [Scoring Methodology](05_scoring_methodology.md) | The five criteria + Monte Carlo aggregation |
 | 06 | [Manual Corrections](06_manual_corrections.md) | Every human-in-the-loop data file |
 | 07 | [Outputs](07_outputs.md) | Files produced and the 70-column workbook schema |
 | A  | [Appendix — Code Reference](appendix_code_reference.md) | Modules, functions, configuration constants |
@@ -39,5 +39,4 @@ to understand the model without reading the source code first.
 - **Document version:** 2.0
 - **Last updated:** 2026-09-16
 - **Implementation documented:** `src/pipeline/` (the `hubs` command). The Colab notebooks it
-  replaces are archived under `notebooks/archive/`; the pre-cleanup repository is on the branch
-  `legacy/v1-notebooks`.
+  replaced and the earlier code are on the branch `legacy/v1-notebooks`.

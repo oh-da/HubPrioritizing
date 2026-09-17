@@ -16,7 +16,6 @@ listed in `run_report.md`.
 | Display | Hebrew line names missing from the export | `line_names_extra.csv` | line ID |
 | Display | Line-name spelling corrections | `BS_lines.csv` (per run) | line ID |
 | Display | Line planning status | `line_status.csv` / `lines_exploded.csv` (per run) | line ID |
-| Scoring (optional) | AHP expert pairwise comparisons | `data/ahp_expert_comparisons.csv` | — |
 
 All keys are stable model identifiers. **Never key a table by `group`**: group IDs are
 renumbered whenever the network or the manual merges change. (A legacy `group`-keyed hub
@@ -122,13 +121,7 @@ from `hub_identity.csv` or the workbook's `h3_index` column.
   line a planning-status code 0–7, counted into `NumLinesStatus_*`. In legacy files a line may
   appear with different statuses; the last value is used and the conflict reported.
 
-## 6.5 🔧 AHP expert pairwise comparisons (optional)
-
-Unchanged: `data/ahp_expert_comparisons.csv` (long or matrix format, see the templates),
-validated for reciprocity and consistency (CR < 0.10), aggregated by geometric mean.
-See `docs/AHP_SCORING_GUIDE.md` and `AHP_QUICKSTART.md`.
-
-## 6.6 Where else human knowledge enters the model
+## 6.5 Where else human knowledge enters the model
 
 Parameters reviewed by domain experts during methodology updates, not per hub:
 

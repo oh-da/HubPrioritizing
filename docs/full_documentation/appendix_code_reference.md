@@ -4,7 +4,8 @@
 
 ```
 src/
-  cli.py                 hubs validate | run | compare | runs | show-config | prepare-base | export-h3
+  cli.py                 hubs validate | run | compare | runs | serve | show-config | prepare-base | export-h3
+  gui/                   server.py (JSON API + static page for `hubs serve`), index.html
   config.py              thresholds, weights, CRS, MODE_LINE_COLS, MODE_TO_COLUMN, tier labels
   pipeline/              the one-command pipeline
   spatial/               h3_operations.py (H3 helpers), merging.py (UnionFind, proximity groups)
@@ -100,6 +101,10 @@ collects findings.
 - `run_pipeline(cfg, inputs, report=None, allow_missing_layers=False) -> RunResult(results, groups, scored, hexes, report, config, base)`.
 - `write_outputs(result, output_dir) -> {name: Path}` (workbook, csv, identity, `h3_layer.<ext>`, report, config); `run_from_cli(args)`.
 - `prepare_base_layer(inputs, out_path, resolution, terminal_buffer_m, report)`; `prepare_base_from_cli(args)`; `export_h3_from_cli(args)`; `compare_from_cli(args)`; `runs_from_cli(args)`.
+
+### `gui/server.py`
+- `make_server(root, reference_dir, host, port) -> ThreadingHTTPServer`; `serve_from_cli(args)`.
+- `ServerState` (jobs, access rules); `api_state`, `api_browse`, `api_validate`, `api_runs`, `api_compare`, `api_report` — the JSON API as plain functions.
 
 ## A.2 `src/config.py` — constants used by the pipeline
 

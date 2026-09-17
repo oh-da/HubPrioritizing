@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hub prioritization</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1c2430; --muted: #66707d; --line: #dfe3e8;
+    --accent: #1f5fbf; --accent-ink: #ffffff; --ok: #1f8a4c; --warn: #b7791f; --bad: #c0392b;
+    --code: #f0f2f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14181d; --panel: #1d232b; --ink: #e6e9ee; --muted: #9aa4b1; --line: #313a45; --accent: #6ea0ff; --accent-ink: #0d1524; --code: #10141a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: var(--ink); background: var(--bg); }
+  header { padding: 14px 24px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; gap: 24px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .meta { color: var(--muted); font-size: 13px; }
+  nav { display: flex; gap: 4px; padding: 10px 24px 0; }
+  nav button { background: none; border: 1px solid transparent; border-bottom: none; padding: 8px 14px; border-radius: 8px 8px 0 0; cursor: pointer; color: var(--muted); font-size: 15px; }
+  nav button.active { background: var(--panel); border-color: var(--line); color: var(--ink); }
+  main { padding: 0 24px 40px; }
+  section.tab { display: none; background: var(--panel); border: 1px solid var(--line); border-radius: 0 8px 8px 8px; padding: 20px; }
+  section.tab.active { display: block; }
+  .row { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; margin-bottom: 12px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  input[type=text], input[type=number], select { font: inherit; padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); min-width: 220px; }
+  input.wide { min-width: 460px; }
+  button.primary { background: var(--accent); color: var(--accent-ink); border: none; padding: 8px 16px; border-radius: 6px; font: inherit; cursor: pointer; }
+  button.secondary { background: var(--bg); color: var(--ink); border: 1px solid var(--line); padding: 8px 14px; border-radius: 6px; font: inherit; cursor: pointer; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); }
+  .pill.ok { color: var(--ok); border-color: var(--ok); } .pill.warn { color: var(--warn); border-color: var(--warn); } .pill.bad { color: var(--bad); border-color: var(--bad); }
+  .msg { padding: 10px 12px; border-radius: 6px; margin: 10px 0; }
+  .msg.bad { background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--bad); }
+  .msg.ok { background: color-mix(in srgb, var(--ok) 12%, transparent); color: var(--ok); }
+  .msg.warn { background: color-mix(in srgb, var(--warn) 14%, transparent); }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; margin: 8px 0 16px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  pre { background: var(--code); border: 1px solid var(--line); border-radius: 6px; padding: 10px; font-size: 12.5px; max-height: 320px; overflow: auto; white-space: pre-wrap; }
+  h2 { font-size: 16px; margin: 22px 0 8px; } h3 { font-size: 14px; margin: 16px 0 6px; color: var(--muted); }
+  .cards { display: flex; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; min-width: 130px; }
+  .card .k { font-size: 12px; color: var(--muted); } .card .v { font-size: 20px; font-weight: 600; }
+  .muted { color: var(--muted); font-size: 13px; }
+  a { color: var(--accent); }
+  dialog { border: 1px solid var(--line); border-radius: 10px; padding: 0; width: min(760px, 92vw); background: var(--panel); color: var(--ink); }
+  dialog .body { padding: 16px 20px; }
+  dialog ul { list-style: none; margin: 8px 0; padding: 0; max-height: 300px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+  dialog li { padding: 6px 10px; border-bottom: 1px solid var(--line); cursor: pointer; } dialog li:hover { background: var(--bg); }
+  dialog li.file { color: var(--muted); cursor: default; }
+  .detected { font-size: 13px; margin: 6px 0; }
+  .detected b { color: var(--ok); }
+  .delta-up { color: var(--ok); } .delta-down { color: var(--bad); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Hub prioritization</h1>
+  <span class="meta">root: <code id="hdr-root">…</code></span>
+  <span class="meta">reference: <code id="hdr-ref">…</code></span>
+  <span class="meta">base layer: <span id="hdr-base" class="pill">…</span></span>
+</header>
+<nav>
+  <button class="active" data-tab="run">Run</button>
+  <button data-tab="versions">Versions</button>
+  <button data-tab="base">Base layer</button>
+</nav>
+<main>
+
+<!-- ============================================================ RUN -->
+<section class="tab active" id="tab-run">
+  <div class="row">
+    <label>Input folder (the model exports of this run)
+      <input type="text" id="input-dir" class="wide" placeholder="e.g. C:\HubRuns\2026_06  or  /home/me/runs/2026_06">
+    </label>
+    <button class="secondary" onclick="browse('input-dir', true)">Browse…</button>
+  </div>
+  <div class="row">
+    <label>Output folder<input type="text" id="output-dir" class="wide" placeholder="default: <input folder>/out"></label>
+    <button class="secondary" onclick="browse('output-dir', false)">Browse…</button>
+  </div>
+  <div class="row">
+    <label>Version name<input type="text" id="version" placeholder="default: newest export date"></label>
+    <label>Monte Carlo iterations<input type="number" id="mc-iter" value="10000" min="1" step="1000"></label>
+    <label>Spatial source
+      <select id="spatial-source"><option value="h3_base">H3 base layer (default)</option><option value="shapefiles">Shapefile overlay (legacy)</option></select>
+    </label>
+    <label>Extra settings (key=value, space separated)<input type="text" id="extra-sets" class="wide" placeholder="e.g. influence_rings=600,1000,1200 pop_emp_decay_midpoints=250,750,1250"></label>
+  </div>
+  <div class="row">
+    <button class="primary" id="btn-validate" onclick="validate()">Validate inputs</button>
+    <button class="primary" id="btn-run" onclick="run()" disabled>Run</button>
+    <span id="run-status" class="muted"></span>
+  </div>
+  <div id="validate-out"></div>
+  <div id="job-out"></div>
+</section>
+
+<!-- ============================================================ VERSIONS -->
+<section class="tab" id="tab-versions">
+  <div class="row">
+    <label>Folder holding the runs (searched recursively for run_manifest.json)
+      <input type="text" id="runs-root" class="wide">
+    </label>
+    <button class="secondary" onclick="browse('runs-root', false)">Browse…</button>
+    <button class="primary" onclick="loadRuns()">List versions</button>
+    <button class="primary" id="btn-compare" onclick="compare()" disabled>Compare A → B</button>
+  </div>
+  <div id="runs-out" class="muted">Pick a folder and list the versions. Then choose A (before) and B (after).</div>
+  <div id="compare-out"></div>
+</section>
+
+<!-- ============================================================ BASE LAYER -->
+<section class="tab" id="tab-base">
+  <div id="base-out"></div>
+  <div class="row">
+    <button class="primary" id="btn-prepare" onclick="prepareBase()">Rebuild the base layer (about 3 minutes)</button>
+    <span class="muted">Needed only after one of the four reference shapefiles changed. Commit the new h3_base.parquet and its manifest afterwards.</span>
+  </div>
+  <div id="base-job"></div>
+</section>
+</main>
+
+<dialog id="dlg">
+  <div class="body">
+    <div class="row"><input type="text" id="dlg-path" class="wide"><button class="secondary" onclick="dlgGo()">Go</button><button class="secondary" onclick="dlgUp()">Up</button></div>
+    <div id="dlg-detected" class="detected"></div>
+    <ul id="dlg-list"></ul>
+    <div class="row"><button class="primary" onclick="dlgSelect()">Use this folder</button><button class="secondary" onclick="document.getElementById('dlg').close()">Cancel</button></div>
+  </div>
+</dialog>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = (v, d = 2) => (v === null || v === undefined || v === "" || Number.isNaN(Number(v))) ? "" : (Number.isInteger(Number(v)) && d === 0 ? Number(v).toLocaleString() : Number(v).toFixed(d));
+const fileLink = (p, name) => `<a href="/api/file?path=${encodeURIComponent(p)}">${esc(name || p.split(/[\\/]/).pop())}</a>`;
+
+async function api(path, body) {
+  const opts = body ? { method: "POST", headers: { "Content-Type": "application/json", "X-Hubs": "1" }, body: JSON.stringify(body) } : {};
+  const r = await fetch(path, opts);
+  const data = await r.json();
+  if (!r.ok || data.error) throw new Error(data.error || r.statusText);
+  return data;
+}
+function table(rows, cols) {
+  if (!rows || !rows.length) return '<p class="muted">none</p>';
+  const head = cols.map(c => `<th>${esc(c.label)}</th>`).join("");
+  const body = rows.map(r => "<tr>" + cols.map(c => {
+    let v = typeof c.get === "function" ? c.get(r) : r[c.key];
+    let cls = c.num ? "num" : "";
+    if (c.num) { const n = Number(v); if (c.delta && n > 0) cls += " delta-up"; if (c.delta && n < 0) cls += " delta-down"; v = fmt(v, c.digits ?? 2); if (c.delta && n > 0) v = "+" + v; }
+    return `<td class="${cls}" dir="auto">${c.html ? v : esc(v)}</td>`;
+  }).join("") + "</tr>").join("");
+  return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+// ---------------------------------------------------------------- tabs, state
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("active", x === b));
+  document.querySelectorAll("section.tab").forEach(s => s.classList.toggle("active", s.id === "tab-" + b.dataset.tab));
+  if (b.dataset.tab === "base") renderBase();
+});
+let STATE = null;
+async function loadState() {
+  STATE = await api("/api/state");
+  $("hdr-root").textContent = STATE.root;
+  $("hdr-ref").textContent = STATE.reference_dir;
+  const b = STATE.base_layer, pill = $("hdr-base");
+  if (!b.present) { pill.textContent = "missing"; pill.className = "pill bad"; }
+  else if (b.stale && b.stale.length) { pill.textContent = "stale"; pill.className = "pill warn"; }
+  else { pill.textContent = "current (" + (b.built || "?").slice(0, 10) + ")"; pill.className = "pill ok"; }
+  if (!$("runs-root").value) $("runs-root").value = STATE.root;
+  try { const saved = JSON.parse(localStorage.getItem("hubs-gui") || "{}"); for (const k of ["input-dir", "output-dir", "runs-root"]) if (saved[k] && !$(k).value) $(k).value = saved[k]; } catch (e) {}
+}
+function remember() { try { localStorage.setItem("hubs-gui", JSON.stringify({ "input-dir": $("input-dir").value, "output-dir": $("output-dir").value, "runs-root": $("runs-root").value })); } catch (e) {} }
+$("input-dir").addEventListener("change", () => { if (!$("output-dir").dataset.edited) $("output-dir").value = joinPath($("input-dir").value, "out"); $("btn-run").disabled = true; remember(); });
+$("output-dir").addEventListener("input", () => { $("output-dir").dataset.edited = "1"; remember(); });
+function joinPath(a, b) { if (!a) return ""; const sep = a.includes("\\") && !a.includes("/") ? "\\" : "/"; return a.replace(/[\\/]+$/, "") + sep + b; }
+
+// ---------------------------------------------------------------- folder browser
+let dlgTarget = null, dlgWantInputs = false, dlgCurrent = null;
+async function browse(targetId, wantInputs) {
+  dlgTarget = targetId; dlgWantInputs = wantInputs;
+  await dlgLoad($(targetId).value || STATE.root);
+  $("dlg").showModal();
+}
+async function dlgLoad(path) {
+  let d;
+  try { d = await api("/api/browse?path=" + encodeURIComponent(path)); } catch (e) { alert(e.message); return; }
+  dlgCurrent = d;
+  $("dlg-path").value = d.path;
+  const det = Object.entries(d.detected || {});
+  $("dlg-detected").innerHTML = dlgWantInputs
+    ? (d.looks_like_input_dir ? `<b>✓ this folder holds a complete set of model exports</b>: ` : `<span class="muted">detected here: </span>`) + esc(det.map(([k, v]) => `${k} → ${v}`).join(", ") || "no model exports in this folder")
+    : (d.is_run_dir ? "<b>✓ a run output folder (run_manifest.json)</b>" : "");
+  $("dlg-list").innerHTML = d.dirs.map(n => `<li onclick="dlgLoad(${JSON.stringify(joinPath(d.path, n))})">📁 ${esc(n)}</li>`).join("")
+    + d.files.slice(0, 60).map(f => `<li class="file">${esc(f.name)} <span class="muted">${(f.bytes / 1e6).toFixed(1)} MB · ${esc(f.modified)}</span></li>`).join("");
+}
+function dlgGo() { dlgLoad($("dlg-path").value); }
+function dlgUp() { if (dlgCurrent && dlgCurrent.parent) dlgLoad(dlgCurrent.parent); }
+function dlgSelect() {
+  $(dlgTarget).value = dlgCurrent.path;
+  $(dlgTarget).dispatchEvent(new Event("change"));
+  $("dlg").close();
+}
+
+// ---------------------------------------------------------------- validate & run
+function sets() {
+  const out = [`mc_iterations=${$("mc-iter").value || 10000}`, `spatial_source=${$("spatial-source").value}`];
+  for (const kv of $("extra-sets").value.trim().split(/\s+/)) if (kv.includes("=")) out.push(kv);
+  return out;
+}
+async function validate() {
+  const dir = $("input-dir").value.trim();
+  if (!dir) { alert("Choose the input folder first."); return; }
+  $("btn-validate").disabled = true; $("validate-out").innerHTML = '<p class="muted">checking…</p>'; $("job-out").innerHTML = "";
+  try {
+    const v = await api("/api/validate", { input_dir: dir, sets: sets() });
+    if (!$("output-dir").value) $("output-dir").value = joinPath(dir, "out");
+    $("version").placeholder = "default: " + (v.default_version || "");
+    let html = v.ok ? `<div class="msg ok">✓ inputs are valid. ${esc(v.config.mc_iterations)} Monte Carlo iterations, rings ${esc(v.config.influence_rings.join("/"))}, spatial source ${esc(v.config.spatial_source)}.</div>`
+                    : `<div class="msg bad"><b>${v.problems.length} problem(s)</b> — fix the folder and validate again:<ul>${v.problems.map(p => `<li>${esc(p)}</li>`).join("")}</ul></div>`;
+    html += "<h3>Files the run will use</h3>" + table(v.rows, [
+      { key: "key", label: "input" }, { label: "required", get: r => r.required ? "yes" : "optional" }, { key: "source", label: "from" },
+      { key: "date", label: "date" }, { label: "file", get: r => r.file ? r.file.split(/[\\/]/).pop() : "(not found)" }, { key: "encoding", label: "encoding" }]);
+    if (v.node_positions && v.node_positions.length) {
+      const conflicts = v.node_positions.filter(p => p.conflict).length;
+      html += `<h3>Nodes with more than one coordinate (${v.node_positions.length}; ${conflicts} conflict${conflicts === 1 ? "" : "s"})</h3>`;
+      html += v.node_positions.map(p => p.error ? `<p class="muted">${esc(p.error)}</p>` :
+        `<div class="msg ${p.conflict ? "warn" : ""}"><b>node ${p.node}</b>: ${p.n_positions} positions ${fmt(p.spread_m, 0)} m apart → ${p.conflict ? "<b>conflict</b>: add the correct X,Y to node_position_overrides.csv" : "snapped to the majority position"}<br>` +
+        p.positions.map(q => `<span class="muted">(${fmt(q.x, 1)}, ${fmt(q.y, 1)}) ${q.rows} rows: ${esc(q.lines.join(", "))}</span>`).join("<br>") + "</div>").join("");
+    }
+    $("validate-out").innerHTML = html;
+    $("btn-run").disabled = !v.ok;
+  } catch (e) { $("validate-out").innerHTML = `<div class="msg bad">${esc(e.message)}</div>`; }
+  finally { $("btn-validate").disabled = false; }
+}
+async function run() {
+  const body = { input_dir: $("input-dir").value.trim(), output_dir: $("output-dir").value.trim() || joinPath($("input-dir").value.trim(), "out"), version: $("version").value.trim(), sets: sets() };
+  $("btn-run").disabled = true; $("btn-validate").disabled = true;
+  try {
+    const { job } = await api("/api/run", body);
+    await watchJob(job.id, "job-out", renderRunResult);
+  } catch (e) { $("job-out").innerHTML = `<div class="msg bad">${esc(e.message)}</div>`; }
+  finally { $("btn-run").disabled = false; $("btn-validate").disabled = false; }
+}
+async function watchJob(id, outId, renderResult) {
+  const out = $(outId);
+  for (;;) {
+    const j = await api("/api/jobs/" + id);
+    const status = j.status === "running" ? `running… ${j.elapsed || 0}s` : j.status;
+    out.innerHTML = `<h2>${j.kind === "run" ? "Run" : "Rebuild"} <span class="pill ${j.status === "done" ? "ok" : j.status === "error" ? "bad" : ""}">${esc(status)}</span></h2>`
+      + (j.error ? `<div class="msg bad"><pre>${esc(j.error)}</pre></div>` : "")
+      + `<pre id="${outId}-log">${esc(j.log.join("\n"))}</pre>`
+      + (j.status === "done" && renderResult ? renderResult(j.result) : "");
+    const pre = $(outId + "-log"); if (pre) pre.scrollTop = pre.scrollHeight;
+    if (j.status === "done" || j.status === "error") return j;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+function renderRunResult(r) {
+  const types = Object.entries(r.hub_types).map(([k, v]) => `<div class="card"><div class="k" dir="auto">${esc(k)}</div><div class="v">${v}</div></div>`).join("");
+  return `<div class="msg ok">✓ ${r.hubs} hubs written to <code>${esc(r.output_dir)}</code> (version ${esc(r.version)}). ${r.warnings} warning(s) in the report.</div>
+    <div class="cards"><div class="card"><div class="k">hubs</div><div class="v">${r.hubs}</div></div>${types}</div>
+    <h3>Files</h3><p>${r.files.map(f => fileLink(f.path, f.name) + ` <span class="muted">${(f.bytes / 1e6).toFixed(1)} MB</span>`).join(" · ")}</p>
+    <p><button class="secondary" onclick="showReport(${JSON.stringify(r.output_dir)}, 'report-box')">Show run report</button></p><div id="report-box"></div>
+    <h3>Top 10 by score</h3>` + table(r.top10, [
+      { key: "group", label: "group", num: true, digits: 0 }, { key: "HubNameHE", label: "hub" }, { key: "HubType", label: "tier" }, { key: "Metro", label: "metro" },
+      { key: "TotalScore_MC", label: "score", num: true, digits: 3 }, { key: "RankByHubTypeMetro", label: "rank in tier/metro", num: true, digits: 0 }]);
+}
+async function showReport(dir, boxId) {
+  try { const r = await api("/api/report?dir=" + encodeURIComponent(dir)); $(boxId).innerHTML = `<pre style="max-height:520px">${esc(r.markdown)}</pre>`; }
+  catch (e) { $(boxId).innerHTML = `<div class="msg bad">${esc(e.message)}</div>`; }
+}
+
+// ---------------------------------------------------------------- versions
+let RUNS = [];
+async function loadRuns() {
+  remember();
+  $("runs-out").innerHTML = '<p class="muted">searching…</p>'; $("compare-out").innerHTML = "";
+  try {
+    const d = await api("/api/runs?root=" + encodeURIComponent($("runs-root").value.trim()));
+    RUNS = d.runs;
+    if (!RUNS.length) { $("runs-out").innerHTML = `<div class="msg warn">No run_manifest.json found under ${esc(d.root)}. Run the pipeline first, or pick the folder that holds the run output folders.</div>`; return; }
+    $("runs-out").innerHTML = `<table><thead><tr><th>A</th><th>B</th><th>version</th><th>created</th><th>hubs</th><th>nodes × lines</th><th>demand</th><th>base layer</th><th>code</th><th>folder</th></tr></thead><tbody>` +
+      RUNS.map((r, i) => `<tr><td><input type="radio" name="ra" value="${i}" onchange="checkCompare()"></td><td><input type="radio" name="rb" value="${i}" onchange="checkCompare()"></td>
+        <td><b>${esc(r.version)}</b></td><td>${esc((r.created || "").replace("T", " ").slice(0, 16))}</td><td class="num">${esc(r.hubs)}</td><td>${esc(r.nodeslines)}</td><td>${esc(r.demand)}</td><td>${esc((r.base_layer_built || "").slice(0, 10))}</td><td>${esc(r.git_commit || "")}</td>
+        <td><code>${esc(r.dir)}</code> <button class="secondary" onclick="showReport(${JSON.stringify(r.dir)}, 'runs-report')">report</button></td></tr>`).join("") + "</tbody></table><div id='runs-report'></div>";
+  } catch (e) { $("runs-out").innerHTML = `<div class="msg bad">${esc(e.message)}</div>`; }
+}
+function pick(name) { const el = document.querySelector(`input[name=${name}]:checked`); return el ? RUNS[Number(el.value)] : null; }
+function checkCompare() { const a = pick("ra"), b = pick("rb"); $("btn-compare").disabled = !(a && b && a.dir !== b.dir); }
+async function compare() {
+  const a = pick("ra"), b = pick("rb");
+  $("compare-out").innerHTML = '<p class="muted">comparing…</p>';
+  try {
+    const c = await api("/api/compare", { a: a.dir, b: b.dir });
+    const s = c.summary;
+    const cols = [{ key: "name", label: "hub" }, { key: "HubType_a", label: "tier A" }, { key: "HubType_b", label: "tier B" }, { key: "Metro_b", label: "metro" },
+      { key: "TotalDemand_a", label: "demand A", num: true, digits: 0 }, { key: "TotalDemand_b", label: "demand B", num: true, digits: 0 },
+      { key: "TotalScore_MC_a", label: "score A", num: true, digits: 3 }, { key: "TotalScore_MC_b", label: "score B", num: true, digits: 3 }, { key: "TotalScore_MC_delta", label: "Δ score", num: true, digits: 3, delta: true },
+      { key: "RankByHubTypeMetro_a", label: "rank A", num: true, digits: 0 }, { key: "RankByHubTypeMetro_b", label: "rank B", num: true, digits: 0 }, { key: "RankByHubTypeMetro_delta", label: "Δ rank", num: true, digits: 0, delta: true },
+      { key: "changed_fields", label: "changed" }];
+    const inputs = Object.entries(s.inputs_changed || {});
+    const cfg = Object.entries(s.config_changed || {});
+    let html = `<h2>${esc(s.a.version)} → ${esc(s.b.version)}</h2>
+      <div class="cards">
+        <div class="card"><div class="k">hubs A → B</div><div class="v">${s.a.hubs} → ${s.b.hubs}</div></div>
+        <div class="card"><div class="k">unchanged membership</div><div class="v">${s.matched_by_hub_id}</div></div>
+        <div class="card"><div class="k">membership changed</div><div class="v">${s.matched_by_nodes}</div></div>
+        <div class="card"><div class="k">added / removed</div><div class="v">${s.added} / ${s.removed}</div></div>
+        <div class="card"><div class="k">tier changes</div><div class="v">${s.tier_changes}</div></div>
+        <div class="card"><div class="k">score changed</div><div class="v">${s.score_changed}</div></div>
+        <div class="card"><div class="k">rank changed</div><div class="v">${s.rank_changed}</div></div>
+      </div>
+      <p>Files: ${fileLink(c.files.md, "report (.md)")} · ${fileLink(c.files.csv, "full table (.csv)")} · ${fileLink(c.files.json, "summary (.json)")}</p>
+      <h3>Inputs that differ</h3>` + (inputs.length ? table(inputs.map(([k, v]) => ({ key: k, ...v })), [{ key: "key", label: "input" }, { key: "a", label: "A" }, { key: "b", label: "B" }, { key: "status", label: "" }]) : '<p class="muted">identical input files</p>')
+      + (s.base_layer_changed ? `<div class="msg warn">H3 base layer rebuilt between the runs: ${esc(s.base_layer_changed[0])} → ${esc(s.base_layer_changed[1])}</div>` : "")
+      + "<h3>Settings that differ</h3>" + (cfg.length ? `<ul>${cfg.map(([k, [va, vb]]) => `<li><code>${esc(k)}</code>: ${esc(JSON.stringify(va))} → ${esc(JSON.stringify(vb))}</li>`).join("")}</ul>` : '<p class="muted">identical settings</p>')
+      + "<h3>Hubs only in B (added)</h3>" + table(c.added, cols)
+      + "<h3>Hubs only in A (removed)</h3>" + table(c.removed, cols)
+      + "<h3>Tier changes</h3>" + table(c.tier_changes, cols)
+      + "<h3>Largest score increases</h3>" + table(c.score_up, cols)
+      + "<h3>Largest score decreases</h3>" + table(c.score_down, cols)
+      + "<h3>Largest rank moves</h3>" + table(c.rank_moves, cols);
+    $("compare-out").innerHTML = html;
+  } catch (e) { $("compare-out").innerHTML = `<div class="msg bad">${esc(e.message)}</div>`; }
+}
+
+// ---------------------------------------------------------------- base layer
+async function renderBase() {
+  await loadState();
+  const b = STATE.base_layer;
+  let html = "";
+  if (!b.present) html = `<div class="msg bad">No h3_base.parquet in ${esc(STATE.reference_dir)}. Rebuild it below (the four shapefiles must be there).</div>`;
+  else {
+    html = `<div class="cards"><div class="card"><div class="k">built</div><div class="v">${esc((b.built || "?").replace("T", " ").slice(0, 16))}</div></div>
+      <div class="card"><div class="k">cells</div><div class="v">${(b.rows || 0).toLocaleString()}</div></div><div class="card"><div class="k">resolution</div><div class="v">${esc(b.resolution)}</div></div></div>
+      <p class="muted">sources: ${esc(Object.entries(b.sources || {}).map(([k, v]) => `${k} = ${v}`).join(" · "))}</p>`;
+    html += (b.stale && b.stale.length) ? `<div class="msg warn"><b>The layer is older than its sources:</b><ul>${b.stale.map(m => `<li>${esc(m)}</li>`).join("")}</ul>A run will stop until the layer is rebuilt.</div>`
+                                          : `<div class="msg ok">✓ the layer matches the shapefiles next to it.</div>`;
+  }
+  $("base-out").innerHTML = html;
+}
+async function prepareBase() {
+  if (!confirm("Rebuild h3_base.parquet from the four shapefiles in the reference folder? This takes about three minutes.")) return;
+  $("btn-prepare").disabled = true;
+  try { const { job } = await api("/api/prepare-base", {}); await watchJob(job.id, "base-job", r => `<div class="msg ok">✓ ${r.cells.toLocaleString()} cells written to <code>${esc(r.path)}</code> (built ${esc(r.built)}). Commit it with its manifest.</div>`); await renderBase(); }
+  catch (e) { $("base-job").innerHTML = `<div class="msg bad">${esc(e.message)}</div>`; }
+  finally { $("btn-prepare").disabled = false; }
+}
+
+loadState().catch(e => { $("hdr-root").textContent = "server error: " + e.message; });
+</script>
+</body>
+</html>

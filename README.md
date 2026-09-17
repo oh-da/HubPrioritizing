@@ -65,8 +65,10 @@ The four polygon layers are pre-allocated once to H3 cells (`data/reference/h3_b
 built by `hubs prepare-base`); a run reads that table and never touches a shapefile. See
 [`docs/H3_BASE_LAYER.md`](docs/H3_BASE_LAYER.md).
 
-See [INSTALL.md](INSTALL.md) for installation details. No Python on your machine? Open
-`colab/hubs_run.ipynb` in Google Colab and follow [docs/RUN_ON_COLAB.md](docs/RUN_ON_COLAB.md).
+Prefer a page to a terminal? `hubs serve` opens a local web page to choose the folders, validate,
+run, and compare versions ([docs/GUI.md](docs/GUI.md)). See [INSTALL.md](INSTALL.md) for installation
+details. No Python on your machine? Open `colab/hubs_run.ipynb` in Google Colab and follow
+[docs/RUN_ON_COLAB.md](docs/RUN_ON_COLAB.md).
 
 ### Configuration
 
@@ -99,7 +101,8 @@ hubs export-h3 --out israel_cells.gpkg             # every cell of Israel with a
 ```
 HubPrioritizing/
 ├── src/
-│   ├── cli.py                    # `hubs validate | run | compare | runs | show-config | prepare-base | export-h3`
+│   ├── cli.py                    # `hubs validate | run | compare | runs | serve | show-config | prepare-base | export-h3`
+│   ├── gui/                      # `hubs serve`: local web page (server.py, index.html)
 │   ├── config.py                 # thresholds, weights, CRS, column constants
 │   ├── pipeline/                 # the one-command pipeline (pure DataFrame stages)
 │   │   ├── settings.py           #   PipelineConfig, YAML / --set overrides
@@ -192,6 +195,7 @@ tiers, names, population and jobs, and, with the legacy ring settings, the Monte
 - **[docs/DEVIATIONS.md](docs/DEVIATIONS.md)** — notebook quirks kept behind flags and intentional fixes
 - **[docs/H3_BASE_LAYER.md](docs/H3_BASE_LAYER.md)** — the pre-allocated H3 layer and the shareable cell layer
 - **[docs/VERSIONS.md](docs/VERSIONS.md)** — run versions, the run manifest and comparing two runs
+- **[docs/GUI.md](docs/GUI.md)** — the local web page (`hubs serve`)
 - **[docs/RUN_ON_COLAB.md](docs/RUN_ON_COLAB.md)** — running without installing anything
 - **[docs/DATA_CONFIGURATION.md](docs/DATA_CONFIGURATION.md)** — where files go and how to set parameters
 - **[data/reference/README.md](data/reference/README.md)** — the stable reference layers and tables

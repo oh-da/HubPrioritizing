@@ -58,7 +58,8 @@ The four polygon layers are pre-allocated once to H3 cells (`data/reference/h3_b
 built by `hubs prepare-base`); a run reads that table and never touches a shapefile. See
 [`docs/H3_BASE_LAYER.md`](docs/H3_BASE_LAYER.md).
 
-See [INSTALL.md](INSTALL.md) for installation details.
+See [INSTALL.md](INSTALL.md) for installation details. No Python on your machine? Open
+`colab/hubs_run.ipynb` in Google Colab and follow [docs/RUN_ON_COLAB.md](docs/RUN_ON_COLAB.md).
 
 ### Configuration
 
@@ -113,6 +114,7 @@ HubPrioritizing/
 │   └── utils/                    # encoding detection, logging
 ├── data/reference/               # stable inputs shipped with the repo (see its README)
 ├── tests/                        # unit (synthetic), golden (real exports, gitignored), smoke
+├── colab/hubs_run.ipynb          # run the pipeline on Google Colab (docs/RUN_ON_COLAB.md)
 ├── scripts/compare_base_layer.py # H3 base layer vs shapefile overlay on one run
 ├── docs/                         # methodology, inputs, outputs, deviations, the H3 base layer
 ├── pyproject.toml                # package + `hubs` console script

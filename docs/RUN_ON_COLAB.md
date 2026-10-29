@@ -80,6 +80,32 @@ the report lands next to the new results.
 
 Step 7 downloads the workbook to your computer straight away if you prefer.
 
+## 6. Optional second step: line-status columns
+
+`colab/hubs_line_status.ipynb` runs **after** the first notebook, in its own Colab session.
+It reads the run's `hub_prioritization_results.csv`, looks up the planning status (0-7) of every
+line of every hub in a line-status table, and recomputes `NumLinesStatus_0` ... `NumLinesStatus_7`
+and `TotalLinesAllStatuses`. The first notebook already fills these columns from
+`lines_exploded.csv`; use the second step when you have a richer status table (with the status
+text and year) or want to see which line carries which status. It does not change eligibility,
+tiers, scores or ranks.
+
+Put the status table in the same Drive folder as the exports: `line_status*.csv` (or
+`lines_exploded*.csv`) with `LineName` and `StatusID` / `Status Id`, and optionally `Status`
+(text) and `Year`. `BS_lines*.csv` is applied first if present. Then open the notebook the same
+way as in section 2, type the same `INPUT_FOLDER` / `OUTPUT_FOLDER` in step 1, and
+**Runtime → Run all**. It writes into the same `out` folder:
+
+| File | Use |
+|---|---|
+| `hub_prioritization_results_line_status.xlsx` / `.csv` | the results with the recomputed status columns; every other column is identical to the first run |
+| `hub_line_status_detail.csv` | one row per hub and line: line ID, corrected ID, status code, text, year |
+| `line_status_summary.csv` | per status code: lines, hubs, largest and mean count per hub |
+
+Lines without a status are listed in step 6 of the notebook; add them to the status table or to
+the corrections file and run again. Step 7 reports how many hubs differ from the status columns
+written by `hubs run`.
+
 ## When something goes wrong
 
 - **`STOP: the inputs are not complete`** — the message lists the exact file or column.
@@ -99,5 +125,5 @@ Step 7 downloads the workbook to your computer straight away if you prefer.
   manifest. Do not work around it with `on_stale_base_layer=warn` unless you accept results
   computed on the old data.
 
-The notebook is generated from `colab/build_notebook.py`; edit that file, run it, and commit
-both if the cells need to change.
+The notebooks are generated from `colab/build_notebook.py`; edit that file, run it, and commit
+the `.ipynb` files with it if the cells need to change.

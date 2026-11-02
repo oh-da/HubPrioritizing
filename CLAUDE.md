@@ -501,6 +501,7 @@ HubPrioritizing/
 │   │   ├── scoring.py           #   categories, mode score, tiers, normalisation, Monte Carlo
 │   │   ├── postprocess.py       #   display columns incl. the former Excel formulas
 │   │   ├── export.py            #   xlsx (Excel Table) + CSV writers
+│   │   ├── calc_workbook.py     #   hub_scoring_calculation.xlsx: every scoring step as Excel formulas
 │   │   ├── versioning.py        #   run_manifest.json, hubs compare, hubs runs
 │   │   └── run.py               #   orchestrator, write_outputs, run_from_cli
 │   ├── spatial/                 # h3_operations.py, merging.py (UnionFind)
@@ -618,6 +619,11 @@ HubPrioritizing/
 - Hub points and dissolved hub polygons (`intermediate/` with `keep_intermediates=true`)
 
 **Format**: GeoPackage (EPSG:2039) by default; GeoJSON for web, GeoParquet or CSV+WKT for SQL
+
+#### Calculation Workbook
+- `hub_scoring_calculation.xlsx`, written by every run next to the display workbook (which stays values-only): eligibility and tier rules, the five criteria (raw value -> per-tier 1-10), the Monte Carlo draws and mean weights, the final score with points per criterion, the three ranks, a hub explorer and a `Checks` sheet against the pipeline values; all derived cells are formulas driven by named cells on `Parameters`
+- The Monte Carlo mean is linear, so the score is Σ norm × mean weight of the hub type; the draws are regenerated from the seed (bit-identical) and stored as values
+- `calc_workbook_basename` (`""` turns it off); the code is `src/pipeline/calc_workbook.py`
 
 #### Reports
 - `run_report.md` / `.json`: every data-quality finding and metric of a run
@@ -1140,6 +1146,7 @@ pytest                                    # unit + smoke tests
 - `src/pipeline/base_layer.py`: the H3 base layer (builder + run-time lookups)
 - `src/pipeline/scoring.py`: tiers, normalisation, Monte Carlo
 - `src/pipeline/export.py`: the 70-column workbook schema
+- `src/pipeline/calc_workbook.py`: the stakeholder calculation workbook (formulas)
 - `src/pipeline/h3_export.py`: the shareable cell layer
 - `src/pipeline/versioning.py`: run manifest and run-to-run comparison (`docs/VERSIONS.md`)
 - `src/gui/server.py`: the local web page's API (`docs/GUI.md`)

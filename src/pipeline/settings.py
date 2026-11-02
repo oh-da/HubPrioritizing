@@ -100,6 +100,10 @@ class PipelineConfig:
     output_sheet_name: str = "hubs_final_results"
     output_table_name: str = "טבלה1"
     extra_columns: tuple[str, ...] = ()
+    # Calculation workbook for stakeholder review: eligibility, the five criteria, the
+    # Monte Carlo weights, the final score and the ranks as live Excel formulas
+    # (<calc_workbook_basename>.xlsx next to the display workbook; '' = not written).
+    calc_workbook_basename: str = "hub_scoring_calculation"
     keep_intermediates: bool = False
     # Shareable H3 cell layer written next to the workbook (h3_base runs only):
     # format 'gpkg' | 'geojson' | 'parquet' (GeoParquet) | 'csv' (WKT) | 'none';

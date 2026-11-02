@@ -238,6 +238,15 @@ def write_outputs(result: RunResult, output_dir: Path | str, version: str | None
         result.results, out / f"{cfg.output_basename}.xlsx", sheet_name=cfg.output_sheet_name, table_name=cfg.output_table_name, extra_columns=cfg.extra_columns
     )
     paths["csv"] = write_results_csv(result.results, out / f"{cfg.output_basename}.csv", extra_columns=cfg.extra_columns)
+    if cfg.calc_workbook_basename and len(result.scored):
+        from .calc_workbook import write_calculation_workbook
+        from .versioning import default_version
+
+        groups = pd.DataFrame(result.groups.drop(columns=result.groups.geometry.name))
+        paths["calc_xlsx"] = write_calculation_workbook(
+            groups, result.scored, result.results, cfg, out / f"{cfg.calc_workbook_basename}.xlsx", version or (default_version(result.inputs) if result.inputs is not None else None)
+        )
+        result.report.info("outputs", "calculation workbook written (every scoring step as Excel formulas)", path=str(paths["calc_xlsx"]))
 
     identity = hub_identity_table(result.hexes).merge(result.results[["group", "HubNameHE", "HubType"]], on="group", how="left")
     paths["hub_identity"] = out / "hub_identity.csv"

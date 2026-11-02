@@ -69,6 +69,7 @@ In Drive, open the `out` folder inside your input folder:
 |---|---|
 | `hub_prioritization_results.xlsx` | the workbook the display page reads |
 | `hub_prioritization_results.csv` | the same table as CSV |
+| `hub_scoring_calculation.xlsx` | the calculation workbook for stakeholders: every criterion, weight and rank as Excel formulas (start at `Hub_Explorer`) |
 | `h3_layer.gpkg` | the H3 cell layer for QGIS / ArcGIS / SQL |
 | `run_report.md` | every data-quality finding; read the warnings before publishing |
 | `run_manifest.json` | the version record: which files, which settings, which code (`docs/VERSIONS.md`) |

@@ -46,6 +46,7 @@ hubs run --input-dir my_run --output-dir my_run/out
 |---|---|
 | `hub_prioritization_results.xlsx` | The display workbook: one sheet, one Excel Table, the 70 columns the page reads |
 | `hub_prioritization_results.csv` | The same table as UTF-8 CSV |
+| `hub_scoring_calculation.xlsx` | The calculation workbook for stakeholder review: eligibility, tier rules, the five criteria (raw -> 1-10 per tier), the Monte Carlo weights, final score and ranks as live Excel formulas, a hub explorer and a check sheet against the pipeline values (`calc_workbook_basename`, `""` = off) |
 | `hub_identity.csv` | `group`, stable `hub_id`, node list and name per hub |
 | `h3_layer.gpkg` | Shareable H3 cell layer: every hub cell and its catchment with area, ring, terminal, 2050 population/jobs, hub identity and scores (`h3_layer_format`, `h3_layer_extent`) |
 | `run_report.md` / `.json` | Inputs, detected encodings, metrics, and every data-quality finding |
@@ -117,6 +118,7 @@ HubPrioritizing/
 │   │   ├── scoring.py            #   categories, mode score, tiers, normalisation, Monte Carlo
 │   │   ├── postprocess.py        #   display columns (incl. the former Excel formulas)
 │   │   ├── export.py             #   xlsx (Excel Table) and CSV writers, FINAL_COLUMNS
+│   │   ├── calc_workbook.py      #   hub_scoring_calculation.xlsx: every scoring step as Excel formulas
 │   │   ├── versioning.py         #   run_manifest.json, `hubs compare`, `hubs runs`
 │   │   ├── report.py             #   RunReport
 │   │   └── run.py                #   orchestrator

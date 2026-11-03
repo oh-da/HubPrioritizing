@@ -32,15 +32,30 @@ names, manual corrections) comes with the repository; you do not copy it.
 
 ## 3. Fill in step 1 of the notebook
 
-The first cell is a form with four boxes:
+The first cell is a form:
 
 | Box | What to type |
 |---|---|
-| `INPUT_FOLDER` | the Drive folder from section 1, relative to My Drive, e.g. `HubRuns/2026_06` |
-| `OUTPUT_FOLDER` | leave blank; results go to a folder named `out` inside the input folder |
+| `INPUT_FOLDER` | the Drive folder from section 1, either relative to My Drive (`HubRuns/2026_06`) or as a full path (`/content/drive/MyDrive/HubRuns/2026_06`) |
+| `OUTPUT_FOLDER` | leave blank; results go to a folder named `out` inside the input folder (same two path forms) |
+| `REFERENCE_FOLDER` | leave blank to use `data/reference` from the repository (H3 base layer and curated tables). See *Using your own reference data* below |
 | `VERSION` | a name for this run, e.g. `2026-06`; blank = the newest date in the export file names |
 | `REPO`, `BRANCH` | leave as they are unless you were told otherwise |
 | `EXTRA_ARGS` | leave blank |
+
+### Using your own reference data
+
+There are two ways, and the first is usually enough:
+
+- **Replace one file:** put a file with the same name pattern in the *input* folder
+  (e.g. `hub_names.csv` or `h3_base.parquet` with its `h3_base.manifest.json`). A file in
+  the input folder always wins over the reference copy; `hubs validate` shows `input` in
+  the *source* column for it.
+- **Replace the whole folder:** set `REFERENCE_FOLDER`. This folder is used *instead of*
+  `data/reference`, not on top of it, so copy the whole `data/reference` folder to Drive
+  first and change files there. A file missing from it (for example `hub_names.csv`,
+  `is_same_group.csv` or `manual_demand_updates.csv`) is simply not used, and the run
+  loses those names, merges or corrections.
 
 ## 4. Runtime → Run all
 

@@ -66,3 +66,14 @@ def test_group_ids_match_golden(groups_real, golden_groups):
     mismatched = [(grp, ours.get(nodes)) for grp, nodes in golden_groups.items() if ours.get(nodes) != grp]
     print(f"\n[group ids] mismatched: {len(mismatched)} of {len(golden_groups)} {mismatched[:10]}")
     assert not mismatched
+
+
+def test_hub_groups_all_covers_every_group_and_the_golden_hubs(groups_real, golden, golden_groups):
+    """hub_groups_all keeps every group (1,033 in the June 2026 run) and flags exactly the golden hubs eligible."""
+    from src.config import REQUIRE_NON_RAIL_MODE
+    from src.pipeline.all_groups import build_all_groups_table
+
+    table = build_all_groups_table(groups_real, golden.iloc[0:0], None, REQUIRE_NON_RAIL_MODE)
+    assert len(table) == len(groups_real) and table["group"].is_unique
+    assert int(table["eligible"].sum()) == len(golden)  # 142
+    assert set(table.loc[table["eligible"], "group"]) == set(golden_groups)

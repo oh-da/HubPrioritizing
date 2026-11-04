@@ -104,6 +104,10 @@ class PipelineConfig:
     # Monte Carlo weights, the final score and the ranks as live Excel formulas
     # (<calc_workbook_basename>.xlsx next to the display workbook; '' = not written).
     calc_workbook_basename: str = "hub_scoring_calculation"
+    # Comparison inputs written next to the workbook ('' = not written): every hub group
+    # before the eligibility filter, and the node x line rows with their hub group.
+    all_groups_basename: str = "hub_groups_all"
+    network_nodes_basename: str = "network_nodes"
     keep_intermediates: bool = False
     # Shareable H3 cell layer written next to the workbook (h3_base runs only):
     # format 'gpkg' | 'geojson' | 'parquet' (GeoParquet) | 'csv' (WKT) | 'none';
@@ -134,6 +138,9 @@ class PipelineConfig:
             raise ConfigError("on_node_position_conflict must be 'warn' or 'error'")
         if self.node_position_tolerance_m < 0:
             raise ConfigError("node_position_tolerance_m must be >= 0")
+        for key in ("all_groups_basename", "network_nodes_basename"):
+            if not isinstance(getattr(self, key), str):
+                raise ConfigError(f"{key} must be a string ('' turns the output off)")
         if self.h3_layer_format not in ("gpkg", "geojson", "parquet", "csv", "none"):
             raise ConfigError("h3_layer_format must be one of gpkg, geojson, parquet, csv, none")
         if self.h3_layer_extent not in ("hubs", "influence", "all"):

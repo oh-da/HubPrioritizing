@@ -53,6 +53,9 @@ def test_run_pipeline_end_to_end(dirs, tmp_path):
     assert header == list(FINAL_COLUMNS) + ["hub_id", "eligible"]
     assert (tmp_path / "out" / "intermediate" / "groups.geojson").exists()
     assert (tmp_path / "out" / "hub_identity.csv").exists()
+    assert paths["hub_groups_all"].exists() and paths["network_nodes"].exists()
+    assert len(pd.read_csv(paths["hub_groups_all"], encoding="utf-8-sig")) == len(result.groups) == 3
+    assert (tmp_path / "out" / "network_nodes.csv").exists()
     calc = load_workbook(paths["calc_xlsx"])
     assert {"Parameters", "8_FinalScore", "9_Ranking", "Hub_Explorer"} <= set(calc.sheetnames)
     assert "Metrics" in paths["report_md"].read_text(encoding="utf-8")

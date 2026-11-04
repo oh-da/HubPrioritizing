@@ -55,6 +55,9 @@ class RunResult:
     base: pd.DataFrame | None = None  # the H3 base layer the run used (indexed by h3_index)
     inputs: InputSet | None = None
     outputs: dict[str, Path] = field(default_factory=dict)
+    nodes: gpd.GeoDataFrame | None = None  # node x line rows after attach_modes (EPSG:2039)
+    line_names: dict[str, str] = field(default_factory=dict)  # line id -> Hebrew display name
+    hub_names: pd.DataFrame | None = None  # the optional h3_index -> HubNameHE table
 
 
 def _read_optional_csv(inputs: InputSet, key: str, report: RunReport, **kwargs) -> pd.DataFrame | None:
@@ -224,7 +227,19 @@ def run_pipeline(
     report.set_metric("hub_type_counts_final", results["HubType"].value_counts().to_dict())
     top = results.nsmallest(10, "Rank_TS_MC")[["group", "HubNameHE", "HubType", "TotalScore_MC"]]
     report.info("results", "top 10 hubs by TotalScore_MC", top=top.to_dict("records"))
-    return RunResult(results=results, groups=groups, scored=scored, hexes=hexes, report=report, config=cfg, base=base, inputs=inputs)
+    return RunResult(
+        results=results,
+        groups=groups,
+        scored=scored,
+        hexes=hexes,
+        report=report,
+        config=cfg,
+        base=base,
+        inputs=inputs,
+        nodes=nodes,
+        line_names=names,
+        hub_names=hub_names,
+    )
 
 
 def write_outputs(result: RunResult, output_dir: Path | str, version: str | None = None) -> dict[str, Path]:
@@ -251,6 +266,20 @@ def write_outputs(result: RunResult, output_dir: Path | str, version: str | None
     identity = hub_identity_table(result.hexes).merge(result.results[["group", "HubNameHE", "HubType"]], on="group", how="left")
     paths["hub_identity"] = out / "hub_identity.csv"
     identity.to_csv(paths["hub_identity"], index=False, encoding="utf-8-sig")
+
+    if cfg.all_groups_basename:
+        from .all_groups import build_all_groups_table, lists_to_text
+
+        all_groups = build_all_groups_table(result.groups, result.results, result.hub_names, cfg.require_non_rail_mode)
+        paths["hub_groups_all"] = out / f"{cfg.all_groups_basename}.csv"
+        lists_to_text(all_groups).to_csv(paths["hub_groups_all"], index=False, encoding="utf-8-sig")
+        result.report.info("outputs", f"all hub groups written ({len(all_groups)} groups, {int(all_groups['eligible'].sum())} eligible)", path=str(paths["hub_groups_all"]))
+    if cfg.network_nodes_basename and result.nodes is not None:
+        from .all_groups import build_network_nodes_table
+
+        network_nodes = build_network_nodes_table(result.nodes, result.hexes, result.line_names)
+        paths["network_nodes"] = out / f"{cfg.network_nodes_basename}.csv"
+        network_nodes.to_csv(paths["network_nodes"], index=False, encoding="utf-8-sig")
 
     if result.base is not None and cfg.h3_layer_format != "none":
         from .h3_export import build_h3_layer, write_h3_layer

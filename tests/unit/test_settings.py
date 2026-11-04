@@ -80,3 +80,9 @@ def test_default_yaml_round_trips():
     loaded = yaml.safe_load(default_yaml())
     cfg = load_config(None, loaded)
     assert cfg == PipelineConfig()
+
+
+def test_comparison_output_names():
+    cfg = load_config(None, parse_set_overrides(["all_groups_basename=", "network_nodes_basename=nn"]))
+    assert cfg.all_groups_basename == "" and cfg.network_nodes_basename == "nn"
+    assert PipelineConfig().all_groups_basename == "hub_groups_all"

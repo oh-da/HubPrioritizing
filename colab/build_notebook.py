@@ -1,4 +1,4 @@
-"""Writes colab/hubs_run.ipynb and colab/hubs_line_status.ipynb. Run `python colab/build_notebook.py` after editing the cells."""
+"""Writes colab/hubs_run.ipynb, colab/hubs_line_status.ipynb and colab/hubs_missing_map.ipynb. Run `python colab/build_notebook.py` after editing the cells."""
 
 import json
 from pathlib import Path
@@ -377,6 +377,203 @@ files.download(base + (".xlsx" if WRITE_XLSX else ".csv"))""",
 ]
 
 
+# ----------------------------------------------------------------------------------------
+# Third notebook: map of the missing lines and hubs, run after hubs_run.ipynb
+# ----------------------------------------------------------------------------------------
+
+MAP_CELLS = [
+    (
+        "markdown",
+        """# Hub prioritization — map of the missing lines and hubs
+
+Draws **one map page** (`missing_lines_hubs_map.html`) of the lines and hubs that exist in only one of two
+networks: the hub prioritization pipeline's and the planning agency's (`MT_Network.gpkg`). Every item has a
+verdict (likely real gap, covered elsewhere, definition difference, check). It also writes
+`missing_map_summary.md` with the counts and the most important findings.
+
+**Before you start** (see `docs/NETWORK_COMPARISON.md`, "Map of the missing lines and hubs"):
+1. Run `hubs_run.ipynb` first. Its output folder (the one that holds `hub_groups_all.csv` and
+   `network_nodes.csv`) is `RUN_FOLDER` below. A run made before 2026-11-04 does not have those two files:
+   run it again.
+2. Put the agency's `MT_Network.gpkg` (and, optionally, `MT_Network_MetaData.xlsx`) in one Drive folder.
+3. The comparison itself (`hubs compare-network`) is run by this notebook when it is not there yet.
+
+Then **Runtime → Run all**. Every cell prints what it did.""",
+    ),
+    (
+        "code",
+        """#@title 1. Settings { display-mode: "form" }
+#@markdown Drive folder with the output of `hubs_run.ipynb` (the `out` folder): either relative to My Drive (`HubRuns/2026_06/out`) or a full path (`/content/drive/MyDrive/HubRuns/2026_06/out`):
+RUN_FOLDER = "HubRuns/2026_06/out"  #@param {type:"string"}
+#@markdown Drive folder with the planning agency's network (same two path forms), and the two file names in it (leave the metadata name blank if there is none):
+AGENCY_FOLDER = "HubRuns/agency"  #@param {type:"string"}
+AGENCY_GPKG = "MT_Network.gpkg"  #@param {type:"string"}
+AGENCY_META = "MT_Network_MetaData.xlsx"  #@param {type:"string"}
+#@markdown Where the comparison (the output of `hubs compare-network`) is, or will be written (blank = a folder named `compare` inside the run folder):
+COMPARE_FOLDER = ""  #@param {type:"string"}
+#@markdown Run the comparison again even if it is already there:
+REDO_COMPARISON = False  #@param {type:"boolean"}
+#@markdown Extra settings for `hubs compare-network`, e.g. `--set containment=false` or `--set full_cov=0.75` (normally blank):
+COMPARE_ARGS = ""  #@param {type:"string"}
+#@markdown Where to write the map and its summary (blank = the comparison folder):
+OUTPUT_FOLDER = ""  #@param {type:"string"}
+#@markdown The note about the data shown on the map page (blank = built from the run's manifest):
+RUN_NOTE = ""  #@param {type:"string"}
+#@markdown Store Leaflet inside the page, so the page does not depend on a CDN (the map tiles still need internet):
+INLINE_LEAFLET = True  #@param {type:"boolean"}
+#@markdown Repository and branch to take the code from (use the same as in `hubs_run.ipynb`):
+REPO = "oh-da/HubPrioritizing"  #@param {type:"string"}
+BRANCH = "main"  #@param {type:"string"}
+
+import os
+DRIVE_ROOT = "/content/drive/MyDrive"
+
+def drive_path(folder: str) -> str:
+    # accept a path relative to My Drive or a full /content/... path
+    f = folder.strip().rstrip("/")
+    if f.startswith("/content/"):
+        return f
+    return f"{DRIVE_ROOT}/{f.lstrip('/')}"
+
+RUN_DIR = drive_path(RUN_FOLDER)
+AGENCY_GPKG_PATH = f"{drive_path(AGENCY_FOLDER)}/{AGENCY_GPKG.strip()}"
+AGENCY_META_PATH = f"{drive_path(AGENCY_FOLDER)}/{AGENCY_META.strip()}" if AGENCY_META.strip() else ""
+COMPARE_DIR = drive_path(COMPARE_FOLDER) if COMPARE_FOLDER.strip() else f"{RUN_DIR}/compare"
+OUTPUT_DIR = drive_path(OUTPUT_FOLDER) if OUTPUT_FOLDER.strip() else COMPARE_DIR
+print("hubs run output :", RUN_DIR)
+print("agency network  :", AGENCY_GPKG_PATH)
+print("agency metadata :", AGENCY_META_PATH or "(none)")
+print("comparison      :", COMPARE_DIR)
+print("map written to  :", OUTPUT_DIR)""",
+    ),
+    (
+        "code",
+        """#@title 2. Connect Google Drive
+from google.colab import drive
+drive.mount("/content/drive")
+import os
+assert os.path.isdir(RUN_DIR), f"Run folder not found: {RUN_DIR}\\nCheck RUN_FOLDER in step 1 (relative to My Drive, or a full path)."
+print("Files in the run folder:")
+for name in sorted(os.listdir(RUN_DIR)):
+    print("  ", name)""",
+    ),
+    INSTALL_CELL,
+    (
+        "code",
+        """#@title 4. Check the inputs
+import os, json
+
+problems = []
+for name in ("hub_groups_all.csv", "network_nodes.csv"):
+    if not os.path.isfile(f"{RUN_DIR}/{name}"):
+        problems.append(f"{RUN_DIR}/{name} is missing: run hubs_run.ipynb (again) on the same exports; this version of the code writes it.")
+if not os.path.isfile(AGENCY_GPKG_PATH):
+    problems.append(f"{AGENCY_GPKG_PATH} is missing: check AGENCY_FOLDER and AGENCY_GPKG in step 1.")
+if AGENCY_META_PATH and not os.path.isfile(AGENCY_META_PATH):
+    problems.append(f"{AGENCY_META_PATH} is missing: fix AGENCY_META in step 1, or leave it blank.")
+if problems:
+    raise SystemExit("STOP:\\n  " + "\\n  ".join(problems))
+
+manifest = f"{RUN_DIR}/run_manifest.json"
+if os.path.isfile(manifest):
+    info = json.load(open(manifest, encoding="utf-8"))
+    print("run version:", info.get("version"), "| created:", info.get("created"))
+print("OK - the inputs are there. Continue with step 5.")""",
+    ),
+    (
+        "code",
+        """#@title 5. Compare the two networks (hubs compare-network, about 10 seconds)
+import os, shlex, subprocess
+
+xlsx, gpkg = f"{COMPARE_DIR}/network_comparison.xlsx", f"{COMPARE_DIR}/network_comparison.gpkg"
+if REDO_COMPARISON or not (os.path.isfile(xlsx) and os.path.isfile(gpkg)):
+    os.makedirs(COMPARE_DIR, exist_ok=True)
+    cmd = ["hubs", "compare-network", "--run", RUN_DIR, "--agency-gpkg", AGENCY_GPKG_PATH]
+    if AGENCY_META_PATH:
+        cmd += ["--agency-meta", AGENCY_META_PATH]
+    cmd += ["--out", COMPARE_DIR] + shlex.split(COMPARE_ARGS)
+    print(" ".join(shlex.quote(c) for c in cmd))
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    print(r.stdout)
+    if r.returncode != 0:
+        print(r.stderr[-4000:])
+        raise SystemExit("STOP: the comparison failed. Read the message above.")
+else:
+    print("Using the comparison that is already in", COMPARE_DIR, "(tick REDO_COMPARISON in step 1 to run it again).")""",
+    ),
+    (
+        "code",
+        """#@title 6. Leaflet for the page
+import os, urllib.request
+
+LEAFLET_DIR = ""
+if INLINE_LEAFLET:
+    target = "/content/leaflet"
+    os.makedirs(target, exist_ok=True)
+    sources = [
+        "https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/",
+        "https://unpkg.com/leaflet@1.9.4/dist/",
+        "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/",
+    ]
+    for base in sources:
+        try:
+            for name in ("leaflet.js", "leaflet.css"):
+                urllib.request.urlretrieve(base + name, f"{target}/{name}")
+            assert os.path.getsize(f"{target}/leaflet.js") > 100_000 and os.path.getsize(f"{target}/leaflet.css") > 10_000
+            LEAFLET_DIR = target
+            print("Leaflet 1.9.4 downloaded from", base, "- it will be stored inside the page.")
+            break
+        except Exception as exc:
+            print("could not use", base, "-", exc)
+    if not LEAFLET_DIR:
+        print("Leaflet could not be downloaded; the page will load it from the CDN instead (that needs internet when you open it).")
+else:
+    print("The page will load Leaflet from the CDN (cdnjs) when you open it.")""",
+    ),
+    (
+        "code",
+        """#@title 7. Build the map (about 20 seconds)
+import os, shlex, subprocess, sys
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+cmd = [sys.executable, "scripts/build_missing_map.py", "--compare-dir", COMPARE_DIR, "--run-dir", RUN_DIR,
+       "--agency-gpkg", AGENCY_GPKG_PATH, "--out-dir", OUTPUT_DIR]
+if AGENCY_META_PATH:
+    cmd += ["--agency-meta", AGENCY_META_PATH]
+if LEAFLET_DIR:
+    cmd += ["--leaflet-dir", LEAFLET_DIR]
+if RUN_NOTE.strip():
+    cmd += ["--run-note", RUN_NOTE.strip()]
+print(" ".join(shlex.quote(c) for c in cmd))
+r = subprocess.run(cmd, capture_output=True, text=True)
+print(r.stdout)
+if r.returncode != 0:
+    print(r.stderr[-4000:])
+    raise SystemExit("STOP: the map could not be built. Read the message above.")""",
+    ),
+    (
+        "code",
+        """#@title 8. Results
+import os
+from IPython.display import Markdown, display
+
+html_path = f"{OUTPUT_DIR}/missing_lines_hubs_map.html"
+summary_path = f"{OUTPUT_DIR}/missing_map_summary.md"
+for path in (html_path, summary_path):
+    print(f"{os.path.basename(path):34s} {os.path.getsize(path) / 1e6:6.2f} MB   {path}")
+print("\\nTo look at the map: run step 9 to download the page and open it in your browser (Drive only shows the HTML source).")
+display(Markdown(open(summary_path, encoding="utf-8").read()))""",
+    ),
+    (
+        "code",
+        """#@title 9. (Optional) Download the map page and the summary to this computer
+from google.colab import files
+files.download(html_path)
+files.download(summary_path)""",
+    ),
+]
+
+
 def build(cells=CELLS, name="hubs_run.ipynb") -> dict:
     out = []
     for kind, source in cells:
@@ -397,7 +594,7 @@ def build(cells=CELLS, name="hubs_run.ipynb") -> dict:
 
 
 if __name__ == "__main__":
-    for cells, name in ((CELLS, "hubs_run.ipynb"), (STATUS_CELLS, "hubs_line_status.ipynb")):
+    for cells, name in ((CELLS, "hubs_run.ipynb"), (STATUS_CELLS, "hubs_line_status.ipynb"), (MAP_CELLS, "hubs_missing_map.ipynb")):
         out = Path(__file__).with_name(name)
         out.write_text(json.dumps(build(cells, name), ensure_ascii=False, indent=1), encoding="utf-8")
         print("wrote", out)

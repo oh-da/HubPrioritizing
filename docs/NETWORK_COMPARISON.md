@@ -360,7 +360,8 @@ shows the agency rail routes and our suburban and interurban rail routes togethe
 `scripts/build_missing_map.py` turns a finished comparison into one self-contained Leaflet page
 that shows what each network lacks and gives every feature a verdict. It reads the matching of
 `hubs compare-network` and does not repeat it; it only evaluates the unmatched features against
-the other network and draws them.
+the other network and draws them. On Google Colab the same steps run from
+`colab/hubs_missing_map.ipynb` (`docs/RUN_ON_COLAB.md`, section 7).
 
 ```bash
 hubs run --input-dir DIR --output-dir RUN

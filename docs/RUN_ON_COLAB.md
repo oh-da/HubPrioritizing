@@ -122,6 +122,38 @@ Lines without a status are listed in step 6 of the notebook; add them to the sta
 the corrections file and run again. Step 7 reports how many hubs differ from the status columns
 written by `hubs run`.
 
+## 7. Optional third step: map of the missing lines and hubs
+
+`colab/hubs_missing_map.ipynb` runs **after** the first notebook, in its own Colab session. It
+draws one map page of the lines and hubs that are in only one of the two networks (ours and the
+planning agency's `MT_Network.gpkg`), with a verdict for each; see "Map of the missing lines and
+hubs" in `docs/NETWORK_COMPARISON.md` for what the page shows and how the verdicts are decided.
+
+Before you start:
+
+- the output folder (`out`) of the first notebook must hold `hub_groups_all.csv` and
+  `network_nodes.csv`; a run made before 2026-11-04 does not, so run the first notebook again;
+- put the agency's `MT_Network.gpkg` (and optionally `MT_Network_MetaData.xlsx`) in one Drive
+  folder, for example `HubRuns/agency`.
+
+Open the notebook the same way as in section 2 and fill step 1:
+
+| Box | What to type |
+|---|---|
+| `RUN_FOLDER` | the `out` folder of the first notebook (`HubRuns/2026_06/out`, or a full path) |
+| `AGENCY_FOLDER`, `AGENCY_GPKG`, `AGENCY_META` | the agency folder and the two file names in it; leave the metadata name blank if there is none |
+| `COMPARE_FOLDER` | blank = a folder `compare` inside the run folder. If it already holds `network_comparison.xlsx` and `.gpkg` they are used as they are |
+| `REDO_COMPARISON`, `COMPARE_ARGS` | tick the first to run `hubs compare-network` again; the second passes settings to it, e.g. `--set containment=false` or `--set full_cov=0.75` |
+| `OUTPUT_FOLDER` | blank = the comparison folder |
+| `RUN_NOTE` | the note about the data shown on the page; blank = built from the run's manifest |
+| `INLINE_LEAFLET` | on = Leaflet is stored inside the page, so the page does not depend on a CDN (map tiles still need internet) |
+
+Then **Runtime → Run all**. The notebook runs `hubs compare-network` when the comparison is not
+there yet, builds the page and writes, next to it, `missing_map_summary.md` (the counts per set
+and verdict and the most important findings), which it also shows. Drive only shows the HTML
+source of the page: run step 9 to download it, or download it from the Drive folder, and open it
+in your browser.
+
 ## When something goes wrong
 
 - **`STOP: the inputs are not complete`** — the message lists the exact file or column.

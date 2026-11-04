@@ -85,9 +85,13 @@ Two pure functions, wired into `run.write_outputs` next to `hub_identity.csv`:
 - `build_network_nodes_table(nodes, hexes)` -> **`network_nodes.csv`**, one row per node x line:
   `node`, `LINE_ID`, `Mode_Planned` of the line, `x_itm`, `y_itm`, `group`, `hub_id`.
 
-`eligible` / `exclusion_reason` come from the existing `compute_eligibility` columns, run on the
-unfiltered frame (it already is). The eligibility thresholds are read from the run's config, not
-re-hard-coded. Settings: `all_groups_basename` (default `hub_groups_all`) and
+`eligible` / `exclusion_reason` come from `scoring.classify` (which adds `HubType`,
+`is_rail_only`, `eligible`) applied to the unfiltered groups after `prepare_scoring_frame`, with
+`require_non_rail = cfg.require_non_rail_mode`; the thresholds are the constants of
+`src/config.py` (`ELIGIBILITY_MIN_PASSENGERS`, `ELIGIBILITY_MIN_MODES`), never re-typed.
+`RunResult` gains two fields, `nodes` (the node x line rows after `attach_modes`) and
+`line_names` (the Hebrew display names loaded in Part 5), so that `write_outputs` can write
+`network_nodes.csv` with a `line_name` column. Settings: `all_groups_basename` (default `hub_groups_all`) and
 `network_nodes_basename` (default `network_nodes`); `""` turns either off, same convention as
 `calc_workbook_basename`.
 
@@ -154,22 +158,26 @@ For each of our routes `R` (mode `m`) and each agency route `A` of the mapped mo
 - `cov_agency(R, A)` = share of `A`'s stops within `stop_tol_m` (150 m) of any node of `R`.
 - `score = 2 * cov_ours * cov_agency / (cov_ours + cov_agency)`.
 
-Pairs with `score >= match_min_score` (0.5) are *candidates*; each of our routes keeps all its
-candidates ranked by score. Agency routes of a *different* mode that would pass the same test
-are listed as `mode_differs` candidates and never counted as matched.
+Pairs with `score >= only_max_score` (0.2) are *candidates*; each of our routes keeps all its
+candidates ranked by score (ties broken by agency route key). A candidate whose agency type is
+not the mapped mode of our route is a *cross-mode* candidate and is never counted as matched.
 
 ### 4.4 Status per route
 
+Evaluated in this order for each of our routes (same-mode candidates only, unless stated):
+
 | status | rule |
 |---|---|
-| `matched` | best candidate has `cov_ours >= full_cov` and `cov_agency >= full_cov` (0.8) |
-| `partial` | best candidate passes `match_min_score` but not `full_cov` on both sides |
-| `split_merge` | more than one candidate with `cov_ours >= 0.3` or `cov_agency >= 0.3` on either side (one route maps to several); all candidates listed with their coverages |
-| `ours_only` | no candidate of any mode with `score >= only_max_score` (0.2) |
-| `agency_only` | agency route not a candidate of any of our routes |
+| `matched` | some candidate has `cov_ours >= full_cov` and `cov_agency >= full_cov` (0.8); the best-scoring such candidate is the match. A full match always wins, so routes that share a trunk (rail) are not mislabelled |
+| `split_merge` | no full match, and either at least two candidates have both coverages `>= multi_cov` (0.3) (one of our routes runs over several agency routes), or the best candidate's agency route is used, with both coverages `>= multi_cov`, by at least two of our routes and none of those pairs is a full match (several of ours share one agency route); all candidates are listed with their coverages |
+| `partial` | not the above, best candidate has `score >= match_min_score` (0.5) |
+| `weak` | best candidate has `only_max_score <= score < match_min_score` |
+| `mode_differs` | no same-mode candidate, but a cross-mode candidate with `score >= match_min_score` |
+| `ours_only` | none of the above (includes a mode with no agency counterpart, e.g. Cable Line) |
 
-`split_merge` is assigned before `matched` / `partial` when both of its conditions apply, so
-many-to-many relations are never hidden by a single "best" pair.
+Agency routes get status `agency_only` when no route of ours has a same-mode candidate on them
+with `score >= match_min_score`. Routes of ours with fewer than 2 nodes are compared normally
+but flagged `short_route = true`.
 
 Each row also carries: both sides' names (our `LINE_ID`s and Hebrew line names from the run's
 line-name tables when available; agency `name`, `line_name`), mode, node/stop counts, the
@@ -299,8 +307,11 @@ stage.
   `CLAUDE.md` gets the new command in 20 Key Commands, the package in 9 Codebase Structure and
   a v2.2 entry in 19; `data/reference/README.md` lists `agency_mode_map.csv`.
 - No new runtime dependency: geopandas, shapely, pandas, numpy and openpyxl are already in
-  `requirements.txt`. Nearest-point queries use shapely's `STRtree` (scipy is not a dependency
-  and is not added). The map pages are plain HTML + Leaflet inlined, as in `HubsScraping`.
+  `requirements.txt`. scipy is not a dependency and is not added: the port of `local_shift`
+  (which used `cKDTree` in `HubsScraping`) and the point-to-point distances use numpy
+  broadcasting (a few thousand points per side), point-to-line distances use shapely's
+  vectorised `distance`. Each map page is one HTML file with its data embedded as JSON and
+  Leaflet 1.9.4 loaded from cdnjs, as in `HubsScraping`.
 
 ## 11. Known limits and open points
 

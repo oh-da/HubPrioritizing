@@ -31,7 +31,7 @@ data is ever substituted).
 - `BUS_TERMINAL_STRAT`: `BusHubs/` folder of the planning team's Drive, 2026-09-16 (the `.lyr`, `.sbn`, `.sbx` ArcGIS sidecars and the `BUS_TERMINAL_FCL` layer were not copied).
 - `TAZ_1270`: `InfluenceArea/Israel2050/` folder of the planning team's Drive, 2026-09-17 (`.dat`, `.dbd`, `.key`, `.qpj` sidecars not copied; a `CP1255` code page file was added).
 - `h3_base.parquet`: built by `hubs prepare-base` on 2026-09-17 from the four shapefiles above (hashes in the manifest).
-- `is_same_group.csv`: `IsSameGroup_V1.01.csv`, 2026-09-16.
+- `is_same_group.csv`: `IsSameGroup_V1.01.csv`, 2026-09-16; the row `52032, 51179` (Har Hotzvim, Jerusalem: Metro + blue LRT, 372 m apart) was added from `IsSameGroup_V1.1.csv`, 2026-11-04.
 - `hub_names.csv`: `Hubs_Names_H3_exploded_V1.01.csv` (CP1255) converted to UTF-8, 2026-09-16, plus 20 hubs (name_id 135-154) that the June 2026 results workbook named but the file lacked; their H3 indexes and names were taken from that workbook.
 - `line_names_extra.csv`: the four Metro M1 line names that were substituted by hand in the `Line_Names_forPlot` Excel formula. Loaded after the per-run `linesNames*.csv`, filling gaps only.
 - `manual_demand_updates.csv`: values from `COMPLETE_TRANSIT_PIPELINE.ipynb` steps 2.6.2 / 2.6.3 (National Model) and the Netanya update the notebook listed for CSV entry; verified against the June 2026 results.

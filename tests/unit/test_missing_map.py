@@ -256,3 +256,66 @@ def test_importing_the_script_writes_nothing(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _load_script()
     assert not list(tmp_path.iterdir())
+
+
+# ----------------------------------------------------------------------------------------
+# Wording and basemap (shared with the compare-network pages, src/compare/map_assets.py)
+# ----------------------------------------------------------------------------------------
+
+from src.compare.map_assets import BASEMAPS, LABELS  # noqa: E402
+
+RAW_CODES = sorted({c for kind in ("route_status", "hub_relation", "verdict")
+                    for c in LABELS[kind] if "_" in c or ":" in c})
+FORBIDDEN = re.compile(r"\bagency\b|\bminhal\b|visual aid|containment|\brelation\b|candidate|"
+                       r"\bcoverage\b|" + "|".join(rf"(?<![\w:]){re.escape(c)}(?![\w:])"
+                                                    for c in RAW_CODES), re.I)
+
+
+def _static_text(page: str) -> str:
+    import html as html_lib
+
+    body = re.sub(r"<(script|style)\b.*?</\1>", " ", page, flags=re.S)
+    attrs = " ".join(re.findall(r'(?:aria-label|title|content)="([^"]*)"', body))
+    return html_lib.unescape(re.sub(r"<[^>]+>", " ", body) + " " + attrs)
+
+
+def test_verdicts_come_from_the_shared_label_map(bmm):
+    assert set(VERDICTS) == set(LABELS["verdict"])
+    assert bmm.VERDICT_LABEL == {v: LABELS["verdict"][v][0] for v in VERDICTS}
+    assert bmm.VERDICT_LABEL["real_gap"] == "Missing"
+
+
+def test_visible_text_is_plain_and_names_the_agency_in_hebrew(built):
+    page = (built / "missing_lines_hubs_map.html").read_text(encoding="utf-8")
+    static = _static_text(page)
+    assert not FORBIDDEN.search(static), FORBIDDEN.search(static).group(0)
+    assert "<bdi>מנהל התכנון</bdi>" in page
+    for f in _data(built / "missing_lines_hubs_map.html")["features"]:
+        for text in [f["why"], f["t"], f["tip"], *(f"{k} {v}" for k, v in f["f"])]:
+            assert not FORBIDDEN.search(text), (f["id"], text)
+    summary = (built / "missing_map_summary.md").read_text(encoding="utf-8")
+    assert not FORBIDDEN.search(summary), FORBIDDEN.search(summary).group(0)
+    assert "Hubs project vs מנהל התכנון" in summary and "Needs a look" in summary
+
+
+def test_page_offers_the_four_basemaps(built):
+    page = (built / "missing_lines_hubs_map.html").read_text(encoding="utf-8")
+    for provider in BASEMAPS:
+        if provider["url"]:
+            assert provider["url"] in page, provider["id"]
+    assert 'id="basemap"' in page and 'role="status"' in page and "hubsBasemap(map" in page
+    assert "tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom" not in page  # no fixed OSM
+
+
+def test_popups_are_plain_in_a_browser(built):
+    from tests.unit.test_compare_maps import PLAYWRIGHT_ENV, _browse
+
+    if PLAYWRIGHT_ENV is None:
+        pytest.skip("node + playwright or the Leaflet files are missing")
+    seen = _browse(built / "missing_lines_hubs_map.html", "--check")
+    assert seen["errors"] == [] and seen["basemap"] == "none"
+    assert seen["counts"] == {k: str(v) for k, v in seen["drawn"].items()}
+    assert seen["popups"], "no popup opened"
+    for text in [seen["panel"], seen["title"], *seen["popups"].values(),
+                 *seen["tooltips"].values()]:
+        assert text and not FORBIDDEN.search(text), (text, FORBIDDEN.search(text or ""))

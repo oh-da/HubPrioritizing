@@ -40,6 +40,12 @@ LAYER_NAMES = (
     "route_pairs", "our_routes", "our_routes_raw", "agency_hubs", "our_groups", "hub_ties",
 )
 PAIR_STATS = ("median_dist_raw_m", "median_dist_corr_m", "max_dist_corr_m")
+# extra match attributes of our_routes (the map popups of a route with no chosen pair use them)
+_ROUTE_EXTRA = ("cov_ours", "cov_agency", "median_dist_corr_m", "candidates", "reason")
+_NUMERIC_EXTRA = ("cov_ours", "cov_agency", "median_dist_corr_m")
+# the mode and route evidence of a pair, carried on its tie for the map popups
+_TIE_EXTRA = ("modes_shared", "modes_only_agency", "modes_only_ours", "routes_shared",
+              "routes_only_agency", "routes_only_ours")
 PAIRED = ("1:1", "agency_splits", "ours_merges", "many_to_many")
 MODE_SUMMARY_COLUMNS = ["side", "mode", "n_routes", *STATUSES]
 _LIMITS = (
@@ -305,8 +311,9 @@ def _route_geometry(xy: np.ndarray, order: list[int]) -> Any:
 
 def _our_route_layers(routes: RouteComparison, ours: pd.DataFrame) -> tuple:
     """``our_routes`` (corrected positions) and ``our_routes_raw`` (raw), one row per route."""
-    best = _ours_rows(routes.routes).drop_duplicates("our_route_key")
-    info = best.set_index("our_route_key")[["status", "agency_route_key", "score"]]
+    best = _ours_rows(_routes_with_stats(routes)).drop_duplicates("our_route_key")
+    wanted = ["status", "agency_route_key", "score", *_ROUTE_EXTRA]
+    info = best.set_index("our_route_key")[wanted]
     rows, corrected, raw = [], [], []
     for rec in ours.to_dict("records"):
         xy = np.asarray(rec["xy"], dtype=float).reshape(-1, 2)
@@ -324,9 +331,12 @@ def _our_route_layers(routes: RouteComparison, ours: pd.DataFrame) -> tuple:
             "status": None if found is None else found["status"],
             "agency_route_key": None if found is None else found["agency_route_key"],
             "score": np.nan if found is None else found["score"],
+            **{c: (np.nan if c in _NUMERIC_EXTRA else None) if found is None else found[c]
+               for c in _ROUTE_EXTRA},
         })
     columns = ["route_key", "line_ids", "line_names", "mode", "agency_type", "n_nodes",
-               "short_route", "visual_aid", "status", "agency_route_key", "score"]
+               "short_route", "visual_aid", "status", "agency_route_key", "score",
+               *_ROUTE_EXTRA]
     frame = pd.DataFrame(rows, columns=columns)
     return _layer(frame, corrected), _layer(frame, raw)
 
@@ -358,6 +368,10 @@ def _joined_ids(frame: pd.DataFrame, key: str, other: str) -> dict:
     return {k: LIST_SEP.join(str(i) for i in sorted(v)) for k, v in out.items()}
 
 
+_TIE_COLUMNS = ("agency_hub_id", "group", "hub_id", "relation", "distance_m", "agency_name",
+                "HubNameHE", "eligible", *_TIE_EXTRA)
+
+
 def _hub_layers(hubs: HubComparison, agency: AgencyNetwork, our_hubs: gpd.GeoDataFrame) -> tuple:
     table = hubs.hubs
     paired = table[table["relation"].isin(PAIRED)]
@@ -387,10 +401,8 @@ def _hub_layers(hubs: HubComparison, agency: AgencyNetwork, our_hubs: gpd.GeoDat
             continue
         p, q = nearest_points(ga, gb)
         ties.append(LineString([p, q]))
-        rows.append({k: rec[k] for k in ("agency_hub_id", "group", "hub_id", "relation",
-                                         "distance_m", "agency_name", "HubNameHE", "eligible")})
-    columns = ["agency_hub_id", "group", "hub_id", "relation", "distance_m", "agency_name",
-               "HubNameHE", "eligible"]
+        rows.append({k: rec.get(k) for k in _TIE_COLUMNS})
+    columns = list(_TIE_COLUMNS)
     return (
         _layer(a.drop(columns="geometry"), list(agency.hubs.geometry)),
         _layer(g, list(our_hubs.geometry)),
@@ -425,7 +437,9 @@ def build_layers(
         the raw positions), ``agency_hubs`` (with ``relation``, ``paired_groups`` and, for an
         ``agency_only`` hub, ``nearest_group`` / ``nearest_distance_m``), ``our_groups`` (with
         ``relation``) and
-        ``hub_ties`` (nearest points of each paired agency hub and group).
+        ``hub_ties`` (nearest points of each paired agency hub and group, with the pair's
+        ``modes_*`` / ``routes_*`` evidence). ``our_routes`` also carries the chosen row's
+        ``cov_ours``, ``cov_agency``, ``median_dist_corr_m``, ``candidates`` and ``reason``.
     """
     corrected, raw = _our_route_layers(routes, our_routes)
     agency_hubs, groups, ties = _hub_layers(hubs, agency, our_hubs)

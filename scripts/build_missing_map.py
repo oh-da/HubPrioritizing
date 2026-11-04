@@ -37,6 +37,14 @@ from shapely.ops import nearest_points
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.compare.agency import read_agency_network  # noqa: E402
+from src.compare.map_assets import (  # noqa: E402
+    AGENCY_HE,
+    BASEMAP_HTML,
+    LABELS,
+    basemap_js,
+    label,
+    plain_reason,
+)
 from src.compare.settings import CompareConfig  # noqa: E402
 
 # ----------------------------------------------------------------------------------------
@@ -76,23 +84,18 @@ CONTEXT_STATUSES = sorted(AGENCY_COVERED)
 DOUBT_STATUSES = ("weak", "mode_differs")
 
 VERDICTS = ("real_gap", "covered_elsewhere", "definition_difference", "check", "present")
-VERDICT_LABEL = {
-    "real_gap": "Likely real gap",
-    "covered_elsewhere": "Covered elsewhere",
-    "definition_difference": "Definition difference",
-    "check": "Check",
-    "present": "Present in both",
-}
+VERDICT_LABEL = {v: LABELS["verdict"][v][0] for v in VERDICTS}  # the shared label map
+AG = AGENCY_HE  # the planning agency, as every visible text names it
 
-SETS = [  # id, panel label (the page template has the same order)
-    ("ag_line", "Agency lines missing from our network"),
-    ("our_line", "Our lines missing from the agency network"),
-    ("doubt", "Doubtful lines (unclear whether missing)"),
-    ("both_line", "Lines present in both"),
-    ("ag_hub", "Agency hubs with no hub of ours within 400 m"),
-    ("ag_hub_filt", "Agency hubs we have as a group but filtered out"),
-    ("our_hub", "Our scored hubs with no agency hub within 400 m"),
-    ("both_hub", "Hubs present in both"),
+SETS = [  # id, label (the page template has the same order)
+    ("ag_line", f"{AG} lines we don't have"),
+    ("our_line", f"Our lines {AG} doesn't have"),
+    ("doubt", "Unclear lines"),
+    ("both_line", "Lines in both"),
+    ("ag_hub", f"{AG} hubs with no hub of ours"),
+    ("ag_hub_filt", f"{AG} hubs we filtered out"),
+    ("our_hub", f"Our hubs {AG} doesn't have"),
+    ("both_hub", "Hubs in both"),
 ]
 
 TO_WGS = Transformer.from_crs("EPSG:2039", "EPSG:4326", always_xy=True)
@@ -149,6 +152,12 @@ def pct(x: float) -> str:
 
 def split_list(v, sep=";") -> list[str]:
     return [p.strip() for p in txt(v).split(sep) if p.strip()]
+
+
+def reasons_text(v) -> str:
+    """Exclusion reasons (``"a;b"`` or a list) in plain words, joined with ``", "``."""
+    items = v if isinstance(v, (list, tuple, set)) else split_list(v)
+    return ", ".join(label("exclusion", x) for x in items)
 
 
 def latlng(x: float, y: float) -> list[float]:
@@ -291,18 +300,18 @@ def agency_route_facts(ix: Index, r) -> list:
     geom = ix.ag_routes.loc[key, "geometry"] if key in ix.ag_routes.index else None
     t = txt(r["agency_type"])
     facts = [
-        ("agency route", key),
+        (f"line of {AG}", key),
         ("mode", ix.agency_type_label(t)),
         ("name", txt(r["agency_name"])),
         ("line name", txt(r["agency_line_name"])),
         ("stops", fmt_int(r["agency_n_stops"])),
         ("length", f"{geom.length / 1000:.1f} km" if geom is not None else ""),
-        ("year of operation", txt(r["year_operation"])),
-        ("year cancelled", txt(r["year_cancel"])),
-        ("source plan", txt(r["source_plan"])),
+        ("opens", txt(r["year_operation"])),
+        ("ends", txt(r["year_cancel"])),
+        ("plan", txt(r["source_plan"])),
     ]
     if t in RAIL_AGENCY_TYPES:
-        facts.append(("note", "the agency cuts rail into per-segment features: indicative only"))
+        facts.append(("note", f"{AG} draws rail in short pieces, so rail results are rough"))
     return facts
 
 
@@ -347,36 +356,36 @@ def build_agency_lines(d, ix: Index) -> list:
     for _, r in rows.iterrows():
         key = r["agency_route_key"]
         ev = eval_agency_route(ix, key)
-        what = "stops" if ev["has_stops"] else "100 m points (no stops)"
+        what = "stops" if ev["has_stops"] else "points every 100 m (it has no stops)"
         top = first_names(ev["by_route"])
         named = ", ".join(f"{k} ({ix.our_mode.get(k, '')}, {c})" for k, c in top)
         if ev["share"] >= COVERED_SHARE:
             v = "covered_elsewhere"
             why = (
-                f"{ev['served']} of {ev['n']} {what} have a node of ours within "
-                f"{STOP_NEAR_NODE_M:g} m, served mostly by our routes {named} "
-                "(another mode or alignment, so step 1 did not pair them)."
+                f"{ev['served']} of {ev['n']} {what} have a stop of ours within "
+                f"{STOP_NEAR_NODE_M:g} m, mostly on our lines {named} "
+                "(another mode or path, so the comparison did not pair them)."
             )
         elif ev["share"] < GAP_SHARE:
             v = "real_gap"
             why = (
-                f"No node of ours within {STOP_NEAR_NODE_M:g} m of {ev['n'] - ev['served']} of "
-                f"{ev['n']} {what}; the farthest is {fmt_m(ev['far'])} from our nearest node."
+                f"No stop of ours within {STOP_NEAR_NODE_M:g} m of {ev['n'] - ev['served']} of "
+                f"{ev['n']} {what}; the farthest is {fmt_m(ev['far'])} from our nearest stop."
             )
         else:
             v = "check"
             why = (
-                f"{ev['served']} of {ev['n']} {what} ({pct(ev['share'])}) have a node of ours "
+                f"{ev['served']} of {ev['n']} {what} ({pct(ev['share'])}) have a stop of ours "
                 "within "
                 f"{STOP_NEAR_NODE_M:g} m: partly served" + (f", by {named}" if named else "") + "."
             )
         facts = agency_route_facts(ix, r) + [
-            (f"{what} near our nodes", f"{ev['served']} / {ev['n']} ({pct(ev['share'])})"),
-            ("farthest stop to our nearest node", fmt_m(ev["far"])),
+            (f"{what} near our stops", f"{ev['served']} / {ev['n']} ({pct(ev['share'])})"),
+            ("farthest stop from our stops", fmt_m(ev["far"])),
             (f"length within {ev['tol']:g} m of our lines", pct(ev["len_share"])),
-            ("our routes nearby", named),
-            ("compare-network", txt(r["reason"])),
-            ("candidates of ours", txt(r["candidates"])),
+            ("our lines nearby", named),
+            ("comparison note", plain_reason(r["reason"])),
+            ("close lines of ours", txt(r["candidates"])),
         ]
         geom = {"a": lines_of(ix.ag_routes.loc[key, "geometry"])}
         title = txt(r["agency_name"]) or key
@@ -389,7 +398,7 @@ def build_agency_lines(d, ix: Index) -> list:
                 title,
                 facts,
                 geom,
-                f"{title} · agency only · {VERDICT_LABEL[v]}",
+                f"{title} · only in {AG} · {VERDICT_LABEL[v]}",
             )
         )
     return out
@@ -444,43 +453,41 @@ def build_our_lines(d, ix: Index) -> list:
         if reason == "no agency mode":
             v = "definition_difference"
             why = (
-                f"Our mode {r['our_mode']} has no agency counterpart in the mode map, so it cannot "
-                "match by definition" + (f"; agency routes nearby: {named}" if named else "") + "."
+                f"Our mode {r['our_mode']} has no counterpart at {AG}, so it cannot match"
+                + (f"; their lines nearby: {named}" if named else "") + "."
             )
         elif ev["other_share"] >= COVERED_SHARE:
             v = "covered_elsewhere"
             why = (
-                f"{pct(ev['other_share'])} of its nodes lie within {ev['route_tol']:g} m of an "
-                "agency "
-                f"route of another mode: {named}."
+                f"{pct(ev['other_share'])} of its stops lie within {ev['route_tol']:g} m of a "
+                f"line of {AG} of another mode: {named}."
             )
         elif max(ev["any_share"], ev["stop_share"]) < GAP_SHARE:
             v = "real_gap"
             why = (
-                f"Only {pct(ev['any_share'])} of its nodes are within {ev['route_tol']:g} m of "
-                "any agency "
-                f"route and {pct(ev['stop_share'])} within {ev['stop_tol']:g} m of an agency stop: "
-                "the agency has no line here."
+                f"Only {pct(ev['any_share'])} of its stops are within {ev['route_tol']:g} m of "
+                f"any line of {AG} and {pct(ev['stop_share'])} within {ev['stop_tol']:g} m of "
+                f"one of their stops: {AG} has no line here."
             )
         else:
             v = "check"
             why = (
-                f"{pct(ev['any_share'])} of its nodes are near an agency route ({named or 'none'}) "
-                "but not enough to match: partly on agency lines."
+                f"{pct(ev['any_share'])} of its stops are near a line of {AG} "
+                f"({named or 'none'}), but not enough to match: partly on their lines."
             )
         facts = [
-            ("our route", key),
+            ("our line", key),
             ("mode", txt(r["our_mode"])),
             ("line ids", txt(r["our_line_ids"])),
             ("line names", txt(r["our_line_names"]).strip("; ")),
-            ("nodes", fmt_int(r["our_n_nodes"])),
-            (f"nodes within {ev['stop_tol']:g} m of an agency stop", pct(ev["stop_share"])),
-            (f"nodes within {ev['route_tol']:g} m of an agency route", pct(ev["any_share"])),
+            ("stops", fmt_int(r["our_n_nodes"])),
+            (f"stops within {ev['stop_tol']:g} m of a stop of {AG}", pct(ev["stop_share"])),
+            (f"stops within {ev['route_tol']:g} m of a line of {AG}", pct(ev["any_share"])),
             ("… of another mode", pct(ev["other_share"])),
-            ("agency routes nearby", named),
-            ("compare-network reason", reason),
-            ("candidates", txt(r["candidates"])),
-            ("geometry", "our nodes joined in order (visual aid)"),
+            (f"lines of {AG} nearby", named),
+            ("comparison note", plain_reason(reason)),
+            ("close lines", txt(r["candidates"])),
+            ("shape", "drawn through the stops in order"),
         ]
         geom = geoms[key]
         g = {"op": point_of(geom)} if geom.geom_type == "Point" else {"o": lines_of(geom)}
@@ -493,7 +500,7 @@ def build_our_lines(d, ix: Index) -> list:
                 key,
                 facts,
                 g,
-                f"{key} ({r['our_mode']}) · ours only · {VERDICT_LABEL[v]}",
+                f"{key} ({r['our_mode']}) · only in Hubs project · {VERDICT_LABEL[v]}",
             )
         )
     return out
@@ -510,23 +517,22 @@ def build_doubtful(d, ix: Index) -> list:
         if r["status"] == "mode_differs" and co >= FULL_COV and ca >= FULL_COV:
             v = "definition_difference"
             why = (
-                f"Same alignment (coverage {co:.2f} / {ca:.2f}), but ours is {r['our_mode']} and "
-                "the "
-                f"agency's {akey} is {r['agency_type']}: a mode classification difference."
+                f"Same path (overlap {co:.2f} / {ca:.2f}), but ours is {r['our_mode']} and "
+                f"their {akey} is {r['agency_type']}: the two sides name the mode differently."
             )
         elif r["status"] == "mode_differs":
             v = "check"
             why = (
-                f"Runs on agency {akey} ({r['agency_type']}) with score {sc:.2f}, but ours is "
-                f"{r['our_mode']} and the coverages ({co:.2f} / {ca:.2f}) are not both ≥ "
-                f"{FULL_COV}."
+                f"Runs on their line {akey} ({r['agency_type']}) with overlap score {sc:.2f}, "
+                f"but ours is {r['our_mode']} and the overlap shares ({co:.2f} / {ca:.2f}) are "
+                f"not both ≥ {FULL_COV}."
             )
         else:
             v = "check"
             why = (
-                f"Best same-mode agency route {akey} only partly overlaps (ours on it {co:.2f}, "
-                "its stops "
-                f"near ours {ca:.2f}, score {sc:.2f} < 0.5): different alignment or extent."
+                f"Their closest line of the same mode, {akey}, only partly overlaps (ours on it "
+                f"{co:.2f}, its stops near ours {ca:.2f}, overlap score {sc:.2f} < 0.5): a "
+                "different path or length."
             )
         prow = pairs[(pairs["status"] == r["status"]) & (pairs["our_route_key"] == key)]
         g = {"a": lines_of(prow.geometry.iloc[0]) if len(prow) else []}
@@ -537,23 +543,24 @@ def build_doubtful(d, ix: Index) -> list:
             else:
                 g["o"] = lines_of(geom)
         facts = [
-            ("status", r["status"]),
-            ("our route", key),
+            ("result", label("route_status", r["status"])),
+            ("our line", key),
             ("our mode", txt(r["our_mode"])),
-            ("our nodes", fmt_int(r["our_n_nodes"])),
-            ("agency route (best candidate)", akey),
-            ("agency mode", ix.agency_type_label(txt(r["agency_type"]))),
-            ("agency name", txt(r["agency_name"])),
-            ("agency stops", fmt_int(r["agency_n_stops"])),
-            ("cov_ours (our nodes on it)", f"{co:.2f}"),
-            ("cov_agency (its stops near ours)", f"{ca:.2f}"),
-            ("score", f"{sc:.2f}"),
-            ("all candidates", txt(r["candidates"])),
+            ("our stops", fmt_int(r["our_n_nodes"])),
+            (f"closest line of {AG}", akey),
+            ("its mode", ix.agency_type_label(txt(r["agency_type"]))),
+            ("its name", txt(r["agency_name"])),
+            ("its stops", fmt_int(r["agency_n_stops"])),
+            ("share of our line on theirs", f"{co:.2f}"),
+            ("share of their line on ours", f"{ca:.2f}"),
+            ("overlap score", f"{sc:.2f}"),
+            ("close lines", txt(r["candidates"])),
             (
-                "other rows of this agency route",
-                "; ".join(sorted(ix.status_agency.get(akey, set()) - {r["status"]})),
+                "other results for their line",
+                "; ".join(label("route_status", x) for x in
+                          sorted(ix.status_agency.get(akey, set()) - {r["status"]})),
             ),
-            ("tie", "dashed green = ours (visual aid), dashed orange = agency"),
+            ("drawing", f"dashed green = ours (through the stops in order), dashed orange = {AG}"),
         ]
         out.append(
             feature(
@@ -564,7 +571,7 @@ def build_doubtful(d, ix: Index) -> list:
                 key,
                 facts,
                 g,
-                f"{key} ↔ {akey} · {r['status']} · {VERDICT_LABEL[v]}",
+                f"{key} ↔ {akey} · {label('route_status', r['status'])} · {VERDICT_LABEL[v]}",
             )
         )
     return out
@@ -576,7 +583,8 @@ def build_both_lines(d, ix: Index) -> list:
     rows = d["routes"][d["routes"]["status"].isin(CONTEXT_STATUSES)]
     for akey, grp in sorted(rows.groupby("agency_route_key"), key=lambda kv: kv[0]):
         r0 = grp.iloc[0]
-        ours = sorted(f"{k} ({s})" for k, s in zip(grp["our_route_key"].map(txt), grp["status"]))
+        ours = sorted(f"{k} ({label('route_status', s)})"
+                      for k, s in zip(grp["our_route_key"].map(txt), grp["status"]))
         best = grp["score"].max()
         prow = pairs[pairs["agency_route_key"] == akey]
         g = {
@@ -587,13 +595,13 @@ def build_both_lines(d, ix: Index) -> list:
             )
         }
         facts = agency_route_facts(ix, r0)[:5] + [
-            ("our routes on it", "; ".join(ours)),
-            ("best score", f"{num(best, 0):.2f}"),
+            ("our lines on it", "; ".join(ours)),
+            ("best overlap score", f"{num(best, 0):.2f}"),
         ]
         why = (
-            f"The agency route has {len(grp)} route(s) of ours on it "
-            f"({', '.join(sorted(set(grp['status'])))}): "
-            "present in both, shown for context."
+            f"Their line has {len(grp)} line(s) of ours on it "
+            f"({', '.join(sorted({label('route_status', x) for x in grp['status']}))}): "
+            "in both, shown for context."
         )
         title = txt(r0["agency_name"]) or akey
         out.append(
@@ -605,7 +613,7 @@ def build_both_lines(d, ix: Index) -> list:
                 title,
                 facts,
                 g,
-                f"{title} · present in both",
+                f"{title} · in both",
             )
         )
     return out
@@ -613,11 +621,11 @@ def build_both_lines(d, ix: Index) -> list:
 
 def agency_hub_facts(r) -> list:
     return [
-        ("agency hub id", txt(r["agency_hub_id"])),
-        ("agency type (derived)", txt(r["agency_type"])),
+        ("hub id", txt(r["agency_hub_id"])),
+        ("type (worked out from its modes)", txt(r["agency_type"])),
         ("modes", txt(r["agency_modes"])),
-        ("routes", fmt_int(r["agency_n_routes"])),
-        ("rail hub flag", "yes" if truthy(r["agency_rail_hub"]) else "no"),
+        ("lines", fmt_int(r["agency_n_routes"])),
+        ("at a rail station", "yes" if truthy(r["agency_rail_hub"]) else "no"),
     ]
 
 
@@ -631,38 +639,35 @@ def build_agency_hubs_missing(d, ix: Index) -> list:
         present = sorted(k for k in aroutes if ix.status_agency.get(k, set()) & AGENCY_COVERED)
         ng = int(r["nearest_group"]) if num(r["nearest_group"]) is not None else None
         n_el = truthy(r["nearest_eligible"])
-        n_reason = txt(r["nearest_exclusion_reason"]) or ("—" if n_el else "")
+        n_reason = reasons_text(r["nearest_exclusion_reason"]) or ("—" if n_el else "")
         if dist > NO_HUB_AROUND_M and not present:
             v = "real_gap"
             why = (
-                f"No node of ours within {NO_HUB_AROUND_M:g} m (nearest group {fmt_m(dist)} away) "
-                "and none of "
-                f"its {len(aroutes)} route(s) is in our network."
+                f"No stop of ours within {NO_HUB_AROUND_M:g} m (nearest group {fmt_m(dist)} away) "
+                f"and none of its {len(aroutes)} line(s) is in our network."
             )
         elif dist > NO_HUB_AROUND_M:
             v = "check"
             why = (
-                f"Its route(s) {', '.join(present)} exist in our network, but no node of ours is "
-                "within "
-                f"{NO_HUB_AROUND_M:g} m ({fmt_m(dist)}): stop placement or alignment differs."
+                f"Its line(s) {', '.join(present)} exist in our network, but no stop of ours is "
+                f"within {NO_HUB_AROUND_M:g} m ({fmt_m(dist)}): the stops or the path differ."
             )
         else:
-            state = "a scored hub" if n_el else f"filtered out ({n_reason})"
+            state = "a scored hub" if n_el else f"not scored ({n_reason})"
             v = "check"
             why = (
-                f"Our group {ng} is {fmt_m(dist)} away (outside the {HUB_MATCH_M:g} m match "
-                "radius) and is "
-                f"{state}."
-                + (f" Its routes {', '.join(present)} are in our network." if present else "")
+                f"Our group {ng} is {fmt_m(dist)} away (farther than the {HUB_MATCH_M:g} m used "
+                f"to match hubs) and is {state}."
+                + (f" Its lines {', '.join(present)} are in our network." if present else "")
             )
         facts = agency_hub_facts(r) + [
-            ("agency routes", "; ".join(aroutes)),
+            ("its lines", "; ".join(aroutes)),
             ("of them in our network", "; ".join(present) or "none"),
             ("nearest group of ours", txt(ng)),
             ("nearest group name", txt(r["nearest_HubNameHE"])),
             ("distance to it", fmt_m(dist)),
-            ("nearest group eligible", "yes" if n_el else "no"),
-            ("its exclusion reason", txt(r["nearest_exclusion_reason"])),
+            ("nearest group scored", "yes" if n_el else "no"),
+            ("why it is not scored", reasons_text(r["nearest_exclusion_reason"])),
         ]
         hgeom = ix.ag_hub_geom[hid]
         g = {"p": point_of(hgeom)}
@@ -680,7 +685,7 @@ def build_agency_hubs_missing(d, ix: Index) -> list:
                 title,
                 facts,
                 g,
-                f"{title} · agency hub only · {VERDICT_LABEL[v]}",
+                f"{title} · hub only in {AG} · {VERDICT_LABEL[v]}",
             )
         )
     return out
@@ -719,38 +724,42 @@ def build_agency_hubs_filtered(d, ix: Index) -> list:
         needs = []
         if "demand < min" in reasons:
             needs.append(
-                f"+{fmt_int(MIN_DEMAND - max_dem)} passengers/day on the busiest group "
-                f"({fmt_int(max_dem)} vs {fmt_int(MIN_DEMAND)})"
+                f"{fmt_int(MIN_DEMAND - max_dem)} more passengers a day on the busiest group "
+                f"({fmt_int(max_dem)} of {fmt_int(MIN_DEMAND)})"
             )
         if "single mode" in reasons:
             needs.append("a second mass-transit mode in the group")
         if "rail only" in reasons:
-            needs.append("a non-rail mode")
+            needs.append("a mode that is not rail")
         merged = (
             f" Together its {len(grp)} groups have {len(modes)} mode(s) and {fmt_int(demand)} "
-            "passengers/day."
+            "passengers a day."
             if len(grp) > 1
             else ""
         )
         if "demand < min" in reasons:
             v = "check"
             why = (
-                f"Our group(s) exist but are filtered for {', '.join(reasons)}: busiest has "
-                f"{fmt_int(max_dem)} passengers/day vs the {fmt_int(MIN_DEMAND)} minimum.{merged}"
+                f"Our group(s) exist but are not scored ({reasons_text(reasons)}): the busiest "
+                f"has {fmt_int(max_dem)} passengers a day, the minimum is "
+                f"{fmt_int(MIN_DEMAND)}.{merged}"
             )
         else:
             v = "definition_difference"
             what = []
             if "single mode" in reasons:
                 what.append(
-                    "the agency counts same-mode interchanges as hubs, our rule needs ≥ 2 modes"
+                    f"{AG} counts changes within one mode as hubs, our rule needs 2 or more modes"
                 )
             if "rail only" in reasons:
-                what.append("our rule needs a non-rail mode")
-            why = f"Filtered for {', '.join(reasons)}: {'; '.join(what)}.{merged}"
+                what.append("our rule needs a mode that is not rail")
+            why = f"Not scored ({reasons_text(reasons)}): {'; '.join(what)}.{merged}"
         gl = [
             " · ".join(
-                x for x in (f"group {int(g)}", txt(n), txt(m), f"{fmt_int(dm)}/day", txt(e)) if x
+                x
+                for x in (f"group {int(g)}", txt(n), txt(m), f"{fmt_int(dm)} a day",
+                          reasons_text(e))
+                if x
             )
             for g, n, m, dm, e in zip(
                 grp["group"],
@@ -761,17 +770,17 @@ def build_agency_hubs_filtered(d, ix: Index) -> list:
             )
         ]
         facts = agency_hub_facts(r0) + [
-            ("paired groups of ours (all filtered)", " | ".join(gl)),
-            ("exclusion reasons", "; ".join(reasons)),
+            (f"our groups within {HUB_MATCH_M:g} m (none scored)", " | ".join(gl)),
+            ("why not scored", reasons_text(reasons)),
             (
-                "modes shared",
+                "modes at both",
                 "; ".join(sorted({m for v in grp["modes_shared"] for m in split_list(v)})),
             ),
             (
-                "routes shared",
+                "lines at both",
                 "; ".join(sorted({m for v in grp["routes_shared"] for m in split_list(v)})),
             ),
-            ("to qualify", "; ".join(needs)),
+            ("needed to be scored", "; ".join(needs)),
         ]
         hgeom = ix.ag_hub_geom[hid]
         groups = [int(x) for x in grp["group"]]
@@ -790,7 +799,7 @@ def build_agency_hubs_filtered(d, ix: Index) -> list:
                 title,
                 facts,
                 g,
-                f"{title} · our group filtered out · {VERDICT_LABEL[v]}",
+                f"{title} · our group not scored · {VERDICT_LABEL[v]}",
             )
         )
     return out
@@ -813,38 +822,38 @@ def build_our_hubs_missing(d, ix: Index) -> list:
         if nd > NO_HUB_AROUND_M and not matched:
             v = "real_gap"
             why = (
-                f"No agency hub within {NO_HUB_AROUND_M:g} m (nearest {fmt_m(nd)}) and none of its "
-                f"{len(oroutes)} route(s) matches an agency route: the agency lacks this hub."
+                f"No hub of {AG} within {NO_HUB_AROUND_M:g} m (nearest {fmt_m(nd)}) and none of "
+                f"its {len(oroutes)} line(s) matches one of theirs: {AG} does not have this hub."
             )
         elif nd > NO_HUB_AROUND_M:
             v = "check"
             why = (
-                f"No agency hub within {NO_HUB_AROUND_M:g} m (nearest {fmt_m(nd)}), but its routes "
-                f"{', '.join(matched)} match agency routes: the agency has the lines, not a hub "
+                f"No hub of {AG} within {NO_HUB_AROUND_M:g} m (nearest {fmt_m(nd)}), but its "
+                f"lines {', '.join(matched)} match lines of {AG}: they have the lines, not a hub "
                 "here."
             )
         else:
             v = "check"
             why = (
-                f"Nearest agency hub {nh} is {fmt_m(nd)} away, outside the {HUB_MATCH_M:g} m "
-                "match radius"
-                + (f"; routes {', '.join(matched)} match agency routes." if matched else ".")
+                f"The nearest hub of {AG}, {nh}, is {fmt_m(nd)} away, farther than the "
+                f"{HUB_MATCH_M:g} m used to match hubs"
+                + (f"; lines {', '.join(matched)} match lines of {AG}." if matched else ".")
             )
         facts = [
             ("group", str(gid)),
-            ("hub_id", txt(r["hub_id"])),
-            ("HubType", txt(r["HubType"])),
-            ("RankByHubTypeMetro", txt(r["RankByHubTypeMetro"])),
+            ("hub id", txt(r["hub_id"])),
+            ("hub type", label("hub_type", txt(r["HubType"])) if txt(r["HubType"]) else ""),
+            ("rank in its type and area", txt(r["RankByHubTypeMetro"])),
             (
-                "TotalScore_MC",
+                "score",
                 f"{num(r['TotalScore_MC'], 0):.2f}" if num(r["TotalScore_MC"]) is not None else "",
             ),
-            ("TotalDemand", fmt_int(r["TotalDemand"])),
+            ("passengers a day", fmt_int(r["TotalDemand"])),
             ("modes", txt(r["Mode_Planned"])),
             ("lines", fmt_int(r["n_lines"])),
-            ("our routes", "; ".join(oroutes)),
-            ("of them matching an agency route", "; ".join(matched) or "none"),
-            ("nearest agency hub", " · ".join(x for x in (f"hub {nh}", aname) if x)),
+            ("our lines", "; ".join(oroutes)),
+            (f"of them matching a line of {AG}", "; ".join(matched) or "none"),
+            (f"nearest hub of {AG}", " · ".join(x for x in (f"hub {nh}", aname) if x)),
             ("distance to it", fmt_m(nd)),
         ]
         g = {"p": point_of(geom)}
@@ -858,7 +867,7 @@ def build_our_hubs_missing(d, ix: Index) -> list:
                 title,
                 facts,
                 g,
-                f"{title} · ours only · {VERDICT_LABEL[v]}",
+                f"{title} · only in Hubs project · {VERDICT_LABEL[v]}",
             )
         )
     return out
@@ -873,24 +882,29 @@ def build_both_hubs(d, ix: Index) -> list:
         el = grp[grp["el"]].sort_values("group")
         r0 = grp.iloc[0]
         gl = [
-            " · ".join(x for x in (f"group {int(g)}", txt(n), txt(t), f"rank {txt(k)}") if x)
+            " · ".join(
+                x
+                for x in (f"group {int(g)}", txt(n), label("hub_type", txt(t)) if txt(t) else "",
+                          f"rank {txt(k)}")
+                if x
+            )
             for g, n, t, k in zip(
                 el["group"], el["HubNameHE"], el["HubType"], el["RankByHubTypeMetro"]
             )
         ]
         facts = agency_hub_facts(r0) + [
-            ("relation", txt(r0["relation"])),
+            ("match", label("hub_relation", txt(r0["relation"]))),
             ("our scored hubs", " | ".join(gl)),
             (
-                "modes shared",
+                "modes at both",
                 "; ".join(sorted({m for v in el["modes_shared"] for m in split_list(v)})),
             ),
             (
-                "modes only agency",
+                f"modes only at {AG}",
                 "; ".join(sorted({m for v in el["modes_only_agency"] for m in split_list(v)})),
             ),
             (
-                "modes only ours",
+                "modes only in ours",
                 "; ".join(sorted({m for v in el["modes_only_ours"] for m in split_list(v)})),
             ),
             ("distance", fmt_m(el["distance_m"].min())),
@@ -903,10 +917,7 @@ def build_both_hubs(d, ix: Index) -> list:
             "ties": ties_for(d, int(hid), groups),
         }
         title = txt(r0["agency_name"]) or f"hub {hid}"
-        why = (
-            f"Paired with {len(el)} scored hub(s) of ours within {HUB_MATCH_M:g} m: "
-            "present in both."
-        )
+        why = f"Matched with {len(el)} scored hub(s) of ours within {HUB_MATCH_M:g} m: in both."
         out.append(
             feature(
                 f"both_hub:{int(hid)}",
@@ -916,7 +927,7 @@ def build_both_hubs(d, ix: Index) -> list:
                 title,
                 facts,
                 g,
-                f"{title} · present in both",
+                f"{title} · in both",
             )
         )
     return out
@@ -939,63 +950,61 @@ def fact(f, key):
     return ""
 
 
+def verdict_rules() -> list[tuple[str, str]]:
+    """How each set's verdict is decided, in plain words (the page and the summary share it)."""
+    m = {v: VERDICT_LABEL[v] for v in VERDICTS}
+    return [
+        (f"{AG} lines we don't have",
+         f"we count how many of its stops (or points every 100 m when it has no stops) have a "
+         f"stop of ours, of any mode, within {STOP_NEAR_NODE_M:g} m. Half or more: "
+         f"{m['covered_elsewhere']}; under a fifth: {m['real_gap']}; in between: {m['check']}."),
+        (f"Our lines {AG} doesn't have",
+         f"a mode {AG} does not have (Cable Line): {m['definition_difference']}; half or more of "
+         f"its stops within {ROUTE_NEAR_M:g} m (rail {RAIL_ROUTE_NEAR_M:g} m) of a line of "
+         f"{AG} of another mode: {m['covered_elsewhere']}; under a fifth near any of their lines "
+         f"and stops ({STOP_NEAR_NODE_M:g} m, rail {RAIL_STOP_NEAR_NODE_M:g} m): "
+         f"{m['real_gap']}; otherwise {m['check']}."),
+        ("Unclear lines",
+         f"{m['check']}, except a line of another mode on the same path (both overlap shares "
+         f"{FULL_COV} or more): {m['definition_difference']}."),
+        (f"{AG} hubs with no hub of ours",
+         f"no stop of ours within {NO_HUB_AROUND_M:g} m and none of the hub's lines in our "
+         f"network: {m['real_gap']}; otherwise {m['check']}."),
+        (f"{AG} hubs we filtered out",
+         f"a nearby group of ours with under {fmt_int(MIN_DEMAND)} passengers a day: "
+         f"{m['check']}; only one mode or only rail lines: {m['definition_difference']} "
+         f"({AG} counts changes within one mode, our rule needs 2 or more modes and a mode "
+         "that is not rail)."),
+        (f"Our hubs {AG} doesn't have",
+         f"no hub of {AG} within {NO_HUB_AROUND_M:g} m and none of the hub's lines matches one "
+         f"of theirs: {m['real_gap']}; otherwise {m['check']}."),
+        ("Lines and hubs in both", f"shown for context: {m['present']}."),
+    ]
+
+
 def write_summary(features, run_note: str) -> str:
     c = counts_table(features)
     L = [
-        "# Missing lines and hubs: Hubs project vs Minhal (MT_Network)",
+        f"# Missing lines and hubs: Hubs project vs {AG}",
         "",
         f"Data: {run_note}, "
-        "compared with `hubs compare-network` (offset corrected, hub match radius 400 m). "
-        "Generated by `build_missing_map.py`.",
+        "compared with `hubs compare-network` (our stops shifted by the local offset, hubs "
+        f"matched within {HUB_MATCH_M:g} m). Generated by `build_missing_map.py`.",
         "",
         "## Counts per set and verdict",
         "",
         "| set | features | " + " | ".join(VERDICT_LABEL[v] for v in VERDICTS) + " |",
         "|---|---:|" + "---:|" * len(VERDICTS),
     ]
-    for s, label in SETS:
+    for s, name in SETS:
         L.append(
-            f"| {label} | {sum(c[s].values())} | "
+            f"| {name} | {sum(c[s].values())} | "
             + " | ".join(str(c[s][v]) for v in VERDICTS)
             + " |"
         )
-    L += [
-        "",
-        "## How the verdicts are decided",
-        "",
-        "- **Agency line missing** (`agency_only`): the share of its stops (or 100 m points for "
-        "a route "
-        f"without stops) with a node of ours (any mode) within {STOP_NEAR_NODE_M:g} m. "
-        f">= {COVERED_SHARE} -> covered elsewhere; < {GAP_SHARE} -> likely real gap; otherwise "
-        "check. "
-        f"Also shown: the share of its length within {ROUTE_NEAR_M:g} m ({RAIL_ROUTE_NEAR_M:g} m "
-        "for rail) "
-        "of our node chains.",
-        "- **Our line missing** (`ours_only`): `no agency mode` -> definition difference; >= "
-        f"{COVERED_SHARE} of "
-        f"its nodes within {ROUTE_NEAR_M:g} m ({RAIL_ROUTE_NEAR_M:g} m rail) of an agency route "
-        "of another mode "
-        f"-> covered elsewhere; < {GAP_SHARE} near any agency route and any agency stop "
-        f"({STOP_NEAR_NODE_M:g} m / {RAIL_STOP_NEAR_NODE_M:g} m rail) -> likely real gap; "
-        "otherwise check.",
-        "- **Doubtful** (`weak`, `mode_differs`): check, except `mode_differs` with both "
-        f"coverages >= {FULL_COV} "
-        "-> definition difference (same alignment, other mode).",
-        "- **Agency hub with no hub of ours** (`agency_only`): nearest group > "
-        f"{NO_HUB_AROUND_M:g} m and none of "
-        f"the hub's agency routes is present in our network -> likely real gap; otherwise check.",
-        "- **Agency hub on filtered groups**: any paired group filtered for `demand < min` -> "
-        "check; "
-        "only `single mode` / `rail only` -> definition difference.",
-        f"- **Our scored hub with no agency hub** (`ours_only`, eligible): nearest agency hub > "
-        f"{NO_HUB_AROUND_M:g} m and none of its routes matches an agency route (matched, "
-        "split_merge, partial, "
-        "contained) -> likely real gap; otherwise check.",
-        "- Context sets are `present in both` (no gap).",
-        "",
-        "## 15 most important findings",
-        "",
-    ]
+    L += ["", "## How the verdicts are decided", ""]
+    L += [f"- **{name}**: {text}" for name, text in verdict_rules()]
+    L += ["", "## 15 most important findings", ""]
     by = defaultdict(list)
     for f in features:
         by[f["s"]].append(f)
@@ -1007,43 +1016,44 @@ def write_summary(features, run_note: str) -> str:
     )
     for f in gaps[:5]:
         items.append(
-            f"Agency line we lack (likely real gap): `{fact(f, 'agency route')}` {f['t']} "
+            f"Line of {AG} we don't have ({VERDICT_LABEL['real_gap']}): "
+            f"`{fact(f, f'line of {AG}')}` {f['t']} "
             f"({fact(f, 'mode')}), {fact(f, 'length')}, {fact(f, 'stops') or '0'} stops, "
-            f"opening {fact(f, 'year of operation') or 'n/a'}. {f['why']}"
+            f"opens {fact(f, 'opens') or 'n/a'}. {f['why']}"
         )
     chk = sorted(
         [f for f in by["ag_line"] if f["v"] == "check"], key=lambda f: (-stops(f), f["id"])
     )
     for f in chk[:2]:
         items.append(
-            f"Agency line partly served by ours (check): `{fact(f, 'agency route')}` {f['t']}, "
-            f"{fact(f, 'stops')} stops. {f['why']}"
+            f"Line of {AG} partly served by ours ({VERDICT_LABEL['check']}): "
+            f"`{fact(f, f'line of {AG}')}` {f['t']}, {fact(f, 'stops')} stops. {f['why']}"
         )
-    nr = lambda f: int(fact(f, "routes") or 0)
+    nr = lambda f: int(fact(f, "lines") or 0)
     ah = sorted(by["ag_hub"], key=lambda f: (-nr(f), f["id"]))
     for f in ah[:3]:
         items.append(
-            f"Agency hub without a hub of ours: {f['id'].split(':')[1]} {f['t']} "
-            f"({fact(f, 'agency type (derived)')}, {fact(f, 'routes')} routes), "
+            f"Hub of {AG} with no hub of ours: {f['id'].split(':')[1]} {f['t']} "
+            f"({fact(f, 'type (worked out from its modes)')}, {fact(f, 'lines')} lines), "
             f"verdict {VERDICT_LABEL[f['v']]}. {f['why']}"
         )
-    sc = lambda f: float(fact(f, "TotalScore_MC") or 0)
+    sc = lambda f: float(fact(f, "score") or 0)
     oh = sorted(by["our_hub"], key=lambda f: (-sc(f), f["id"]))
     for f in oh[:3]:
         name = "" if f["t"].startswith("group ") else f" {f['t']}"
         items.append(
-            f"Our scored hub without an agency hub: group {fact(f, 'group')}{name} "
-            f"({fact(f, 'HubType')}, score {fact(f, 'TotalScore_MC')}, rank "
-            f"{fact(f, 'RankByHubTypeMetro')}), "
+            f"Our scored hub that {AG} doesn't have: group {fact(f, 'group')}{name} "
+            f"({fact(f, 'hub type')}, score {fact(f, 'score')}, rank "
+            f"{fact(f, 'rank in its type and area')}), "
             f"verdict {VERDICT_LABEL[f['v']]}. {f['why']}"
         )
     ol = sorted(
-        by["our_line"], key=lambda f: (f["v"] != "real_gap", -int(fact(f, "nodes") or 0), f["id"])
+        by["our_line"], key=lambda f: (f["v"] != "real_gap", -int(fact(f, "stops") or 0), f["id"])
     )
     for f in ol[:2]:
         items.append(
-            f"Our line not in the agency network: `{f['t']}` ({fact(f, 'mode')}, "
-            f"{fact(f, 'nodes')} nodes), "
+            f"Our line that {AG} doesn't have: `{f['t']}` ({fact(f, 'mode')}, "
+            f"{fact(f, 'stops')} stops), "
             f"verdict {VERDICT_LABEL[f['v']]}. {f['why']}"
         )
     for i, s in enumerate(items[:15], 1):
@@ -1102,6 +1112,16 @@ def build_html(features, meta, run_note: str, leaflet_dir: Path | None) -> str:
         page = page.replace(STYLE_SLOT, f'<link rel="stylesheet" href="{LEAFLET_CDN}/leaflet.css">')
         page = page.replace(SCRIPT_SLOT, f'<script src="{LEAFLET_CDN}/leaflet.js"></script>')
     data = {"features": features, "meta": meta}
+    rules = "\n".join(
+        f"      <li><b>{html.escape(name)}</b>: {html.escape(text)}</li>"
+        for name, text in verdict_rules()
+    ).replace(AGENCY_HE, f"<bdi>{AGENCY_HE}</bdi>")
+    page = (
+        page.replace("/*__BASEMAP_HTML__*/", BASEMAP_HTML)
+        .replace("/*__RULES__*/", rules)
+        .replace("/*__VLABEL__*/null", safe_json(VERDICT_LABEL))
+        .replace("/*__BASEMAP_JS__*/", basemap_js())
+    )
     return page.replace("/*__RUN_NOTE__*/", html.escape(run_note)).replace(
         "/*__DATA__*/null", safe_json(data)
     )
@@ -1258,7 +1278,7 @@ PAGE_TEMPLATE = r"""<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Missing Lines and Hubs</title>
-<meta name="description" content="Transit lines and hubs missing between the Hubs project network (פרויקט תעדוף מתחמים) and the planning agency network (מנהל התכנון, MT_Network), each evaluated as a likely real gap, covered elsewhere, a definition difference or to check.">
+<meta name="description" content="Transit lines and hubs missing between the Hubs project network (פרויקט תעדוף מתחמים) and the network of מנהל התכנון, each marked missing, covered by another line, defined differently or needs a look.">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700&display=swap">
 <style>
 /*__LEAFLET_CSS__*/
@@ -1362,48 +1382,54 @@ table.summary td.zero { color: var(--ink-3); }
   .leaflet-top.leaflet-right { top: env(safe-area-inset-top, 0px); }
   .leaflet-popup-content { min-width: 0; }
 }
+.pick { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 6px; }
+.pick select { font: inherit; font-size: 12.5px; padding: 5px 6px; border-radius: 6px; border: 1px solid var(--panel-border); background: var(--bg); color: var(--ink); min-width: 0; }
+.pick select:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.bm-note { color: var(--ink-2); }
+.bm-note:empty { display: none; }
+.panel bdi { white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) { .leaflet-zoom-anim .leaflet-zoom-animated, .leaflet-fade-anim .leaflet-popup { transition: none; } }
 </style>
 </head>
 <body>
-<div id="map" role="application" aria-label="Map of the transit lines and hubs missing between the Hubs project network and the agency network"></div>
+<div id="map" role="application" aria-label="Map of the transit lines and hubs missing between the Hubs project network and the network of מנהל התכנון"></div>
 
-<section class="panel" id="panel" aria-label="Sets, filter, evaluation summary and notes">
+<section class="panel" id="panel" aria-label="Sets, filter, summary and notes">
   <h1>Missing lines and hubs</h1>
-  <p class="sub"><bdi>פרויקט תעדוף מתחמים</bdi> (ours) vs <bdi>מנהל התכנון</bdi> (MT_Network) · <span id="sub-counts"></span></p>
+  <p class="sub"><bdi>פרויקט תעדוף מתחמים</bdi> (ours) vs <bdi>מנהל התכנון</bdi> · <span id="sub-counts"></span></p>
 
-  <label class="filter"><input type="checkbox" id="only-gaps"><span>Show only likely real gaps <small>(verdict ▲)</small></span></label>
+  <label class="filter"><input type="checkbox" id="only-gaps"><span>Show only what is missing <small>(▲ Missing)</small></span></label>
 
-  <p class="eyebrow">Lines (routes)</p>
+  <p class="eyebrow">Lines</p>
   <ul class="sets">
     <li><label><input type="checkbox" id="set-ag_line" data-set="ag_line" checked>
       <svg class="sym" viewBox="0 0 22 16" aria-hidden="true"><line x1="1" y1="8" x2="21" y2="8" stroke="var(--agency)" stroke-width="4" stroke-linecap="round"/></svg>
-      <span class="lbl">Agency lines missing from ours<small>status agency_only · agency geometry</small></span><span class="cnt" id="cnt-ag_line"></span></label></li>
+      <span class="lbl"><bdi>מנהל התכנון</bdi> lines we don't have<small>no line of ours follows it · drawn on their line</small></span><span class="cnt" id="cnt-ag_line"></span></label></li>
     <li><label><input type="checkbox" id="set-our_line" data-set="our_line" checked>
       <svg class="sym" viewBox="0 0 22 16" aria-hidden="true"><polyline points="1,12 8,5 14,10 21,4" fill="none" stroke="var(--ours)" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/></svg>
-      <span class="lbl">Our lines missing from the agency's<small>status ours_only · our nodes joined in order</small></span><span class="cnt" id="cnt-our_line"></span></label></li>
+      <span class="lbl">Our lines <bdi>מנהל התכנון</bdi> doesn't have<small>drawn through our stops in order</small></span><span class="cnt" id="cnt-our_line"></span></label></li>
     <li><label><input type="checkbox" id="set-doubt" data-set="doubt">
       <svg class="sym" viewBox="0 0 22 16" aria-hidden="true"><line x1="1" y1="5" x2="21" y2="5" stroke="var(--agency)" stroke-width="3" stroke-dasharray="6 3"/><line x1="1" y1="11" x2="21" y2="11" stroke="var(--ours)" stroke-width="3" stroke-dasharray="2 3"/></svg>
-      <span class="lbl">Doubtful (unclear whether missing)<small>weak · mode_differs · both sides dashed</small></span><span class="cnt" id="cnt-doubt"></span></label></li>
+      <span class="lbl">Unclear lines<small>barely overlaps or other mode · both sides dashed</small></span><span class="cnt" id="cnt-doubt"></span></label></li>
     <li><label><input type="checkbox" id="set-both_line" data-set="both_line">
       <svg class="sym" viewBox="0 0 22 16" aria-hidden="true"><line x1="1" y1="8" x2="21" y2="8" stroke="var(--ctx)" stroke-width="2"/></svg>
-      <span class="lbl">Present in both (context)<small>matched · split/merge · partial · contained · covered</small></span><span class="cnt" id="cnt-both_line"></span></label></li>
+      <span class="lbl">Lines in both (context)<small>same line, partly the same, split or joined, part of a longer line</small></span><span class="cnt" id="cnt-both_line"></span></label></li>
   </ul>
 
   <p class="eyebrow">Hubs</p>
   <ul class="sets">
     <li><label><input type="checkbox" id="set-ag_hub" data-set="ag_hub" checked>
       <svg class="sym" viewBox="0 0 22 16" aria-hidden="true"><circle cx="11" cy="8" r="6" fill="var(--agency)" fill-opacity=".15" stroke="var(--agency)" stroke-width="2.4"/></svg>
-      <span class="lbl">Agency hubs, no hub of ours ≤ 400 m<small>relation agency_only · grey tie = nearest group</small></span><span class="cnt" id="cnt-ag_hub"></span></label></li>
+      <span class="lbl"><bdi>מנהל התכנון</bdi> hubs with no hub of ours<small>none within 400 m · grey line = our nearest group</small></span><span class="cnt" id="cnt-ag_hub"></span></label></li>
     <li><label><input type="checkbox" id="set-ag_hub_filt" data-set="ag_hub_filt" checked>
       <svg class="sym" viewBox="0 0 22 16" aria-hidden="true"><circle cx="11" cy="8" r="6" fill="none" stroke="var(--agency)" stroke-width="2.2" stroke-dasharray="3 2.4"/></svg>
-      <span class="lbl">Agency hubs on our filtered groups<small>every paired group not eligible (not scored)</small></span><span class="cnt" id="cnt-ag_hub_filt"></span></label></li>
+      <span class="lbl"><bdi>מנהל התכנון</bdi> hubs we filtered out<small>our groups there are not scored</small></span><span class="cnt" id="cnt-ag_hub_filt"></span></label></li>
     <li><label><input type="checkbox" id="set-our_hub" data-set="our_hub" checked>
       <svg class="sym" viewBox="0 0 22 16" aria-hidden="true"><circle cx="11" cy="8" r="6" fill="var(--ours)" stroke="var(--ring)" stroke-width="1.5"/></svg>
-      <span class="lbl">Our scored hubs, no agency hub ≤ 400 m<small>relation ours_only · eligible</small></span><span class="cnt" id="cnt-our_hub"></span></label></li>
+      <span class="lbl">Our hubs <bdi>מנהל התכנון</bdi> doesn't have<small>scored hubs of ours, none of theirs within 400 m</small></span><span class="cnt" id="cnt-our_hub"></span></label></li>
     <li><label><input type="checkbox" id="set-both_hub" data-set="both_hub">
       <svg class="sym" viewBox="0 0 22 16" aria-hidden="true"><line x1="7" y1="8" x2="18" y2="8" stroke="var(--tie)" stroke-width="1.5"/><circle cx="7" cy="8" r="5.5" fill="none" stroke="var(--both)" stroke-width="2.2"/><circle cx="18" cy="8" r="3" fill="var(--both)"/></svg>
-      <span class="lbl">Hubs present in both (context)<small>ring = agency hub · dot = our scored hub</small></span><span class="cnt" id="cnt-both_hub"></span></label></li>
+      <span class="lbl">Hubs in both (context)<small>ring = <bdi>מנהל התכנון</bdi> hub · dot = our scored hub</small></span><span class="cnt" id="cnt-both_hub"></span></label></li>
   </ul>
 
   <div class="actions">
@@ -1411,46 +1437,47 @@ table.summary td.zero { color: var(--ink-3); }
     <button type="button" id="btn-tlv">Tel Aviv</button>
     <button type="button" id="btn-hfa">Haifa</button>
     <button type="button" id="btn-jlm">Jerusalem</button>
+    <button type="button" id="btn-bsh">Be'er Sheva</button>
   </div>
+  /*__BASEMAP_HTML__*/
 
-  <p class="eyebrow">Evaluation summary</p>
+  <p class="eyebrow">Summary</p>
   <table class="summary" id="summary" aria-label="Features per set and verdict"></table>
 
   <details class="more">
     <summary>How the verdicts are decided</summary>
     <ul>
-      <li><b>Agency line missing</b>: share of its stops (100 m points for a route without stops) with a node of ours of any mode within 150 m. ≥ 50 % ◆ covered elsewhere, &lt; 20 % ▲ likely real gap, else ? check.</li>
-      <li><b>Our line missing</b>: no agency mode (Cable Line) ≠ definition difference; ≥ 50 % of its nodes within 100 m (rail 250 m) of an agency route of another mode ◆; &lt; 20 % near any agency route and stop ▲; else ?.</li>
-      <li><b>Doubtful</b>: ? check, except mode_differs with both coverages ≥ 0.8 ≠ (same alignment, other mode).</li>
-      <li><b>Agency hub, no hub of ours</b>: nearest group &gt; 800 m and none of its routes in our network ▲; else ?.</li>
-      <li><b>Agency hub on filtered groups</b>: a group filtered for demand &lt; 1,000 ?; only single mode / rail only ≠ (the agency counts same-mode interchanges, our rule needs ≥ 2 modes and a non-rail mode).</li>
-      <li><b>Our scored hub, no agency hub</b>: nearest agency hub &gt; 800 m and none of its routes matches an agency route ▲; else ?.</li>
-      <li>Context sets are ✓ present in both.</li>
+/*__RULES__*/
     </ul>
   </details>
-  <p class="note"><b>Data</b>: /*__RUN_NOTE__*/, compared with <code>hubs compare-network</code>; our node positions are offset-corrected. <b>Our lines are a visual aid</b>: nodes joined in order, not a route geometry. The agency cuts rail into per-segment features, so rail results are indicative. Agency demand is not available. Hubs pair within 400 m (nearest stop to nearest node); agency hubs include single-mode interchanges. Containment statuses (ours_within_agency, agency_within_ours, covered) count as present in both. Basemap: OpenStreetMap (light gray).</p>
+  <p class="note"><b>Data</b>: /*__RUN_NOTE__*/, compared with <code>hubs compare-network</code>; our stops are shifted by the local offset.</p>
+  <p class="note">Our lines are drawn through their stops in order, so their shape is approximate.</p>
+  <p class="note"><bdi>מנהל התכנון</bdi> draws rail in short pieces, so rail results are rough.</p>
+  <p class="note">Passenger numbers of <bdi>מנהל התכנון</bdi> are not available.</p>
+  <p class="note">Hubs match when a stop of each is within 400 m; <bdi>מנהל התכנון</bdi> also counts changes within one mode as hubs.</p>
 </section>
 
 <script>
 /*__LEAFLET_JS__*/
 </script>
 <script>
+/*__BASEMAP_JS__*/
 (function () {
   'use strict';
   var DATA = /*__DATA__*/null;
   var SETS = [
-    {id: 'ag_line', label: 'Agency line missing', kind: 'line'},
-    {id: 'our_line', label: 'Our line missing', kind: 'line'},
-    {id: 'doubt', label: 'Doubtful line', kind: 'line'},
+    {id: 'ag_line', label: 'מנהל התכנון line we don\'t have', kind: 'line'},
+    {id: 'our_line', label: 'Our line מנהל התכנון doesn\'t have', kind: 'line'},
+    {id: 'doubt', label: 'Unclear line', kind: 'line'},
     {id: 'both_line', label: 'Line in both', kind: 'line'},
-    {id: 'ag_hub', label: 'Agency hub missing', kind: 'hub'},
-    {id: 'ag_hub_filt', label: 'Agency hub, our group filtered', kind: 'hub'},
-    {id: 'our_hub', label: 'Our hub missing', kind: 'hub'},
+    {id: 'ag_hub', label: 'מנהל התכנון hub with no hub of ours', kind: 'hub'},
+    {id: 'ag_hub_filt', label: 'מנהל התכנון hub we filtered out', kind: 'hub'},
+    {id: 'our_hub', label: 'Our hub מנהל התכנון doesn\'t have', kind: 'hub'},
     {id: 'both_hub', label: 'Hub in both', kind: 'hub'}
   ];
   var VERDICTS = ['real_gap', 'covered_elsewhere', 'definition_difference', 'check', 'present'];
-  var VLABEL = {real_gap: 'Likely real gap', covered_elsewhere: 'Covered elsewhere', definition_difference: 'Definition difference', check: 'Check', present: 'Present in both'};
-  var VSHORT = {real_gap: '▲ Gap', covered_elsewhere: '◆ Else', definition_difference: '≠ Def.', check: '? Check', present: '✓ Both'};
+  var VLABEL = /*__VLABEL__*/null;
+  var VSHORT = {real_gap: '▲ Missing', covered_elsewhere: '◆ Covered', definition_difference: '≠ Differs', check: '? Look', present: '✓ Both'};
   var TAGVAR = {ag_line: '--agency', our_line: '--ours', doubt: '--ctx', both_line: '--ctx', ag_hub: '--agency', ag_hub_filt: '--agency', our_hub: '--ours', both_hub: '--both'};
 
   var css = getComputedStyle(document.documentElement);
@@ -1463,8 +1490,8 @@ table.summary td.zero { color: var(--ink-3); }
   var map = L.map('map', {zoomControl: false, preferCanvas: true, renderer: renderer});
   L.control.zoom({position: 'topright'}).addTo(map);
   map.attributionControl.setPrefix('');
-  map.attributionControl.addAttribution('© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors');
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19, className: 'osm-gray'}).addTo(map);
+  map.fitBounds([[29.4, 34.2], [33.4, 35.9]]);
+  var basemap = hubsBasemap(map, document.getElementById('basemap'), document.getElementById('basemap-note'));
 
   var features = DATA.features;
   var bySet = {}, groups = {}, drawn = {}, layerById = {};
@@ -1566,7 +1593,7 @@ table.summary td.zero { color: var(--ink-3); }
     });
     t.appendChild(tb);
     var m = DATA.meta;
-    document.getElementById('sub-counts').textContent = m.n_our_routes + ' / ' + m.n_agency_routes + ' routes · ' + m.n_our_scored + ' scored hubs of ' + m.n_groups + ' groups / ' + m.n_agency_hubs + ' agency hubs';
+    document.getElementById('sub-counts').textContent = m.n_our_routes + ' / ' + m.n_agency_routes + ' lines · ' + m.n_our_scored + ' scored hubs of ' + m.n_groups + ' groups / ' + m.n_agency_hubs + ' hubs';
   })();
 
   var pts = [];
@@ -1589,6 +1616,7 @@ table.summary td.zero { color: var(--ink-3); }
   document.getElementById('btn-tlv').addEventListener('click', function () { map.setView([32.08, 34.82], 12); });
   document.getElementById('btn-hfa').addEventListener('click', function () { map.setView([32.80, 35.02], 12); });
   document.getElementById('btn-jlm').addEventListener('click', function () { map.setView([31.78, 35.21], 12); });
+  document.getElementById('btn-bsh').addEventListener('click', function () { map.setView([31.25, 34.79], 12); });
   L.DomEvent.disableClickPropagation(panel); L.DomEvent.disableScrollPropagation(panel);
 
   // smaller hub symbols at the national zoom levels, where hundreds of them overlap
@@ -1605,7 +1633,7 @@ table.summary td.zero { color: var(--ink-3); }
 
   // test / debugging hook: stable ids -> layers, drawn counts per set
   window.missingMap = {
-    map: map, groups: groups, layerById: layerById, features: features,
+    map: map, groups: groups, layerById: layerById, features: features, basemap: basemap,
     drawnCount: function (id) { return drawn[id]; },
     layersOnMap: function (id) { var n = 0; if (map.hasLayer(groups[id])) groups[id].eachLayer(function () { n += 1; }); return n; }
   };

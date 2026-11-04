@@ -365,8 +365,11 @@ def write_comparison(result: NetworkComparison, out_dir: Path) -> dict[str, Path
     layers = build_layers(result.routes, result.ours.routes, result.hubs, result.agency,
                           result.ours.hubs)
     write_gpkg(paths["gpkg"], layers)
-    write_routes_map(paths["routes_map"], layers)
-    write_hubs_map(paths["hubs_map"], layers)
+    settings = result.cfg.to_dict()
+    if result.cfg.apply_offset and result.offset_estimated:  # quoted in the map panels
+        settings.update(offset_dx_m=result.global_shift[0], offset_dy_m=result.global_shift[1])
+    write_routes_map(paths["routes_map"], layers, settings)
+    write_hubs_map(paths["hubs_map"], layers, settings)
     paths["config"].write_text(result.cfg.to_json() + "\n", encoding="utf-8")
     paths["report_md"], paths["report_json"] = result.report.write(out, stem=REPORT_STEM)
     return paths

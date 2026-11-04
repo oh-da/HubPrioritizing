@@ -326,10 +326,13 @@ def _our_route_layers(routes: RouteComparison, ours: pd.DataFrame) -> tuple:
 
 
 def _route_pairs_layer(routes: RouteComparison, agency: AgencyNetwork) -> gpd.GeoDataFrame:
+    """Chosen pairs (our route -> agency geometry) followed by one row per ``agency_only`` route."""
     table = _routes_with_stats(routes)
-    sel = table[table["our_route_key"].notna() & table["agency_route_key"].notna()]
     geom = dict(zip(agency.routes["route_key"], agency.routes.geometry))
-    sel = sel[sel["agency_route_key"].isin(geom)]
+    wanted = table["agency_route_key"].isin(geom) & (
+        table["our_route_key"].notna() | (table["status"] == "agency_only")
+    )
+    sel = table[wanted]
     return _layer(sel, [geom[k] for k in sel["agency_route_key"]])
 
 
@@ -402,7 +405,9 @@ def build_layers(
 
     Returns:
         ``route_pairs`` (agency route geometry with the match attributes of the route of ours
-        that chose it, one row per route of ours with a candidate), ``our_routes`` (the nodes of
+        that chose it, one row per route of ours with a candidate, then one ``agency_only`` row
+        per agency route nothing of ours matches, with null ``our_*`` attributes),
+        ``our_routes`` (the nodes of
         each route joined in ``order_points`` order from the corrected positions, a Point for a
         one-node route, ``visual_aid = True``), ``our_routes_raw`` (the same rows and order from
         the raw positions), ``agency_hubs``, ``our_groups`` (both with their ``relation``) and

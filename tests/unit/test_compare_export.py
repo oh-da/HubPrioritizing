@@ -258,21 +258,41 @@ def test_gpkg_layers_crs_and_counts(scenario, tmp_path: Path):
     path = write_gpkg(tmp_path / "cmp.gpkg", layers)
     names = set(gpd.list_layers(path)["name"])
     assert names == set(layers)
-    expected = {"route_pairs": 1, "our_routes": 3, "our_routes_raw": 3, "agency_hubs": 2,
+    expected = {"route_pairs": 2, "our_routes": 3, "our_routes_raw": 3, "agency_hubs": 2,
                 "our_groups": 3, "hub_ties": 1}
     for name, count in expected.items():
         back = gpd.read_file(path, layer=name)
         assert len(back) == count, name
         assert back.crs.to_epsg() == 2039, name
-    pairs = gpd.read_file(path, layer="route_pairs").iloc[0]
-    assert pairs["status"] == "matched" and pairs["agency_route_key"] == "LRT:1"
-    assert pairs.geometry.geom_type in ("MultiLineString", "LineString")
+    pairs = gpd.read_file(path, layer="route_pairs").set_index("agency_route_key")
+    matched = pairs.loc["LRT:1"]
+    assert matched["status"] == "matched" and matched["our_route_key"] == "L1"
+    assert matched.geometry.geom_type in ("MultiLineString", "LineString")
+    # an agency route nothing of ours matches is drawn too, with null "ours" attributes
+    only = pairs.loc["LRT:2"]
+    agency_geom = scenario["agency"].routes.set_index("route_key").geometry["LRT:2"]
+    assert only["status"] == "agency_only"
+    assert pd.isna(only["our_route_key"]) and pd.isna(only["score"])
+    assert pd.isna(only["cov_ours"]) and pd.isna(only["median_dist_corr_m"])
+    assert only["agency_name"] == "name LRT:2" and only["agency_type"] == "LRT"
+    assert only["agency_n_stops"] == 3
+    assert not only.geometry.is_empty and only.geometry.equals(agency_geom)
     tie = gpd.read_file(path, layer="hub_ties").iloc[0]
     assert tie.geometry.length == pytest.approx(50.0)
     assert tie["agency_hub_id"] == 1 and tie["group"] == 1
     groups = gpd.read_file(path, layer="our_groups").set_index("group")
     assert groups.loc[1, "relation"] == "1:1" and groups.loc[2, "relation"] == "ours_only"
     assert groups.loc[1, "HubNameHE"] == "מתחם 1"
+
+
+def test_route_pairs_layer_carries_agency_only_routes(scenario):
+    pairs = _layers(scenario)["route_pairs"]
+    assert list(pairs["status"]) == ["matched", "agency_only"]  # existing rows first, unchanged
+    only = pairs[pairs["status"] == "agency_only"].iloc[0]
+    assert only["agency_route_key"] == "LRT:2" and pd.isna(only["our_route_key"])
+    assert str(pairs["agency_n_stops"].dtype) == "Int64"
+    assert not pairs.geometry.is_empty.any()
+    assert set(_layers(_empty())["route_pairs"].columns) == set(pairs.columns)
 
 
 def test_our_routes_layer_survives_single_node_route(scenario, tmp_path: Path):

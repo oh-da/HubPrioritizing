@@ -1,4 +1,4 @@
-s # CLAUDE.md
+# CLAUDE.md
 **Centralized Logic for Assessing, Understanding & Determining Evaluation**
 **Hub Prioritization Framework for Integrated Transport Hubs (מתח"מים) in Israel**
 

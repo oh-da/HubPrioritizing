@@ -42,6 +42,8 @@ The first cell is a form:
 | `VERSION` | a name for this run, e.g. `2026-06`; blank = the newest date in the export file names |
 | `REPO`, `BRANCH` | leave as they are unless you were told otherwise |
 | `EXTRA_ARGS` | leave blank |
+| `AGENCY_FOLDER`, `AGENCY_GPKG`, `AGENCY_META` | optional: the Drive folder that holds the planning agency's `MT_Network.gpkg` (and `MT_Network_MetaData.xlsx`) and the two file names. Blank `AGENCY_FOLDER` = no comparison. See *Comparing with the agency's network* below |
+| `COMPARE_FOLDER`, `COMPARE_ARGS` | optional: where the comparison goes (blank = a folder `compare` inside `out`) and extra settings for `hubs compare-network`, e.g. `--set containment=false` |
 
 ### Using your own reference data
 
@@ -74,7 +76,9 @@ Step 4 checks the inputs. If it prints `STOP`, read the list above it: it names 
 missing file or column. Fix the Drive folder and run the cell again; nothing else is
 affected.
 
-Step 5 runs the pipeline. Step 6 lists the files it wrote and the top ten hubs.
+Step 5 runs the pipeline. Step 6 lists the files it wrote and the top ten hubs. Step 7 compares the
+results with the planning agency's network when `AGENCY_FOLDER` is filled in (it prints a one-line
+skip message otherwise).
 
 ## 5. Collect the results
 
@@ -94,7 +98,16 @@ To see what changed since an earlier run, keep each run in its own folder and, i
 cell after step 5, run `!hubs compare "/content/drive/MyDrive/HubRuns/2026_03/out" "$OUTPUT_DIR"`;
 the report lands next to the new results.
 
-Step 7 downloads the workbook to your computer straight away if you prefer.
+Step 8 downloads the workbook to your computer straight away if you prefer.
+
+### Comparing with the agency's network
+
+With `AGENCY_FOLDER` filled in, step 7 runs `hubs compare-network` on the run that step 5 just wrote
+and puts the comparison in `out/compare` (or `COMPARE_FOLDER`): `network_comparison.xlsx` (routes and
+hubs of both networks side by side), `network_comparison.gpkg`, two Leaflet pages and a report. How to
+read them is in `docs/NETWORK_COMPARISON.md`. If the agency files are missing the step stops with the
+list of the paths it looked for; the pipeline results are already written by then. For a map of the lines
+and hubs missing from either network, run `colab/hubs_missing_map.ipynb` (section 7).
 
 ## 6. Optional second step: line-status columns
 

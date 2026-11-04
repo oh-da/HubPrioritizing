@@ -5,7 +5,7 @@ from pathlib import Path
 
 CELLS = [
     (
-        "markdown",
+        'markdown',
         """# Hub prioritization — run on Google Colab
 
 Runs the `hubs` pipeline on one folder of model exports in your Google Drive and writes
@@ -16,16 +16,20 @@ Runs the `hubs` pipeline on one folder of model exports in your Google Drive and
    `Lines_and_Planned_Mode_*.csv`, `Nodes_w_results_*.xlsx`, and optionally
    `linesNames*.csv`, `lines_exploded*.csv`, `BS_lines*.csv`.
 2. Access to the GitHub repository (a personal access token if it is private).
+3. Optional: the planning agency's network (`MT_Network.gpkg`, and `MT_Network_MetaData.xlsx`) in a Drive folder.
+   Then step 7 also compares the results with it (`hubs compare-network`).
 
 Then **Runtime → Run all** and answer the prompts. Every cell prints what it did.""",
     ),
     (
-        "code",
+        'code',
         """#@title 1. Settings { display-mode: "form" }
-#@markdown Path of the Drive folder that holds this run's model exports (as shown in the Drive file browser, after `MyDrive/`):
+#@markdown Drive folder that holds this run's model exports: either relative to My Drive (`HubRuns/2026_06`) or a full path (`/content/drive/MyDrive/HubRuns/2026_06`):
 INPUT_FOLDER = "HubRuns/2026_06"  #@param {type:"string"}
 #@markdown Where to write the results (blank = a folder named `out` inside the input folder):
 OUTPUT_FOLDER = ""  #@param {type:"string"}
+#@markdown Reference folder (H3 base layer `h3_base.parquet` + its manifest, curated tables). Blank = the `data/reference` folder shipped with the code:
+REFERENCE_FOLDER = ""  #@param {type:"string"}
 #@markdown Repository and branch to run:
 REPO = "oh-da/HubPrioritizing"  #@param {type:"string"}
 BRANCH = "main"  #@param {type:"string"}
@@ -33,26 +37,54 @@ BRANCH = "main"  #@param {type:"string"}
 VERSION = ""  #@param {type:"string"}
 #@markdown Extra settings for `hubs run`, e.g. `--set mc_iterations=20000` (normally blank):
 EXTRA_ARGS = ""  #@param {type:"string"}
+#@markdown Optional: compare the results with the planning agency's network. Drive folder that holds its `MT_Network.gpkg` (blank = skip the comparison), and the two file names in it (leave the metadata name blank if there is none):
+AGENCY_FOLDER = ""  #@param {type:"string"}
+AGENCY_GPKG = "MT_Network.gpkg"  #@param {type:"string"}
+AGENCY_META = "MT_Network_MetaData.xlsx"  #@param {type:"string"}
+#@markdown Where to write the comparison (blank = a folder named `compare` inside the output folder):
+COMPARE_FOLDER = ""  #@param {type:"string"}
+#@markdown Extra settings for `hubs compare-network`, e.g. `--set containment=false` or `--set full_cov=0.75` (normally blank):
+COMPARE_ARGS = ""  #@param {type:"string"}
 
 import os
-INPUT_DIR = f"/content/drive/MyDrive/{INPUT_FOLDER.strip('/')}"
-OUTPUT_DIR = f"/content/drive/MyDrive/{OUTPUT_FOLDER.strip('/')}" if OUTPUT_FOLDER.strip() else f"{INPUT_DIR}/out"
-print("input :", INPUT_DIR)
-print("output:", OUTPUT_DIR)""",
+DRIVE_ROOT = "/content/drive/MyDrive"
+
+def drive_path(folder: str) -> str:
+    \"\"\"Accept a path relative to My Drive or a full /content/... path.\"\"\"
+    f = folder.strip().rstrip("/")
+    if f.startswith("/content/"):
+        return f
+    return f"{DRIVE_ROOT}/{f.lstrip('/')}"
+
+INPUT_DIR = drive_path(INPUT_FOLDER)
+OUTPUT_DIR = drive_path(OUTPUT_FOLDER) if OUTPUT_FOLDER.strip() else f"{INPUT_DIR}/out"
+REFERENCE_DIR = drive_path(REFERENCE_FOLDER) if REFERENCE_FOLDER.strip() else ""
+REF_ARGS = ["--reference-dir", REFERENCE_DIR] if REFERENCE_DIR else []
+AGENCY_DIR = drive_path(AGENCY_FOLDER) if AGENCY_FOLDER.strip() else ""
+COMPARE_DIR = drive_path(COMPARE_FOLDER) if COMPARE_FOLDER.strip() else f"{OUTPUT_DIR}/compare"
+print("input    :", INPUT_DIR)
+print("output   :", OUTPUT_DIR)
+print("reference:", REFERENCE_DIR or "(default: data/reference in the repository)")
+print("agency   :", AGENCY_DIR or "(none: the comparison with the agency's network is skipped)")""",
     ),
     (
-        "code",
+        'code',
         """#@title 2. Connect Google Drive
 from google.colab import drive
 drive.mount("/content/drive")
 import os
-assert os.path.isdir(INPUT_DIR), f"Input folder not found: {INPUT_DIR}\\nCheck INPUT_FOLDER in step 1 (it is relative to MyDrive)."
+assert os.path.isdir(INPUT_DIR), f"Input folder not found: {INPUT_DIR}\\nCheck INPUT_FOLDER in step 1 (relative to My Drive, or a full /content/drive/MyDrive/... path)."
+if REFERENCE_DIR:
+    assert os.path.isdir(REFERENCE_DIR), f"Reference folder not found: {REFERENCE_DIR}\\nCheck REFERENCE_FOLDER in step 1, or leave it blank for the default."
+    print("Files in the reference folder:")
+    for name in sorted(os.listdir(REFERENCE_DIR)):
+        print("  ", name)
 print("Files in the input folder:")
 for name in sorted(os.listdir(INPUT_DIR)):
     print("  ", name)""",
     ),
     (
-        "code",
+        'code',
         """#@title 3. Get the code and install it (about 2 minutes)
 import os, subprocess, sys, shutil
 from getpass import getpass
@@ -79,10 +111,10 @@ print("installed. hubs version check:")
 print(subprocess.run(["hubs", "--help"], capture_output=True, text=True).stdout.splitlines()[0])""",
     ),
     (
-        "code",
+        'code',
         """#@title 4. Check the inputs (hubs validate)
 import subprocess
-r = subprocess.run(["hubs", "validate", "--input-dir", INPUT_DIR], capture_output=True, text=True)
+r = subprocess.run(["hubs", "validate", "--input-dir", INPUT_DIR] + REF_ARGS, capture_output=True, text=True)
 print(r.stdout)
 if r.returncode != 0:
     print(r.stderr)
@@ -90,11 +122,11 @@ if r.returncode != 0:
 print("OK - inputs are valid. Continue with step 5.")""",
     ),
     (
-        "code",
+        'code',
         """#@title 5. Run the pipeline (about 1 minute)
 import subprocess, shlex, os
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-cmd = ["hubs", "run", "--input-dir", INPUT_DIR, "--output-dir", OUTPUT_DIR] + (["--version", VERSION.strip()] if VERSION.strip() else []) + shlex.split(EXTRA_ARGS)
+cmd = ["hubs", "run", "--input-dir", INPUT_DIR, "--output-dir", OUTPUT_DIR] + REF_ARGS + (["--version", VERSION.strip()] if VERSION.strip() else []) + shlex.split(EXTRA_ARGS)
 print(" ".join(shlex.quote(c) for c in cmd))
 r = subprocess.run(cmd, capture_output=True, text=True)
 print(r.stdout)
@@ -103,7 +135,7 @@ if r.returncode != 0:
     raise SystemExit("STOP: the run failed. Read the message above; the log is in " + OUTPUT_DIR + "/run.log")""",
     ),
     (
-        "code",
+        'code',
         """#@title 6. Results
 import os, pandas as pd
 from IPython.display import display
@@ -120,11 +152,34 @@ display(res.nsmallest(10, "Rank_TS_MC")[["group", "HubNameHE", "HubType", "Metro
 report = open(os.path.join(OUTPUT_DIR, "run_report.md"), encoding="utf-8").read()
 n_warn = report.count("⚠")
 print(f"\\nThe run report has {n_warn} warning line(s): open run_report.md in the output folder and read them before publishing.")
-print("\\nThe display workbook is hub_prioritization_results.xlsx in that folder. To download it now, run step 7.\\nNext (optional): hubs_line_status.ipynb adds the line-status counts from a status table.")""",
+print("\\nThe display workbook is hub_prioritization_results.xlsx in that folder. To download it now, run step 8.\\nNext (optional): step 7 compares with the planning agency's network; hubs_line_status.ipynb adds the line-status counts from a status table; hubs_missing_map.ipynb draws the map of the lines and hubs missing from either network.")""",
     ),
     (
-        "code",
-        """#@title 7. (Optional) Download the workbook to this computer
+        'code',
+        """#@title 7. (Optional) Compare with the planning agency's network (hubs compare-network, about 10 seconds)
+import os, shlex, subprocess
+
+if not AGENCY_DIR:
+    print("AGENCY_FOLDER is blank in step 1: no comparison with the planning agency's network.\\nFill it in (and AGENCY_GPKG / AGENCY_META) and run this cell to add it.")
+else:
+    gpkg = f"{AGENCY_DIR}/{AGENCY_GPKG.strip()}"
+    meta = f"{AGENCY_DIR}/{AGENCY_META.strip()}" if AGENCY_META.strip() else ""
+    missing = [p for p in (gpkg, meta) if p and not os.path.isfile(p)]
+    if missing:
+        raise SystemExit("STOP: not found in Drive:\\n  " + "\\n  ".join(missing) + "\\nCheck AGENCY_FOLDER, AGENCY_GPKG and AGENCY_META in step 1.")
+    os.makedirs(COMPARE_DIR, exist_ok=True)
+    cmd = ["hubs", "compare-network", "--run", OUTPUT_DIR, "--agency-gpkg", gpkg] + (["--agency-meta", meta] if meta else []) + ["--out", COMPARE_DIR] + shlex.split(COMPARE_ARGS)
+    print(" ".join(shlex.quote(c) for c in cmd))
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    print(r.stdout)
+    if r.returncode != 0:
+        print(r.stderr[-4000:])
+        raise SystemExit("STOP: the comparison failed. Read the message above.")
+    print("The comparison is in", COMPARE_DIR, "- open network_comparison.xlsx there.\\nFor a map of the lines and hubs missing from either network, run hubs_missing_map.ipynb.")""",
+    ),
+    (
+        'code',
+        """#@title 8. (Optional) Download the workbook to this computer
 from google.colab import files
 import os
 files.download(os.path.join(OUTPUT_DIR, "hub_prioritization_results.xlsx"))""",
@@ -137,8 +192,20 @@ files.download(os.path.join(OUTPUT_DIR, "hub_prioritization_results.xlsx"))""",
 # ----------------------------------------------------------------------------------------
 
 # Steps 2 (Drive) and 3 (clone + install) are the same as in the first notebook.
-assert CELLS[2][1].startswith("#@title 2. Connect Google Drive") and CELLS[3][1].startswith("#@title 3. Get the code")
-CONNECT_CELL, INSTALL_CELL = CELLS[2], CELLS[3]
+assert CELLS[3][1].startswith("#@title 3. Get the code")
+INSTALL_CELL = CELLS[3]
+# hubs_line_status.ipynb keeps its own (older, relative-path) connect cell: its settings take no full paths.
+CONNECT_CELL = (
+    "code",
+    """#@title 2. Connect Google Drive
+from google.colab import drive
+drive.mount("/content/drive")
+import os
+assert os.path.isdir(INPUT_DIR), f"Input folder not found: {INPUT_DIR}\\nCheck INPUT_FOLDER in step 1 (it is relative to MyDrive)."
+print("Files in the input folder:")
+for name in sorted(os.listdir(INPUT_DIR)):
+    print("  ", name)""",
+)
 
 STATUS_CELLS = [
     (

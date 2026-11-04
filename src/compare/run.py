@@ -24,7 +24,7 @@ from .export import build_layers, build_sheets, write_gpkg, write_workbook
 from .hubs import RELATIONS, HubComparison, build_our_hubs, match_hubs
 from .maps import write_hubs_map, write_routes_map
 from .modes import load_mode_map
-from .offset import apply_shift, estimate_shift
+from .offset import MIN_PAIRS, apply_shift, count_pairs, estimate_shift
 from .routes import STATUSES, RouteComparison, build_our_routes, line_route_map, match_routes
 from .settings import CompareConfig
 
@@ -89,6 +89,8 @@ class NetworkComparison:
         inputs: Input name -> file name, SHA-256 and counts, plus ``run`` (version, dir).
         global_shift: The global median offset ``(dx, dy)`` added to our nodes (zero when the
             offset is not applied).
+        offset_estimated: ``False`` when the offset was applied but could not be estimated
+            (fewer than five node-stop pairs within ``stop_tol_m``); the shift is then zero.
     """
 
     routes: RouteComparison
@@ -99,8 +101,7 @@ class NetworkComparison:
     cfg: CompareConfig
     inputs: dict[str, dict[str, Any]] = field(default_factory=dict)
     global_shift: tuple[float, float] = (0.0, 0.0)
-
-
+    offset_estimated: bool = True
 
 
 def _sha256(path: Path) -> str:
@@ -156,6 +157,46 @@ def _run_version(run_dir: Path) -> str:
     return str(manifest.get("version") or Path(run_dir).resolve().name)
 
 
+def check_run_tables(groups: pd.DataFrame, nodes: pd.DataFrame, report: RunReport) -> None:
+    """Warn about run tables that would make the comparison silently empty or partial.
+
+    Args:
+        groups: ``hub_groups_all.csv`` rows.
+        nodes: ``network_nodes.csv`` rows.
+        report: Receives a warning per empty table and one for node x line rows without a
+            ``Mode_Planned`` (their lines get no agency type and match nothing).
+    """
+    if groups.empty:
+        report.warn(SECTION, f"{GROUPS_FILE} has no rows: there are no hubs of ours to compare")
+    if nodes.empty:
+        report.warn(SECTION, f"{NODES_FILE} has no rows: there are no routes or nodes of ours")
+    if "Mode_Planned" in nodes.columns and len(nodes):
+        mode = nodes["Mode_Planned"]
+        empty = mode.isna() | mode.astype(str).str.strip().eq("")
+        if empty.any():
+            lines = sorted(nodes.loc[empty, "LINE_ID"].dropna().astype(str).unique())
+            report.warn(SECTION, f"{int(empty.sum())} node x line row(s) without a mode: their "
+                        "lines get no agency type", line_ids=lines[:20])
+
+
+def check_agency_types(routes: pd.DataFrame, mode_map: dict[str, str | None],
+                       report: RunReport) -> None:
+    """Warn about agency route types that no mode of ours maps to (spec 3).
+
+    Args:
+        routes: Agency routes (column ``type``).
+        mode_map: Our mode -> agency type (``None`` = no counterpart).
+        report: Receives one warning in section ``modes`` listing the types (exact,
+            case-sensitive compare, as the matching does) with their route counts.
+    """
+    known = {t for t in mode_map.values() if t is not None}
+    counts = routes["type"].astype(str).value_counts()
+    missing = sorted(t for t in counts.index if t not in known)
+    if missing:
+        listed = ", ".join(
+            f"{t} ({counts[t]} route{'s' if counts[t] != 1 else ''})" for t in missing)
+        report.warn("modes", f"agency type(s) missing from agency_mode_map.csv: {listed}; "
+                    "no route of ours can match them")
 
 
 def correct_positions(
@@ -165,13 +206,17 @@ def correct_positions(
 
     The shift is estimated once per distinct node against every agency stop of any mode
     (``stop_tol_m``, ``offset_radius_m``, ``offset_passes``). Non-finite coordinates on either
-    side are left out of the estimate; such nodes get the global shift.
+    side are left out of the estimate; a row with non-finite coordinates takes the corrected
+    position of its node when another row of that node is finite and stays NaN otherwise.
+    When fewer than five nodes have a stop within ``stop_tol_m`` (no stops, a CRS mismatch,
+    ``offset_passes = 0``) no shift is estimated: the shift is zero and a warning is recorded.
 
     Args:
         nodes: ``network_nodes.csv`` rows (``node``, ``x_itm``, ``y_itm``).
         agency: The agency network (its ``stops`` are used).
         cfg: Comparison settings.
-        report: Receives the global shift as metrics and an info entry.
+        report: Receives the global shift, ``offset_pairs`` and ``offset_estimated`` as
+            metrics, an info entry and, when nothing was estimated, a warning.
 
     Returns:
         ``(nodes with x_corr / y_corr, global shift (2,))``.
@@ -199,6 +244,17 @@ def correct_positions(
     out["y_corr"] = [corr_y.get(n, yv + glob[1]) for n, yv in zip(out["node"], y)]
 
     dist = np.hypot(shift[:, 0], shift[:, 1]) if len(shift) else np.zeros(1)
+    n_pairs = count_pairs(node_xy, stops_xy, cfg.stop_tol_m)
+    estimated = cfg.offset_passes > 0 and n_pairs >= MIN_PAIRS
+    report.set_metric("offset_pairs", n_pairs)
+    report.set_metric("offset_estimated", bool(estimated))
+    if not estimated:
+        report.warn(
+            "offset",
+            f"offset not estimated: {n_pairs} node-stop pair(s) within {cfg.stop_tol_m:g} m "
+            f"from {len(node_xy)} nodes and {len(stops_xy)} agency stops (at least {MIN_PAIRS} "
+            "needed, with offset_passes > 0); the shift is zero - check the CRS of both sides",
+        )
     report.set_metric("offset_global_dx_m", round(float(glob[0]), 3))
     report.set_metric("offset_global_dy_m", round(float(glob[1]), 3))
     report.set_metric("offset_max_shift_m", round(float(dist.max()), 3))
@@ -206,11 +262,9 @@ def correct_positions(
         "offset",
         f"global shift ({glob[0]:.1f}, {glob[1]:.1f}) m from {len(node_xy)} nodes and "
         f"{len(stops_xy)} agency stops; local shifts up to {dist.max():.1f} m",
-        nodes_left_out=int(len(out.loc[~finite, "node"].unique())),
+        nodes_left_out=len(set(out.loc[~finite, "node"]) - set(distinct["node"])),
     )
     return out, glob
-
-
 
 
 def _file_entry(path: Path, **counts: Any) -> dict[str, Any]:
@@ -246,6 +300,7 @@ def compare_networks(
     report = report if report is not None else RunReport()
     run_dir = Path(run_dir)
     groups, nodes = read_run_tables(run_dir)
+    check_run_tables(groups, nodes, report)
     agency = read_agency_network(Path(agency_gpkg), agency_meta, cfg, report)
     tod = read_tod_hubs(Path(tod_gpkg)) if tod_gpkg is not None else None
 
@@ -268,12 +323,15 @@ def compare_networks(
                                                         if k != "dir"})
 
     glob = np.zeros(2)
+    estimated = True
     if cfg.apply_offset:
         nodes, glob = correct_positions(nodes, agency, cfg, report)
+        estimated = bool(report.metrics.get("offset_estimated", True))
     else:
         report.info("offset", "offset not applied (apply_offset = false)")
 
     mode_map = load_mode_map()
+    check_agency_types(agency.routes, mode_map, report)
     our_routes = build_our_routes(nodes, mode_map)  # attrs carry the dropped-node count
     routes = match_routes(our_routes, agency, cfg, report)
     our_hubs = build_our_hubs(groups, nodes, mode_map, line_route_map(our_routes))
@@ -284,7 +342,8 @@ def compare_networks(
     ours = OurNetwork(nodes=nodes, groups=groups, routes=our_routes, hubs=our_hubs)
     return NetworkComparison(routes=routes, hubs=hubs, agency=agency, ours=ours, report=report,
                              cfg=cfg, inputs=inputs,
-                             global_shift=(float(glob[0]), float(glob[1])))
+                             global_shift=(float(glob[0]), float(glob[1])),
+                             offset_estimated=estimated)
 
 
 def write_comparison(result: NetworkComparison, out_dir: Path) -> dict[str, Path]:
@@ -319,8 +378,13 @@ def _print_summary(result: NetworkComparison, paths: dict[str, Path]) -> None:
     dx, dy = result.global_shift
     run = result.inputs.get("run", {})
     print(f"✓ network comparison of run {run.get('version')}")
-    print(f"  offset : {'applied' if result.cfg.apply_offset else 'not applied'}"
-          f" (global shift {dx:.1f}, {dy:.1f} m)")
+    if not result.cfg.apply_offset:
+        offset = "not applied"
+    elif not result.offset_estimated:
+        offset = "not estimated (see the report)"
+    else:
+        offset = "applied"
+    print(f"  offset : {offset} (global shift {dx:.1f}, {dy:.1f} m)")
     print("  routes : " + ", ".join(f"{s} {int(status.get(s, 0))}" for s in STATUSES))
     print("  hubs   : " + ", ".join(f"{r} {int(relation.get(r, 0))}" for r in RELATIONS))
     n_warn = len(result.report.warnings)

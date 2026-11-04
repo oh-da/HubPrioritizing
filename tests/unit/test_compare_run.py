@@ -153,3 +153,116 @@ def test_correct_positions_skips_non_finite_points():
     assert (out["x_corr"].iloc[:8] - out["x_itm"].iloc[:8]).tolist() == pytest.approx([40.0] * 8)
     assert out["x_corr"].iloc[8:].isna().all()
     assert report.metrics["offset_global_dx_m"] == 40.0
+
+
+def _base_nodes():
+    base = [(180000.0 + 500 * i, 665000.0 + 300 * (i % 3)) for i in range(8)]
+    return base, pd.DataFrame({
+        "node": [str(i) for i in range(8)],
+        "x_itm": [x for x, _ in base], "y_itm": [y for _, y in base],
+    })
+
+
+def test_correct_positions_counts_only_nodes_without_any_finite_row():
+    from types import SimpleNamespace
+
+    from shapely.geometry import Point
+
+    from src.compare.run import correct_positions
+    from src.compare.settings import CompareConfig
+    from src.pipeline.report import RunReport
+
+    base, nodes = _base_nodes()
+    extra = pd.DataFrame({"node": ["3", "8"], "x_itm": [float("nan")] * 2,
+                          "y_itm": [float("nan")] * 2})
+    nodes = pd.concat([nodes, extra], ignore_index=True)
+    agency = SimpleNamespace(stops=gpd.GeoDataFrame(
+        geometry=[Point(x + 40.0, y - 30.0) for x, y in base], crs="EPSG:2039"))
+    report = RunReport()
+    out, _ = correct_positions(nodes, agency, CompareConfig(), report)
+    # the NaN row of node 3 takes node 3's corrected position; node 8 has none and stays NaN
+    assert out["x_corr"].iloc[8] == pytest.approx(base[3][0] + 40.0)
+    assert pd.isna(out["x_corr"].iloc[9])
+    entry = next(e for e in report.entries if e.section == "offset")
+    assert entry.data["nodes_left_out"] == 1
+    assert report.metrics["offset_estimated"] is True
+    assert not [e for e in report.warnings if e.section == "offset"]
+
+
+def test_offset_that_cannot_be_estimated_is_reported():
+    from types import SimpleNamespace
+
+    from shapely.geometry import Point
+
+    from src.compare.run import correct_positions
+    from src.compare.settings import CompareConfig
+    from src.pipeline.report import RunReport
+
+    _, nodes = _base_nodes()
+    # stops in degrees (a CRS mix-up): no node has a stop within stop_tol_m
+    agency = SimpleNamespace(stops=gpd.GeoDataFrame(
+        geometry=[Point(34.8 + 0.01 * i, 32.0) for i in range(8)], crs="EPSG:2039"))
+    report = RunReport()
+    out, glob = correct_positions(nodes, agency, CompareConfig(), report)
+    assert list(glob) == [0.0, 0.0]
+    assert report.metrics["offset_estimated"] is False
+    warned = [e for e in report.warnings if e.section == "offset"]
+    assert len(warned) == 1 and "not estimated" in warned[0].message
+    assert "0 node-stop pair(s)" in warned[0].message
+
+
+def test_run_table_checks_warn_on_missing_modes_and_empty_tables():
+    from src.compare.run import check_run_tables
+    from src.pipeline.report import RunReport
+
+    nodes = pd.DataFrame({"node": ["1", "2", "3"], "LINE_ID": ["A", "A", "B"],
+                          "Mode_Planned": ["LRT", None, "  "]})
+    report = RunReport()
+    check_run_tables(pd.DataFrame({"group": [1]}), nodes, report)
+    msgs = [e.message for e in report.warnings]
+    assert any("2 node x line row(s) without a mode" in m for m in msgs), msgs
+
+    report = RunReport()
+    check_run_tables(pd.DataFrame(columns=["group"]), nodes.iloc[:0], report)
+    msgs = " | ".join(e.message for e in report.warnings)
+    assert "hub_groups_all.csv has no rows" in msgs and "network_nodes.csv has no rows" in msgs
+
+
+def test_console_summary_says_when_the_offset_was_not_estimated(capsys):
+    from types import SimpleNamespace
+
+    from src.compare.run import _print_summary
+    from src.compare.settings import CompareConfig
+    from src.pipeline.report import RunReport
+
+    def result(estimated):
+        return SimpleNamespace(
+            routes=SimpleNamespace(routes=pd.DataFrame({"status": []})),
+            hubs=SimpleNamespace(hubs=pd.DataFrame({"relation": []})),
+            global_shift=(0.0, 0.0), inputs={"run": {"version": "v"}}, report=RunReport(),
+            cfg=CompareConfig(), offset_estimated=estimated)
+
+    _print_summary(result(False), {})
+    assert "offset : not estimated" in capsys.readouterr().out
+    _print_summary(result(True), {})
+    assert "offset : applied" in capsys.readouterr().out
+
+
+def test_agency_types_missing_from_the_mode_map_are_reported():
+    from src.compare.modes import load_mode_map
+    from src.compare.run import check_agency_types
+    from src.pipeline.report import RunReport
+
+    routes = pd.DataFrame({"type": ["LRT", "Tram", "Tram", "rail", "BRT"]})
+    report = RunReport()
+    check_agency_types(routes, load_mode_map(), report)
+    warned = [e for e in report.warnings if e.section == "modes"]
+    assert len(warned) == 1
+    # exact, case-sensitive compare: 'rail' is not 'Rail'
+    assert "Tram (2 routes)" in warned[0].message and "rail (1 route)" in warned[0].message
+    assert "LRT" not in warned[0].message and "BRT" not in warned[0].message
+
+    report = RunReport()
+    check_agency_types(pd.DataFrame({"type": ["LRT", "Rail fast", "FUNI"]}), load_mode_map(),
+                       report)
+    assert not report.warnings

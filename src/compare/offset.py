@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 _CHUNK = 500  # rows of the pairwise distance matrix held in memory at once
+MIN_PAIRS = 5  # fewest node-stop pairs that make a median shift worth trusting
 
 
 def _nearest(points: np.ndarray, targets: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -26,7 +27,7 @@ def estimate_shift(
     tol_m: float,
     radius_m: float,
     passes: int,
-    min_pairs: int = 5,
+    min_pairs: int = MIN_PAIRS,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Estimate the local offset between our nodes and the agency's stops.
 
@@ -72,6 +73,17 @@ def estimate_shift(
                 new[start + k] = np.median(off[near[k]], axis=0)
         shift = new
     return shift, glob
+
+
+def count_pairs(nodes_xy: np.ndarray, stops_xy: np.ndarray, tol_m: float) -> int:
+    """Number of nodes whose nearest stop is within ``tol_m`` (the first pass of
+    :func:`estimate_shift`; fewer than its ``min_pairs`` means no shift is estimated)."""
+    nodes = np.asarray(nodes_xy, dtype=float).reshape(-1, 2)
+    stops = np.asarray(stops_xy, dtype=float).reshape(-1, 2)
+    if len(nodes) == 0 or len(stops) == 0:
+        return 0
+    dist, _ = _nearest(nodes, stops)
+    return int((dist <= tol_m).sum())
 
 
 def apply_shift(nodes_xy: np.ndarray, shift: np.ndarray) -> np.ndarray:

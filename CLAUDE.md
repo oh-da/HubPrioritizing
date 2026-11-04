@@ -527,8 +527,8 @@ HubPrioritizing/
 │   ├── synthetic.py, test_smoke.py
 │   └── fixtures/real/           # place the real exports + golden workbook here (not committed)
 │
-├── scripts/                     # compare_base_layer.py (H3 layer vs shapefile overlay), build_missing_map.py (map of the missing lines and hubs)
-└── docs/                        # full_documentation/, DEVIATIONS.md, H3_BASE_LAYER.md, DATA_CONFIGURATION.md, NETWORK_COMPARISON.md, superpowers/ (design specs and plans)
+├── scripts/                     # compare_base_layer.py (H3 layer vs shapefile overlay), build_missing_map.py (map of the missing lines and hubs), export_shapefiles.py (a run's hubs and lines as shapefiles)
+└── docs/                        # full_documentation/, DEVIATIONS.md, H3_BASE_LAYER.md, DATA_CONFIGURATION.md, NETWORK_COMPARISON.md, EXPORT_SHAPEFILES.md, superpowers/ (design specs and plans)
 ```
 
 ### Module Responsibilities
@@ -1096,6 +1096,7 @@ The pipeline is a chain of pure DataFrame stages under `src/pipeline/`, each rec
   - `hubs run` now also writes `hub_groups_all.csv` and `network_nodes.csv` (`src/pipeline/all_groups.py`; `all_groups_basename`, `network_nodes_basename`); scoring, tiers and every existing output are unchanged, so earlier runs must be repeated before they can be compared
   - Guide: `docs/NETWORK_COMPARISON.md` (route `status` and hub `relation` vocabularies, known limits); design in `docs/superpowers/`
   - `scripts/build_missing_map.py` turns a finished comparison into one self-contained Leaflet page of the lines and hubs missing on either side, each with a verdict (likely real gap, covered elsewhere, definition difference, check); `missing_map_summary.md` lists the counts and findings ("Map of the missing lines and hubs" in `docs/NETWORK_COMPARISON.md`)
+  - `scripts/export_shapefiles.py` exports a finished run as shapefiles (ITM and WGS84, zipped): all exported hubs as points with `HubTypeHE` and their attributes, and the lines (nodes joined in shortest-open-path order, a visual aid, not route alignments) with their node points; guide: `docs/EXPORT_SHAPEFILES.md`
 - **v2.1** (2026-09-17): H3 base layer
   - The four reference shapefiles are pre-allocated once to H3 cells (`hubs prepare-base` → `data/reference/h3_base.parquet`); `hubs run` reads that table by default (`spatial_source=h3_base`) and never opens a shapefile
   - Population/jobs rings filled from cells with the `fraction` rule (within ~1 % of the overlay); terminals and tiers identical; ring tags of boundary hexagons follow the cell centre instead of shapefile order (4 hubs)
@@ -1160,6 +1161,7 @@ hubs run --input-dir DIR --output-dir OUT [--version NAME]   # writes run_manife
 hubs compare OUT_A OUT_B                 # inputs, settings, hubs, scores and ranks that changed between two runs
 hubs compare-network --run OUT --agency-gpkg MT_Network.gpkg [--agency-meta FILE] [--tod-gpkg FILE] [--out DIR] [--config compare.yaml] [--set key=value]   # run vs the agency's network; see docs/NETWORK_COMPARISON.md
 python scripts/build_missing_map.py --compare-dir CMP --run-dir OUT --agency-gpkg MT_Network.gpkg [--agency-meta FILE] [--leaflet-dir DIR] [--out-dir DIR] [--run-note TEXT]   # one-page map of the lines and hubs missing on either side, with verdicts; see docs/NETWORK_COMPARISON.md
+python scripts/export_shapefiles.py --run-dir OUT [--lines-file FILE] [--out-dir DIR] [--version NAME] [--no-zip]   # the run's hubs (with type) and lines as shapefiles + zips; see docs/EXPORT_SHAPEFILES.md
 hubs runs DIR                            # list the run versions under a directory
 hubs serve [--root DIR]                  # local web page: choose folders, validate, run, compare versions (docs/GUI.md)
 hubs show-config --defaults              # every parameter as YAML

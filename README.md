@@ -130,6 +130,7 @@ HubPrioritizing/
 ├── colab/hubs_run.ipynb          # run the pipeline on Google Colab (docs/RUN_ON_COLAB.md)
 ├── colab/hubs_missing_map.ipynb  # map of the lines and hubs missing from either network (Colab)
 ├── scripts/compare_base_layer.py # H3 base layer vs shapefile overlay on one run
+├── scripts/export_shapefiles.py  # a run's hubs and lines as shapefiles (docs/EXPORT_SHAPEFILES.md)
 ├── docs/                         # methodology, inputs, outputs, deviations, the H3 base layer
 ├── pyproject.toml                # package + `hubs` console script
 └── CLAUDE.md                     # framework specification

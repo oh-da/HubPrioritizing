@@ -354,3 +354,101 @@ shows the agency rail routes and our suburban and interurban rail routes togethe
 5. `hubs` rows with `agency_splits`, `ours_merges` and `many_to_many`, and `n_modes_diff != 0`: the
    hubs that are defined differently.
 6. Open the two HTML pages and isolate a route or hub from the sheet to see it on the map.
+
+## Map of the missing lines and hubs (`scripts/build_missing_map.py`)
+
+`scripts/build_missing_map.py` turns a finished comparison into one self-contained Leaflet page
+that shows what each network lacks and gives every feature a verdict. It reads the matching of
+`hubs compare-network` and does not repeat it; it only evaluates the unmatched features against
+the other network and draws them.
+
+```bash
+hubs run --input-dir DIR --output-dir RUN
+hubs compare-network --run RUN --agency-gpkg MT_Network.gpkg --out CMP
+python scripts/build_missing_map.py --compare-dir CMP --run-dir RUN \
+    --agency-gpkg MT_Network.gpkg [--agency-meta MT_Network_MetaData.xlsx] \
+    [--out-dir OUT] [--leaflet-dir leaflet/dist] [--run-note "TEXT"]
+```
+
+| Option | Meaning |
+|---|---|
+| `--compare-dir` | Output of `hubs compare-network` (`network_comparison.xlsx` and `.gpkg`). Required. |
+| `--run-dir` | Output of `hubs run` (`hub_groups_all.csv`, `network_nodes.csv`). Required. |
+| `--agency-gpkg`, `--agency-meta` | The agency files given to `compare-network` (the metadata workbook is optional). |
+| `--out-dir` | Where `missing_lines_hubs_map.html` and `missing_map_summary.md` are written. Default: `--compare-dir`. |
+| `--leaflet-dir` | A folder with `leaflet.js` and `leaflet.css` (`npm pack leaflet@1.9.4`, then `package/dist`). Both are inlined, so the page needs no CDN. Without it the page loads the pinned cdnjs 1.9.4 files and the script prints a one-line notice. |
+| `--run-note` | The data note shown on the page and in the summary. Default: the version and input files of `run_manifest.json` in `--run-dir`, else the directory names. |
+
+A missing input stops the script with exit code 1 and a message that names the file and the
+command that produces it. The output is deterministic: the same inputs give byte-identical files.
+Map tiles (OpenStreetMap) and the Heebo font are always loaded online.
+
+### What it shows
+
+Eight sets, each with a checkbox, a count and a "show only likely real gaps" filter:
+
+| Set | Source | Drawn as |
+|---|---|---|
+| Agency lines missing from ours | routes with status `agency_only` | the agency geometry |
+| Our lines missing from the agency's | routes with status `ours_only` | our nodes joined in order |
+| Doubtful lines | statuses `weak`, `mode_differs` | both sides, dashed |
+| Lines present in both (context) | `matched`, `split_merge`, `partial`, `ours_within_agency`, `agency_within_ours`, `covered` | the agency geometry |
+| Agency hubs with no hub of ours within 400 m | hub relation `agency_only` | ring plus a tie to the nearest group |
+| Agency hubs on groups we filtered out | agency hubs whose paired groups are all not eligible | dashed ring plus the groups |
+| Our scored hubs with no agency hub | hub relation `ours_only`, eligible | dot |
+| Hubs present in both (context) | paired hubs with at least one eligible group | ring, dot and ties |
+
+Clicking a feature shows its verdict and the reason first, then the facts behind it.
+
+### How verdicts are decided
+
+The thresholds are module constants at the top of the script; the page lists the same rules.
+
+| Constant | Value | Used for |
+|---|---|---|
+| `STOP_NEAR_NODE_M` / `RAIL_STOP_NEAR_NODE_M` | 150 m / 250 m | a stop and a node of the other side count as the same place |
+| `ROUTE_NEAR_M` / `RAIL_ROUTE_NEAR_M` | 100 m / 250 m | a point is "on" a route of the other side |
+| `SAMPLE_STEP_M` | 100 m | vertices that stand in for the stops of a route without stops |
+| `COVERED_SHARE` / `GAP_SHARE` | 0.5 / 0.2 | at least the first: covered elsewhere; below the second: real gap |
+| `FULL_COV` | 0.8 | `mode_differs` with both coverages at least this: definition difference |
+| `NO_HUB_AROUND_M` | 800 m | nearest hub or group of the other side farther than this: nothing around |
+| `HUB_MATCH_M` | 400 m | the hub match radius of `compare-network`, quoted in the notes |
+| `MIN_DEMAND` | 1,000 | the pipeline's eligibility threshold, for "what is needed to qualify" |
+
+Verdicts: `real_gap` (likely a real gap), `covered_elsewhere`, `definition_difference`, `check`
+and `present` (the two context sets).
+
+- **Agency line missing.** The share of its stops (the 100 m points when it has none) with a node
+  of ours of any mode within `STOP_NEAR_NODE_M`: at least `COVERED_SHARE` is covered elsewhere (another
+  mode or alignment, so step 1 did not pair them), below `GAP_SHARE` a real gap, otherwise check.
+- **Our line missing.** Reason `no agency mode` is a definition difference. At least
+  `COVERED_SHARE` of its nodes within `ROUTE_NEAR_M` of an agency route of another mode is covered
+  elsewhere. Less than `GAP_SHARE` near any agency route and any agency stop is a real gap.
+  Otherwise check.
+- **Doubtful.** Check, except `mode_differs` with both coverages at least `FULL_COV` (same
+  alignment, other mode), which is a definition difference.
+- **Agency hub with no hub of ours.** Nearest group farther than `NO_HUB_AROUND_M` and none of the
+  hub's routes present in our network is a real gap; otherwise check.
+- **Agency hub on filtered groups.** A group filtered for `demand < min` is check; only
+  `single mode` or `rail only` is a definition difference (the agency counts same-mode
+  interchanges as hubs, our rule needs two modes and a non-rail one).
+- **Our scored hub with no agency hub.** Nearest agency hub farther than `NO_HUB_AROUND_M` and none
+  of the hub's routes matching an agency route is a real gap; otherwise check.
+
+`missing_map_summary.md` holds the counts per set and verdict, the rules above and the most
+important findings.
+
+### Limits
+
+- **Rail is indicative.** The agency cuts rail into per-segment features, so the rail tolerances
+  are coarser and a rail verdict says "look here", not "missing".
+- **Our lines are a visual aid.** Our network has nodes per line, not geometries; a line is drawn
+  as its nodes joined in order, and its verdict uses the nodes (positions after the offset
+  correction of `compare-network`).
+- **The thresholds are the generator's own.** They are not parameters of `CompareConfig` and not
+  part of the matching; changing one changes verdicts and the page text but no sheet of
+  `network_comparison.xlsx`. They are tuned on the June 2026 data, so check a handful of verdicts
+  on other data before relying on the counts.
+- **Agency demand is not available**, so hubs are compared by position, modes and routes only.
+- **The comparison must be current.** The map reads the workbook and layers of the comparison it is
+  given; rerun `compare-network` after a new `hubs run`.

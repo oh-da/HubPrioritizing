@@ -1,0 +1,13 @@
+our_mode,agency_type,note
+BRT,BRT,
+LRT,LRT,
+Light Rail,LRT,alias of LRT in the planned-mode labels
+Metro,Metro,
+Suburban Rail,Rail,
+Interurban Rail,Rail,
+Rail,Rail,alias of Interurban Rail in the planned-mode labels
+HighSpeed Rail,Rail fast,
+Funicular,FUNI,
+Cable Line,,no counterpart in the agency network; always reported as unmatched
+Bus,,not a mass-transit mode; no counterpart
+Express Bus,,not a mass-transit mode; no counterpart

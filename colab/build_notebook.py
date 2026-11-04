@@ -455,7 +455,7 @@ MAP_CELLS = [
 
 Draws **one map page** (`missing_lines_hubs_map.html`) of the lines and hubs that exist in only one of two
 networks: the one of the hub prioritization pipeline and the one of מנהל התכנון (`MT_Network.gpkg`). Every item has a
-verdict (likely real gap, covered elsewhere, definition difference, check). It also writes
+verdict (Missing, Covered by another line, Defined differently, Needs a look). It also writes
 `missing_map_summary.md` with the counts and the most important findings.
 
 **Before you start** (see `docs/NETWORK_COMPARISON.md`, "Map of the missing lines and hubs"):

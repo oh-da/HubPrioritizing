@@ -158,10 +158,24 @@ def test_agency_only_reports_nearest_group_and_exclusion_reason():
               make_agency({1: {"stops": [(0, 0)]}}))
     row = rows_of(res, "agency_only").iloc[0]
     assert row["agency_hub_id"] == 1
-    assert row["group"] == 10
+    # the nearest group is named in nearest_* columns, never as the row's own group
+    assert row["nearest_group"] == 10
+    assert row["nearest_hub_id"] == "H10"
+    assert row["nearest_HubNameHE"] == groups.set_index("group").loc[10, "HubNameHE"]
     assert row["distance_m"] == pytest.approx(1000.0)
-    assert not bool(row["eligible"])
-    assert row["exclusion_reason"] == "demand < min"
+    assert pd.notna(row["nearest_eligible"]) and not row["nearest_eligible"]
+    assert row["nearest_exclusion_reason"] == "demand < min"
+    for col in ("group", "hub_id", "HubNameHE", "eligible", "exclusion_reason"):
+        assert pd.isna(row[col]), col
+    # paired and ours_only rows leave the nearest_* columns empty
+    others = res.hubs[res.hubs["relation"] != "agency_only"]
+    nearest = ["nearest_group", "nearest_hub_id", "nearest_HubNameHE", "nearest_eligible",
+               "nearest_exclusion_reason"]
+    assert others[nearest].isna().all().all()
+    assert str(res.hubs["nearest_group"].dtype) == "Int64"
+    assert str(res.hubs["nearest_eligible"].dtype) == "boolean"
+    # filtering on group finds no phantom pair: group 10 has only its ours_only row
+    assert list(res.hubs.loc[res.hubs["group"] == 10, "relation"]) == ["ours_only"]
 
 
 def test_ours_only_split_by_eligible():

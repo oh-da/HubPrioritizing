@@ -6,8 +6,10 @@
 * **Pairs.** An agency hub ``H`` and a group ``G`` are a pair when the minimum distance between
   a stop of ``H`` and a node of ``G`` is ``<= cfg.hub_match_tol_m`` (nearest points, not
   centroids). The relation (``1:1``, ``agency_splits``, ``ours_merges``, ``many_to_many``) is
-  derived per connected component of the pair graph; ``agency_only`` rows carry the nearest
-  group, ``ours_only`` rows list scored and filtered groups alike with their ``eligible`` flag.
+  derived per connected component of the pair graph; ``agency_only`` rows name the nearest
+  group in the ``nearest_*`` columns only (their ``group`` stays empty, so a filter or join on
+  ``group`` never sees a pair), ``ours_only`` rows list scored and filtered groups alike with
+  their ``eligible`` flag.
 * **Route evidence** (shown, not part of the rule): the agency routes at ``H`` are mapped to our
   routes at ``G`` through the step-1 pairs of the same mode with ``score >= match_min_score``.
 
@@ -46,7 +48,9 @@ HUB_COMPARISON_COLUMNS = [
     "group", "hub_id", "HubNameHE", "Mode_Planned", "n_modes", "n_lines", "TotalDemand",
     "TotalTransfers", "eligible", "exclusion_reason", "HubType", "TotalScore_MC",
     "RankByHubTypeMetro",
-    "distance_m", "modes_shared", "modes_only_agency", "modes_only_ours", "routes_shared",
+    "distance_m", "nearest_group", "nearest_hub_id", "nearest_HubNameHE", "nearest_eligible",
+    "nearest_exclusion_reason",
+    "modes_shared", "modes_only_agency", "modes_only_ours", "routes_shared",
     "routes_only_agency", "routes_only_ours", "n_modes_diff",
 ]  # fmt: skip
 HUB_ROUTE_COLUMNS = [
@@ -58,6 +62,7 @@ _OUR_FIELDS = [
     "RankByHubTypeMetro",
 ]
 _NEAREST_FIELDS = ["group", "hub_id", "HubNameHE", "eligible", "exclusion_reason"]
+NEAREST_COLUMNS = [f"nearest_{c}" for c in _NEAREST_FIELDS]  # agency_only rows only
 
 
 @dataclass
@@ -66,7 +71,8 @@ class HubComparison:
 
     Attributes:
         hubs: One row per pair plus ``agency_only`` / ``ours_only`` rows
-            (``HUB_COMPARISON_COLUMNS``).
+            (``HUB_COMPARISON_COLUMNS``); the ``nearest_*`` columns are filled on
+            ``agency_only`` rows only.
         hub_routes: Route evidence per row of ``hubs`` (``HUB_ROUTE_COLUMNS``), ``side`` in
             ``shared`` / ``only_agency`` / ``only_ours``.
     """
@@ -341,9 +347,9 @@ def _comparison(agency_modes: list[str] | None, our_modes: list[str] | None,
 def _finish(rows: list[dict], route_rows: list[dict]) -> HubComparison:
     hubs = pd.DataFrame(rows, columns=HUB_COMPARISON_COLUMNS)
     for col in ("agency_hub_id", "group", "agency_n_modes", "agency_n_routes", "tod_type_sum",
-                "n_modes", "n_lines", "n_modes_diff"):
+                "n_modes", "n_lines", "n_modes_diff", "nearest_group"):
         hubs[col] = pd.to_numeric(hubs[col], errors="coerce").astype("Int64")
-    for col in ("agency_rail_hub", "tod_disagrees", "eligible"):
+    for col in ("agency_rail_hub", "tod_disagrees", "eligible", "nearest_eligible"):
         hubs[col] = hubs[col].astype("boolean")
     for col in ("agency_total_demand", "TotalDemand", "TotalTransfers", "TotalScore_MC",
                 "RankByHubTypeMetro", "distance_m"):
@@ -354,7 +360,7 @@ def _finish(rows: list[dict], route_rows: list[dict]) -> HubComparison:
         hub_routes[col] = hub_routes[col].astype("Int64")
     for col in HUB_ROUTE_COLUMNS[2:]:
         hub_routes[col] = hub_routes[col].astype(object).where(hub_routes[col].notna(), None)
-    hub_routes =hub_routes.sort_values(["agency_hub_id", "group"], kind="stable",
+    hub_routes = hub_routes.sort_values(["agency_hub_id", "group"], kind="stable",
                                         na_position="last")
     return HubComparison(hubs=hubs.reset_index(drop=True),
                          hub_routes=hub_routes.reset_index(drop=True))
@@ -407,7 +413,8 @@ def match_hubs(
         if o is not None:
             row.update(_our_fields(o))
         elif near is not None:
-            row.update(_our_fields(ours.iloc[near], _NEAREST_FIELDS))
+            fields = _our_fields(ours.iloc[near], _NEAREST_FIELDS)
+            row.update({f"nearest_{c}": fields[c] for c in _NEAREST_FIELDS})
         row.update(_comparison(_as_list(a["modes"]) if a is not None else None,
                                list(o["common_modes"]) if o is not None else None, ev))
         rows.append(row)

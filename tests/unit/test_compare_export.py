@@ -188,8 +188,10 @@ def test_hubs_only_sheets_are_filters_of_hubs(scenario):
     ours_only = hubs[hubs["relation"] == "ours_only"].reset_index(drop=True)
     pd.testing.assert_frame_equal(sheets["hubs_agency_only"], agency_only)
     pd.testing.assert_frame_equal(sheets["hubs_ours_only"], ours_only)
-    # an agency_only row carries the nearest group's identity, so it must still be listed there
-    assert agency_only["group"].notna().all()
+    # an agency_only row names its nearest group only in nearest_group, never in group
+    assert agency_only["group"].isna().all()
+    assert agency_only["nearest_group"].tolist() == [1]
+    assert hubs.loc[hubs["relation"] != "agency_only", "nearest_group"].isna().all()
     assert sorted(ours_only["group"]) == [2, 3]
     assert (hubs["relation"] == "1:1").sum() == 1  # paired rows stay only in the full table
     assert set(sheets["hubs_agency_only"]["agency_hub_id"]) == {2}
@@ -382,3 +384,16 @@ def test_covered_and_contained_routes_in_sheets_and_layers():
     assert sorted(layer["status"]) == sorted(
         ["matched", "matched", "ours_within_agency", "agency_within_ours", "covered"])
     assert layer.loc[layer["status"] == "covered", "agency_route_key"].tolist() == ["LRT:2"]
+
+
+def test_hub_layers_name_the_nearest_group_of_an_agency_only_hub(scenario):
+    layers = _layers(scenario)
+    hubs = layers["agency_hubs"].set_index("agency_hub_id")
+    assert hubs.loc[2, "relation"] == "agency_only"
+    assert hubs.loc[2, "nearest_group"] == 1
+    assert hubs.loc[2, "nearest_distance_m"] == pytest.approx(
+        scenario["hubs"].hubs.set_index("agency_hub_id").loc[2, "distance_m"])
+    assert pd.isna(hubs.loc[1, "nearest_group"]) and hubs.loc[1, "paired_groups"] == "1"
+    groups = layers["our_groups"].set_index("group")
+    assert groups.loc[1, "relation"] == "1:1"  # not overwritten by the agency_only row
+    assert len(layers["hub_ties"]) == 1

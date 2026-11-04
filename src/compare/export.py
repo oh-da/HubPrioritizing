@@ -236,7 +236,7 @@ def _summary(routes: pd.DataFrame, hubs: pd.DataFrame, agency: AgencyNetwork,
     rows.append(("routes", "routes: agency", int(len(agency.routes))))
     rows += [("routes", f"routes: {s}", int(counts.get(s, 0))) for s in STATUSES]
     relation = hubs["relation"].value_counts()
-    own = hubs[(hubs["relation"] != "agency_only") & hubs["group"].notna()]
+    own = hubs[hubs["group"].notna()]  # agency_only rows name a group only as nearest_group
     rows.append(("hubs", "hubs: agency hubs", int(len(agency.hubs))))
     rows.append(("hubs", "hubs: groups of ours", int(own["group"].nunique())))
     rows += [("hubs", f"hubs: relation {r}", int(relation.get(r, 0))) for r in RELATIONS]
@@ -360,17 +360,20 @@ def _joined_ids(frame: pd.DataFrame, key: str, other: str) -> dict:
 
 def _hub_layers(hubs: HubComparison, agency: AgencyNetwork, our_hubs: gpd.GeoDataFrame) -> tuple:
     table = hubs.hubs
-    # an agency_only row carries the nearest group's identity: it is not a pair
     paired = table[table["relation"].isin(PAIRED)]
-    own = table[table["relation"] != "agency_only"]
+    alone = table[table["relation"] == "agency_only"]  # group empty, nearest_* filled
     a_rel = _first_by(table, "agency_hub_id", "relation")
-    g_rel = _first_by(own, "group", "relation")
+    g_rel = _first_by(table, "group", "relation")
+    a_near = _first_by(alone, "agency_hub_id", "nearest_group")
+    a_dist = _first_by(alone, "agency_hub_id", "distance_m")
     a_groups = _joined_ids(paired, "agency_hub_id", "group")
     g_hubs = _joined_ids(paired, "group", "agency_hub_id")
 
     a = agency.hubs.reset_index(drop=True).copy()
     a["relation"] = [a_rel.get(int(i)) for i in a["agency_hub_id"]]
     a["paired_groups"] = [a_groups.get(int(i), "") for i in a["agency_hub_id"]]
+    a["nearest_group"] = pd.array([a_near.get(int(i)) for i in a["agency_hub_id"]], dtype="Int64")
+    a["nearest_distance_m"] = [a_dist.get(int(i), np.nan) for i in a["agency_hub_id"]]
     g = pd.DataFrame(our_hubs.drop(columns="geometry")).reset_index(drop=True)
     g["relation"] = [g_rel.get(int(i)) if pd.notna(i) else None for i in g["group"]]
     g["paired_agency_hubs"] = [g_hubs.get(int(i), "") if pd.notna(i) else "" for i in g["group"]]
@@ -419,7 +422,9 @@ def build_layers(
         ``our_routes`` (the nodes of
         each route joined in ``order_points`` order from the corrected positions, a Point for a
         one-node route, ``visual_aid = True``), ``our_routes_raw`` (the same rows and order from
-        the raw positions), ``agency_hubs``, ``our_groups`` (both with their ``relation``) and
+        the raw positions), ``agency_hubs`` (with ``relation``, ``paired_groups`` and, for an
+        ``agency_only`` hub, ``nearest_group`` / ``nearest_distance_m``), ``our_groups`` (with
+        ``relation``) and
         ``hub_ties`` (nearest points of each paired agency hub and group).
     """
     corrected, raw = _our_route_layers(routes, our_routes)

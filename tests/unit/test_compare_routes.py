@@ -8,6 +8,7 @@ import pytest
 
 from src.compare.modes import load_mode_map
 from src.compare.routes import (
+    AGENCY_ROW_STATUSES,
     PAIR_COLUMNS,
     ROUTE_COMPARISON_COLUMNS,
     build_our_routes,
@@ -25,6 +26,7 @@ from tests.compare_helpers import (
 )
 
 CFG = CompareConfig()
+NO_CONTAINMENT = CompareConfig(containment=False)
 
 
 def _lrt(coords, **extra):
@@ -32,13 +34,19 @@ def _lrt(coords, **extra):
 
 
 def _row(result, our_key):
-    rows = result.routes[result.routes["our_route_key"] == our_key]
+    """The status row of one of our routes (a ``covered`` row may also carry its key)."""
+    r = result.routes
+    rows = r[(r["our_route_key"] == our_key) & ~r["status"].isin(AGENCY_ROW_STATUSES)]
     assert len(rows) == 1, rows
     return rows.iloc[0]
 
 
 def _run(lines, agency_routes, report=None):
     return match_routes(make_our_routes(lines), make_agency_network(agency_routes), CFG, report)
+
+
+def _run_cfg(lines, agency_routes, cfg, report=None):
+    return match_routes(make_our_routes(lines), make_agency_network(agency_routes), cfg, report)
 
 
 # ----------------------------------------------------------------------------------------
@@ -201,19 +209,20 @@ def test_agency_only_row():
 
 def test_rail_uses_rail_tolerance():
     # stations sit 200 m beside the drawn geometry, our nodes on the stations
-    res = _run(
-        {
+    lines = {
             "R1": {"mode": "Suburban Rail", "coords": pts(0, 1000, 200, y=200)},
             "LRT11": _lrt(pts(0, 1000, 200, y=10200)),
-        },
-        {
-            "Rail:0:A": {"coords": pts(0, 1000, 1000), "stops": pts(0, 1000, 200, y=200)},
-            "LRT:1": {"coords": pts(0, 1000, 1000, y=10000),
-                      "stops": pts(0, 1000, 200, y=10200)},
-        },
-    )
+    }
+    agency = {
+        "Rail:0:A": {"coords": pts(0, 1000, 1000), "stops": pts(0, 1000, 200, y=200)},
+        "LRT:1": {"coords": pts(0, 1000, 1000, y=10000), "stops": pts(0, 1000, 200, y=10200)},
+    }
+    res = _run_cfg(lines, agency, NO_CONTAINMENT)
     assert _row(res, "R1")["status"] == "matched"
-    assert _row(res, "LRT11")["status"] == "ours_only"
+    assert _row(res, "LRT11")["status"] == "ours_only"  # 200 m > route_tol_m: cov_ours 0
+    # with containment the LRT stops (all on our nodes) still make it a contained route
+    lrt = _row(_run(lines, agency), "LRT11")
+    assert lrt["status"] == "agency_within_ours" and lrt["cov_ours"] == 0.0
 
 
 def test_agency_route_without_stops_uses_sampled_vertices():
@@ -237,7 +246,11 @@ def test_single_node_route_is_flagged_not_fatal():
     assert bool(row["short_route"]) is True
     assert row["our_n_nodes"] == 1
     assert row["cov_ours"] == pytest.approx(1.0)
-    assert row["status"] == "weak"  # 2 * 1 * 1/6 / (1 + 1/6) = 0.286
+    assert row["status"] == "ours_within_agency"  # its one node lies on the agency route
+    off = _run_cfg({"LRT11": _lrt([(0, 0)])},
+                   {"LRT:1": {"coords": pts(0, 1000, 1000), "stops": pts(0, 1000, 200)}},
+                   NO_CONTAINMENT)
+    assert _row(off, "LRT11")["status"] == "weak"  # 2 * 1 * 1/6 / (1 + 1/6) = 0.286
     assert order_points(np.empty((0, 2))) == []
     assert order_points(np.array([[5.0, 5.0]])) == [0]
     assert order_points(np.array([[5.0, 5.0], [0.0, 0.0]])) == [0, 1]
@@ -347,12 +360,178 @@ def test_score_exactly_on_match_min_score_is_partial():
 
 def test_score_exactly_on_only_max_score_is_a_candidate():
     # cov_ours = 1, cov_agency = 1/9: harmonic mean 0.2 (0.19999999999999998 unrounded)
-    res = _run(
-        {"LRT11": _lrt([(0, 0)])},
-        {"LRT:1": {"coords": pts(0, 8000, 8000), "stops": pts(0, 8000, 1000)}},
-    )
+    lines = {"LRT11": _lrt([(0, 0)])}
+    agency = {"LRT:1": {"coords": pts(0, 8000, 8000), "stops": pts(0, 8000, 1000)}}
+    assert _row(_run(lines, agency), "LRT11")["status"] == "ours_within_agency"
+    res = _run_cfg(lines, agency, NO_CONTAINMENT)  # the score threshold alone
     assert list(res.pairs["agency_route_key"]) == ["LRT:1"]
     assert res.pairs.iloc[0]["score"] == 0.2
     row = _row(res, "LRT11")
     assert row["candidates"] == "LRT:1 (0.20)"
     assert row["status"] == "weak"
+
+
+# ----------------------------------------------------------------------------------------
+# Fix wave: split pair choice, empty lines, covered agency routes, containment
+# ----------------------------------------------------------------------------------------
+
+def test_split_merge_shows_a_contributing_pair_not_the_best_score():
+    # LRT:1 covers all our nodes but few of its stops (1.0 / 0.25, score 0.4); LRT:2 and LRT:3
+    # each share 3 of our 10 nodes and 3 of their 10 stops (0.3 / 0.3): those two make the split
+    far = [(0, 500 + 100 * i) for i in range(7)]
+    res = _run(
+        {"LRT11": _lrt(pts(0, 900, 100))},
+        {
+            "LRT:1": {"coords": pts(0, 4600, 4600), "stops": pts(0, 4600, 200)},
+            "LRT:2": {"coords": [(100, 0), (100, 1200)],
+                      "stops": [(100, 0), (100, 50), (100, 100)] + [(100, y) for _, y in far]},
+            "LRT:3": {"coords": [(700, 0), (700, 1200)],
+                      "stops": [(700, 0), (700, 50), (700, 100)] + [(700, y) for _, y in far]},
+        },
+    )
+    by_key = res.pairs.set_index("agency_route_key")
+    assert by_key.loc["LRT:1", "cov_ours"] == pytest.approx(1.0)
+    assert by_key.loc["LRT:1", "cov_agency"] == pytest.approx(0.25)
+    assert by_key.loc["LRT:1", "score"] == pytest.approx(0.4)
+    assert by_key.loc["LRT:2", "cov_ours"] == pytest.approx(0.3)
+    assert by_key.loc["LRT:2", "cov_agency"] == pytest.approx(0.3)
+    row = _row(res, "LRT11")
+    assert row["status"] == "split_merge"
+    assert row["reason"] == "runs over 2 agency routes"
+    assert row["agency_route_key"] == "LRT:2"  # a route it runs over, not LRT:1
+    assert row["cov_ours"] == pytest.approx(0.3) and row["cov_agency"] == pytest.approx(0.3)
+
+
+def test_lines_without_a_usable_node_are_dropped_not_merged():
+    nodes = make_network_nodes({
+        "LRT11": _lrt(pts(0, 1000, 200)),
+        "BAD1": _lrt([(5000, 0), (5100, 0)]),
+        "BAD2": _lrt([(9000, 0)]),
+    })
+    nodes["x_itm"] = nodes["x_itm"].astype(object)
+    nodes.loc[nodes["LINE_ID"].isin(["BAD1", "BAD2"]), "x_itm"] = "n/a"
+    ours = build_our_routes(nodes, load_mode_map())
+    assert list(ours["route_key"]) == ["LRT11"]
+    assert ours.attrs["dropped_lines"] == 2
+    assert ours.attrs["dropped_nodes"] == 3
+    report = RunReport()
+    match_routes(ours, make_agency_network({}), CFG, report)
+    assert any("2 line(s) with no usable node" in e.message for e in report.warnings)
+
+
+def test_agency_route_that_is_never_best_gets_a_covered_row():
+    # R1 and R2 both match LRT:1 fully; LRT:2 (twice as long) is a good second candidate of
+    # both but the best of neither: it is not agency_only, and it must not vanish
+    res = _run(
+        {"R1": _lrt(pts(0, 1000, 100)), "R2": _lrt(pts(50, 1050, 100))},
+        {
+            "LRT:1": {"coords": pts(0, 1050, 1050), "stops": pts(0, 1000, 100)},
+            "LRT:2": {"coords": pts(0, 2000, 2000), "stops": pts(0, 2000, 100)},
+        },
+    )
+    assert _row(res, "R1")["status"] == "matched" and _row(res, "R2")["status"] == "matched"
+    assert _row(res, "R1")["agency_route_key"] == "LRT:1"
+    covered = res.routes[res.routes["status"] == "covered"]
+    assert list(covered["agency_route_key"]) == ["LRT:2"]
+    row = covered.iloc[0]
+    pair = res.pairs.set_index(["our_route_key", "agency_route_key"]).loc[("R2", "LRT:2")]
+    assert pair["score"] >= CFG.match_min_score
+    assert row["our_route_key"] == "R2"  # its best same-mode pair
+    assert row["cov_ours"] == pytest.approx(pair["cov_ours"])
+    assert row["cov_agency"] == pytest.approx(pair["cov_agency"])
+    assert row["score"] == pytest.approx(pair["score"])
+    assert row["reason"] == "candidate of 2 of our routes, never their best"
+    assert "R1 (" in row["candidates"] and "R2 (" in row["candidates"]
+    assert row["agency_type"] == "LRT" and row["agency_n_stops"] == 21
+    assert not (res.routes["status"] == "agency_only").any()
+    # every agency route has exactly one row that is its own (agency_only, covered or chosen)
+    assert set(res.routes["agency_route_key"].dropna()) == {"LRT:1", "LRT:2"}
+
+
+def test_short_route_of_ours_on_a_long_agency_route_is_ours_within_agency():
+    lines = {"LRT11": _lrt(pts(0, 300, 100))}
+    agency = {"LRT:1": {"coords": pts(0, 10000, 10000), "stops": pts(0, 10000, 200)}}
+    res = _run(lines, agency)
+    row = _row(res, "LRT11")
+    assert row["cov_ours"] == pytest.approx(1.0)
+    assert row["cov_agency"] == pytest.approx(3 / 51)
+    assert row["score"] < CFG.only_max_score
+    assert row["status"] == "ours_within_agency"
+    assert row["agency_route_key"] == "LRT:1"
+    assert not (res.routes["status"].isin(["agency_only", "covered"])).any()
+
+    off = _run_cfg(lines, agency, NO_CONTAINMENT)
+    assert _row(off, "LRT11")["status"] == "ours_only"
+    assert list(off.routes.loc[off.routes["status"] == "agency_only", "agency_route_key"]) == [
+        "LRT:1"]
+
+
+def test_agency_rail_route_inside_a_long_route_of_ours_is_agency_within_ours():
+    lines = {"R1": {"mode": "Suburban Rail", "coords": pts(0, 20000, 500)}}
+    agency = {"Rail:0:A": {"coords": pts(0, 1000, 1000), "stops": pts(0, 1000, 500)}}
+    res = _run(lines, agency)
+    row = _row(res, "R1")
+    assert row["cov_agency"] == pytest.approx(1.0)
+    assert row["cov_ours"] == pytest.approx(3 / 41)
+    assert row["status"] == "agency_within_ours"
+    assert row["agency_route_key"] == "Rail:0:A"
+    assert not (res.routes["status"] == "agency_only").any()
+
+    off = _run_cfg(lines, agency, NO_CONTAINMENT)
+    assert _row(off, "R1")["status"] == "ours_only"
+    assert (off.routes["status"] == "agency_only").sum() == 1
+
+
+def test_ours_within_agency_shows_the_pair_with_the_highest_agency_coverage():
+    lines = {"LRT11": _lrt(pts(0, 300, 100))}
+    agency = {
+        "LRT:1": {"coords": pts(0, 10000, 10000), "stops": pts(0, 10000, 200)},
+        "LRT:2": {"coords": pts(0, 5000, 5000), "stops": pts(0, 5000, 200)},
+    }
+    row = _row(_run(lines, agency), "LRT11")
+    assert row["status"] == "ours_within_agency"
+    assert row["agency_route_key"] == "LRT:2"  # 3/26 of its stops beats 3/51
+
+
+def test_containment_off_reproduces_the_previous_statuses():
+    lines = {
+        "M1": _lrt(pts(0, 1000, 200)),  # matched on LRT:1
+        "P1": _lrt(pts(0, 1000, 200, y=3000)),  # partial on LRT:3
+        "W1": _lrt(pts(0, 2000, 1000, y=6000) + pts(3000, 9000, 1000, y=11000)),  # weak
+        "B1": {"mode": "BRT", "coords": pts(0, 1000, 200, y=20000)},  # mode_differs
+        "S1": _lrt(pts(0, 300, 100, y=30000)),  # contained in LRT:6
+        "C1": {"mode": "Cable Line", "coords": pts(0, 500, 250, y=40000)},  # no agency mode
+    }
+    agency = {
+        "LRT:1": {"coords": pts(0, 1000, 1000), "stops": pts(0, 1000, 200)},
+        "LRT:3": {"coords": pts(0, 2000, 2000, y=3000), "stops": pts(0, 2000, 200, y=3000)},
+        "LRT:4": {"coords": pts(0, 9000, 9000, y=6000), "stops": pts(0, 9000, 1000, y=6000)},
+        "LRT:5": {"coords": pts(0, 1000, 1000, y=20000), "stops": pts(0, 1000, 200, y=20000)},
+        "LRT:6": {"coords": pts(0, 10000, 10000, y=30000),
+                  "stops": pts(0, 10000, 200, y=30000)},
+        "LRT:9": {"coords": pts(0, 1000, 1000, y=50000), "stops": pts(0, 1000, 200, y=50000)},
+    }
+
+    def statuses(res):
+        r = res.routes
+        return {(k if pd.notna(k) else a): s
+                for k, a, s in zip(r["our_route_key"], r["agency_route_key"], r["status"])}
+
+    off = _run_cfg(lines, agency, NO_CONTAINMENT)
+    assert statuses(off) == {
+        "M1": "matched", "P1": "partial", "W1": "weak", "B1": "mode_differs",
+        "S1": "ours_only", "C1": "ours_only", "LRT:4": "agency_only", "LRT:5": "agency_only",
+        "LRT:6": "agency_only", "LRT:9": "agency_only",
+    }
+    on = _run(lines, agency)
+    expected_on = dict(statuses(off), S1="ours_within_agency")
+    del expected_on["LRT:6"]
+    assert statuses(on) == expected_on
+    # every other row is identical, value for value
+    keep_on = ~on.routes["our_route_key"].eq("S1")
+    keep_off = ~(off.routes["our_route_key"].eq("S1") | off.routes["agency_route_key"].eq("LRT:6"))
+    pd.testing.assert_frame_equal(on.routes[keep_on].reset_index(drop=True),
+                                  off.routes[keep_off].reset_index(drop=True))
+    # the pairs differ only by the containment candidate
+    extra = on.pairs.merge(off.pairs, how="left", indicator=True)
+    assert list(extra.loc[extra["_merge"] == "left_only", "our_route_key"]) == ["S1"]

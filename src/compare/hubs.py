@@ -30,7 +30,7 @@ from ..pipeline.report import RunReport
 from ..spatial.merging import UnionFind
 from .agency import CRS_ITM, AgencyNetwork
 from .modes import map_mode
-from .routes import RouteComparison
+from .routes import AGENCY_ROW_STATUSES, RouteComparison
 from .settings import CompareConfig
 
 SECTION = "hubs"
@@ -304,7 +304,8 @@ class _RouteEvidence:
         good = p[p["same_mode"].astype(bool) & (pd.to_numeric(p["score"]) >= cfg.match_min_score)]
         self.matched = set(zip(good["our_route_key"], good["agency_route_key"]))
         r = routes.routes
-        ours = r[r["our_route_key"].notna()].drop_duplicates("our_route_key")
+        own = r["our_route_key"].notna() & ~r["status"].isin(AGENCY_ROW_STATUSES)
+        ours = r[own].drop_duplicates("our_route_key")
         self.our_status = dict(zip(ours["our_route_key"], ours["status"]))
         self.agency_status: dict[str, str] = {}
         for key, grp in r[r["agency_route_key"].notna()].groupby("agency_route_key"):

@@ -36,6 +36,10 @@ class CompareConfig:
     full_cov: float = 0.8  # both coverages at or above this = full match
     only_max_score: float = 0.2  # a route whose best score is below this is *_only
     multi_cov: float = 0.3  # both coverages at or above this = part of a split / merge
+    # one coverage at or above full_cov makes a same-mode pair a candidate even with a low
+    # score (a short route inside a long one): statuses ours_within_agency /
+    # agency_within_ours
+    containment: bool = True
     # --- Offset between the two networks --------------------------------------------------
     apply_offset: bool = True
     offset_radius_m: float = 10000.0

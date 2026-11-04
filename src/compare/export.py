@@ -26,7 +26,7 @@ from shapely.ops import nearest_points
 
 from .agency import CRS_ITM, AgencyNetwork
 from .hubs import RELATIONS, HubComparison
-from .routes import STATUSES, RouteComparison, order_points
+from .routes import AGENCY_ROW_STATUSES, STATUSES, RouteComparison, order_points
 from .settings import CompareConfig
 
 LIST_SEP = "; "
@@ -41,7 +41,7 @@ LAYER_NAMES = (
 )
 PAIR_STATS = ("median_dist_raw_m", "median_dist_corr_m", "max_dist_corr_m")
 PAIRED = ("1:1", "agency_splits", "ours_merges", "many_to_many")
-MODE_SUMMARY_COLUMNS = ["side", "mode", "n_routes", *STATUSES, "other"]
+MODE_SUMMARY_COLUMNS = ["side", "mode", "n_routes", *STATUSES]
 _LIMITS = (
     "our_routes in the GeoPackage is an ordered visual aid (our lines have no stop order or "
     "geometry), not a route",
@@ -171,33 +171,39 @@ def _routes_with_stats(routes: RouteComparison) -> pd.DataFrame:
     return merged[columns[:at] + list(PAIR_STATS) + columns[at:]]
 
 
+def _ours_rows(routes: pd.DataFrame) -> pd.DataFrame:
+    """The rows of our routes (not the ``agency_only`` / ``covered`` rows of agency routes)."""
+    return routes[routes["our_route_key"].notna() & ~routes["status"].isin(AGENCY_ROW_STATUSES)]
+
+
 def _mode_summary(routes: pd.DataFrame, agency: AgencyNetwork) -> pd.DataFrame:
     """Routes per mode on each side by status; the sides use their own mode names.
 
     Our side groups on ``our_mode``; the agency side on the agency route type, each agency
-    route counted once: ``agency_only`` if it has such a row, else the best status of the rows
-    of ours that chose it, else ``other`` (a candidate that no route of ours chose).
+    route counted once: ``agency_only`` / ``covered`` if it has such a row, else the best status
+    of the rows of ours that chose it.
     """
     rows = []
-    ours = routes[routes["our_route_key"].notna()]
+    ours = _ours_rows(routes)
     for mode, grp in ours.groupby(ours["our_mode"].fillna(""), sort=True):
         rows.append(("ours", mode, grp["status"].astype(str).tolist()))
     rank = {s: i for i, s in enumerate(STATUSES)}
-    agency_only = set(routes.loc[routes["status"] == "agency_only", "agency_route_key"])
+    agency_rows = routes[routes["status"].isin(AGENCY_ROW_STATUSES)]
+    own_row = dict(zip(agency_rows["agency_route_key"], agency_rows["status"]))
     chosen: dict[str, str] = {}
     for key, status in zip(ours["agency_route_key"], ours["status"]):
         if pd.notna(key) and (key not in chosen or rank[status] < rank[chosen[key]]):
             chosen[key] = status
     by_type: dict[str, list[str]] = {}
     for key, type_ in zip(agency.routes["route_key"], agency.routes["type"]):
-        status = "agency_only" if key in agency_only else chosen.get(key, "other")
+        status = own_row.get(key) or chosen.get(key, "covered")
         by_type.setdefault(str(type_), []).append(status)
     rows += [("agency", mode, by_type[mode]) for mode in sorted(by_type)]
     out = []
     for side, mode, statuses in rows:
         counts = pd.Series(statuses).value_counts()
         out.append({"side": side, "mode": mode, "n_routes": len(statuses),
-                    **{s: int(counts.get(s, 0)) for s in [*STATUSES, "other"]}})
+                    **{s: int(counts.get(s, 0)) for s in STATUSES}})
     return pd.DataFrame(out, columns=MODE_SUMMARY_COLUMNS).astype(
         {c: "int64" for c in MODE_SUMMARY_COLUMNS[2:]}
     )
@@ -226,7 +232,7 @@ def _summary(routes: pd.DataFrame, hubs: pd.DataFrame, agency: AgencyNetwork,
         ("about", "thresholds", "the effective configuration is on the settings sheet"),
     ]
     counts = routes["status"].value_counts()
-    rows.append(("routes", "routes: ours", int(routes["our_route_key"].notna().sum())))
+    rows.append(("routes", "routes: ours", int(len(_ours_rows(routes)))))
     rows.append(("routes", "routes: agency", int(len(agency.routes))))
     rows += [("routes", f"routes: {s}", int(counts.get(s, 0))) for s in STATUSES]
     relation = hubs["relation"].value_counts()
@@ -299,7 +305,7 @@ def _route_geometry(xy: np.ndarray, order: list[int]) -> Any:
 
 def _our_route_layers(routes: RouteComparison, ours: pd.DataFrame) -> tuple:
     """``our_routes`` (corrected positions) and ``our_routes_raw`` (raw), one row per route."""
-    best = routes.routes[routes.routes["our_route_key"].notna()].drop_duplicates("our_route_key")
+    best = _ours_rows(routes.routes).drop_duplicates("our_route_key")
     info = best.set_index("our_route_key")[["status", "agency_route_key", "score"]]
     rows, corrected, raw = [], [], []
     for rec in ours.to_dict("records"):
@@ -326,7 +332,8 @@ def _our_route_layers(routes: RouteComparison, ours: pd.DataFrame) -> tuple:
 
 
 def _route_pairs_layer(routes: RouteComparison, agency: AgencyNetwork) -> gpd.GeoDataFrame:
-    """Chosen pairs (our route -> agency geometry) followed by one row per ``agency_only`` route."""
+    """Chosen pairs (our route -> agency geometry), then the ``agency_only`` and ``covered``
+    rows (agency routes with no chosen pair), each with its agency route geometry."""
     table = _routes_with_stats(routes)
     geom = dict(zip(agency.routes["route_key"], agency.routes.geometry))
     wanted = table["agency_route_key"].isin(geom) & (
@@ -407,7 +414,8 @@ def build_layers(
     Returns:
         ``route_pairs`` (agency route geometry with the match attributes of the route of ours
         that chose it, one row per route of ours with a candidate, then one ``agency_only`` row
-        per agency route nothing of ours matches, with null ``our_*`` attributes),
+        per agency route nothing of ours covers, with null ``our_*`` attributes, and one
+        ``covered`` row per covered agency route no route of ours chose, with its best pair),
         ``our_routes`` (the nodes of
         each route joined in ``order_points`` order from the corrected positions, a Point for a
         one-node route, ``visual_aid = True``), ``our_routes_raw`` (the same rows and order from

@@ -25,6 +25,7 @@ from src.compare.modes import load_mode_map
 from src.compare.routes import (
     PAIR_COLUMNS,
     ROUTE_COMPARISON_COLUMNS,
+    STATUSES,
     RouteComparison,
     build_our_routes,
     line_route_map,
@@ -162,8 +163,8 @@ def test_sheet_names_and_order(scenario):
 
 def test_mode_summary_counts(scenario):
     ms = _sheets(scenario)["mode_summary"].set_index(["side", "mode"])
-    status_cols = ["matched", "split_merge", "partial", "weak", "mode_differs", "ours_only",
-                   "agency_only", "other"]
+    status_cols = list(STATUSES)
+    assert "other" not in ms.columns
     # our side groups by our mode: LRT (matched + single-node ours_only) and the unmapped Cable Line
     assert ms.loc[("ours", "LRT"), "n_routes"] == 2
     assert ms.loc[("ours", "LRT"), "matched"] == 1
@@ -325,3 +326,59 @@ def test_empty_comparison_still_writes_all_sheets(tmp_path: Path):
     assert all(len(layer) == 0 for layer in layers.values())
     gpkg = write_gpkg(tmp_path / "empty.gpkg", layers)
     assert set(gpd.list_layers(gpkg)["name"]) == set(layers)
+
+
+def _covered_scenario() -> dict[str, Any]:
+    """R1/R2 match LRT:1, LRT:2 is a second-best candidate of both (-> covered); S1 lies on the
+    long LRT:3 (-> ours_within_agency); the agency route Rail:0:A lies on our R9
+    (-> agency_within_ours)."""
+    nodes = make_network_nodes({
+        "R1": {"mode": "LRT", "coords": pts(0, 1000, 100)},
+        "R2": {"mode": "LRT", "coords": pts(50, 1050, 100)},
+        "S1": {"mode": "LRT", "coords": pts(0, 300, 100, y=30000)},
+        "R9": {"mode": "Suburban Rail", "coords": pts(0, 20000, 500, y=60000)},
+    })
+    ours = build_our_routes(nodes, load_mode_map())
+    agency = make_agency_network({
+        "LRT:1": {"coords": pts(0, 1050, 1050), "stops": pts(0, 1000, 100)},
+        "LRT:2": {"coords": pts(0, 2000, 2000), "stops": pts(0, 2000, 100)},
+        "LRT:3": {"coords": pts(0, 10000, 10000, y=30000), "stops": pts(0, 10000, 200, y=30000)},
+        "Rail:0:A": {"coords": pts(0, 1000, 1000, y=60000), "stops": pts(0, 1000, 500, y=60000)},
+    })
+    base = _empty()
+    return {**base, "ours": ours, "agency": agency, "routes": match_routes(ours, agency, CFG)}
+
+
+def test_covered_and_contained_routes_in_sheets_and_layers():
+    s = _covered_scenario()
+    sheets = _sheets(s)
+    routes = sheets["routes"]
+    status = dict(zip(routes["agency_route_key"] + "|" + routes["status"], routes["our_route_key"]))
+    assert status["LRT:2|covered"] in ("R1", "R2")
+    assert "LRT:3|ours_within_agency" in status and "Rail:0:A|agency_within_ours" in status
+    covered = routes[routes["status"] == "covered"].iloc[0]
+    assert covered["median_dist_corr_m"] == pytest.approx(0.0, abs=1e-6)  # its pair's stats
+    # neither a covered nor a contained agency route is "only the agency's"
+    assert sheets["routes_only_agency"].empty
+    assert sheets["routes_only_ours"].empty
+    ms = sheets["mode_summary"].set_index(["side", "mode"])
+    assert "other" not in ms.columns
+    assert ms.loc[("agency", "LRT"), "covered"] == 1
+    assert ms.loc[("agency", "LRT"), "matched"] == 1
+    assert ms.loc[("agency", "LRT"), "ours_within_agency"] == 1
+    assert ms.loc[("agency", "Rail"), "agency_within_ours"] == 1
+    assert ms.loc[("ours", "LRT"), "n_routes"] == 3  # R1, R2, S1: the covered row is not ours
+    assert ms.loc[("ours", "LRT"), "ours_within_agency"] == 1
+    assert ms.loc[("ours", "Suburban Rail"), "agency_within_ours"] == 1
+    status_cols = [c for c in ms.columns if c != "n_routes"]
+    for _, row in ms.iterrows():
+        assert row[status_cols].sum() == row["n_routes"]
+    items = dict(zip(sheets["summary"]["item"], sheets["summary"]["value"]))
+    assert items["routes: ours"] == 4
+    assert items["routes: covered"] == 1
+    assert items["routes: ours_within_agency"] == 1
+    assert items["routes: agency_within_ours"] == 1
+    layer = _layers(s)["route_pairs"]
+    assert sorted(layer["status"]) == sorted(
+        ["matched", "matched", "ours_within_agency", "agency_within_ours", "covered"])
+    assert layer.loc[layer["status"] == "covered", "agency_route_key"].tolist() == ["LRT:2"]

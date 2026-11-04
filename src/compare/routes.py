@@ -6,10 +6,14 @@
   ``R``'s nodes within the route tolerance of ``A``'s geometry (``rail_tol_m`` for the rail
   types), ``cov_agency`` = share of ``A``'s stops (or of its vertices sampled every 100 m when it
   has none) within ``stop_tol_m`` of a node of ``R``; ``score`` = their harmonic mean. Pairs with
-  ``score >= only_max_score`` are candidates.
+  ``score >= only_max_score`` are candidates; with ``containment`` on, so is a same-mode pair
+  with ``max(cov_ours, cov_agency) >= full_cov`` (a short route inside a long one).
 * **Status** of each of our routes follows spec 4.4 in table order (``matched``,
-  ``split_merge``, ``partial``, ``weak``, ``mode_differs``, ``ours_only``); agency routes no
-  route of ours matches (same mode, ``score >= match_min_score``) get an ``agency_only`` row.
+  ``split_merge``, ``partial``, ``ours_within_agency``, ``agency_within_ours``, ``weak``,
+  ``mode_differs``, ``ours_only``). An agency route no route of ours covers (no same-mode pair
+  with ``score >= match_min_score`` or, with ``containment``, a coverage ``>= full_cov``) gets an
+  ``agency_only`` row; one that is covered but is no route's chosen partner gets a ``covered``
+  row with its best same-mode pair, so every agency route has a row.
 
 Coverages use the corrected node positions (``x_corr`` / ``y_corr`` when present); the pair
 distances are given for both the raw and the corrected positions. Ties are broken by the sorted
@@ -35,8 +39,10 @@ RAIL_TYPES = frozenset({"Rail", "Rail fast"})
 _SCORE_DIGITS = 9  # the score is rounded once, so threshold ties classify as the spec's >=
 SAMPLE_STEP_M = 100.0  # vertex spacing standing in for the stops of a route without stations
 STATUSES = (
-    "matched", "split_merge", "partial", "weak", "mode_differs", "ours_only", "agency_only",
+    "matched", "split_merge", "partial", "ours_within_agency", "agency_within_ours", "weak",
+    "mode_differs", "ours_only", "agency_only", "covered",
 )
+AGENCY_ROW_STATUSES = ("agency_only", "covered")  # rows that describe an agency route, not ours
 
 OUR_ROUTE_COLUMNS = [
     "route_key", "line_ids", "line_names", "mode", "agency_type", "node_ids", "n_nodes",
@@ -60,8 +66,9 @@ class RouteComparison:
 
     Attributes:
         pairs: One row per candidate pair (``PAIR_COLUMNS``), any mode.
-        routes: One row per route of ours plus one ``agency_only`` row per agency route no
-            route of ours matches (``ROUTE_COMPARISON_COLUMNS``).
+        routes: One row per route of ours, then one ``agency_only`` row per agency route no
+            route of ours covers and one ``covered`` row per covered agency route that no row
+            of ours chose (``ROUTE_COMPARISON_COLUMNS``).
     """
 
     pairs: pd.DataFrame
@@ -91,11 +98,13 @@ def build_our_routes(
         One row per route, sorted by ``route_key`` (``OUR_ROUTE_COLUMNS``). ``node_ids`` follow
         the first member line; ``xy`` (corrected, falling back to raw) and ``xy_raw`` are
         ``(n, 2)`` arrays in that order. Nodes whose raw coordinates do not parse are dropped;
-        their number is in ``attrs["dropped_nodes"]``.
+        their number is in ``attrs["dropped_nodes"]``. A line left with no usable node forms no
+        route; the number of such lines is in ``attrs["dropped_lines"]``.
     """
     if network_nodes is None or network_nodes.empty:
         empty = pd.DataFrame(columns=OUR_ROUTE_COLUMNS)
         empty.attrs["dropped_nodes"] = 0
+        empty.attrs["dropped_lines"] = 0
         return empty
     df = network_nodes.copy()
     df["LINE_ID"] = df["LINE_ID"].astype(str).str.strip()
@@ -121,7 +130,11 @@ def build_our_routes(
         line_info[line_id] = (mode, names[0] if names else "", nodes)
 
     groups: dict[tuple[str, frozenset], list[str]] = {}
+    dropped_lines = 0
     for line_id, (mode, _, nodes) in line_info.items():
+        if not nodes:  # every node of the line failed to parse: no route, not a shared key
+            dropped_lines += 1
+            continue
         groups.setdefault((mode, frozenset(nodes)), []).append(line_id)
 
     rows = []
@@ -144,6 +157,7 @@ def build_our_routes(
     rows.sort(key=lambda r: r["route_key"])
     out = pd.DataFrame(rows, columns=OUR_ROUTE_COLUMNS)
     out.attrs["dropped_nodes"] = dropped
+    out.attrs["dropped_lines"] = dropped_lines
     return out
 
 
@@ -246,7 +260,8 @@ def _bounds(geom: Any, targets: np.ndarray) -> np.ndarray:
 
 
 def _candidate_pairs(ours: pd.DataFrame, ar: pd.DataFrame, targets: list, cfg: CompareConfig):
-    """Every candidate pair (``score >= only_max_score``) as ``PAIR_COLUMNS`` dicts."""
+    """Every candidate pair as ``PAIR_COLUMNS`` dicts: ``score >= only_max_score`` or, with
+    ``cfg.containment``, a same-mode pair with one coverage ``>= full_cov``."""
     tols = [cfg.rail_tol_m if t in RAIL_TYPES else cfg.route_tol_m for t in ar["type"]]
     boxes = [_bounds(g, t) for g, t in zip(ar.geometry, targets)]
     geoms = ar.geometry.to_numpy()
@@ -267,13 +282,15 @@ def _candidate_pairs(ours: pd.DataFrame, ar: pd.DataFrame, targets: list, cfg: C
             cov_o = float(np.mean(dist <= tols[j]))
             cov_a = _covered_share(targets[j], xy, cfg.stop_tol_m)
             score = _score(cov_o, cov_a)
-            if score <= 0 or score < cfg.only_max_score:
+            same_mode = mapped is not None and ar["type"].iat[j] == mapped
+            by_score = score > 0 and score >= cfg.only_max_score
+            contained = cfg.containment and same_mode and max(cov_o, cov_a) >= cfg.full_cov
+            if not (by_score or contained):
                 continue
             raw = shapely.distance(points_raw, geoms[j])
             rows.append({
                 "our_route_key": key, "agency_route_key": akey, "cov_ours": cov_o,
-                "cov_agency": cov_a, "score": score,
-                "same_mode": mapped is not None and ar["type"].iat[j] == mapped,
+                "cov_agency": cov_a, "score": score, "same_mode": same_mode,
                 "median_dist_raw_m": float(np.median(raw)),
                 "median_dist_corr_m": float(np.median(dist)),
                 "max_dist_corr_m": float(np.max(dist)),
@@ -320,8 +337,8 @@ def _status(key, mapped, cands, users, full, cfg) -> tuple[str, dict | None, str
     if fulls:
         return "matched", fulls[0], ""
     multi = [p for p in same if _both(p, cfg.multi_cov)]
-    if len(multi) >= 2:
-        return "split_merge", same[0], f"runs over {len(multi)} agency routes"
+    if len(multi) >= 2:  # the best-scoring route it runs over (same is sorted by score)
+        return "split_merge", multi[0], f"runs over {len(multi)} agency routes"
     if same:
         best = same[0]
         sharing = users.get(best["agency_route_key"], [])
@@ -330,6 +347,15 @@ def _status(key, mapped, cands, users, full, cfg) -> tuple[str, dict | None, str
             return "split_merge", best, f"agency route shared by {len(sharing)} of our routes"
         if best["score"] >= cfg.match_min_score:
             return "partial", best, ""
+        if cfg.containment:
+            inside = [p for p in same if p["cov_ours"] >= cfg.full_cov]
+            if inside:  # the agency route that our route fills the most of
+                pair = min(inside, key=lambda p: (-p["cov_agency"], p["agency_route_key"]))
+                return "ours_within_agency", pair, "our route lies on a longer agency route"
+            holds = [p for p in same if p["cov_agency"] >= cfg.full_cov]
+            if holds:
+                pair = min(holds, key=lambda p: (-p["cov_ours"], p["agency_route_key"]))
+                return "agency_within_ours", pair, "the agency route lies on a longer route of ours"
         return "weak", best, f"best score below {cfg.match_min_score:g}"
     if cross and cross[0]["score"] >= cfg.match_min_score:
         return "mode_differs", cross[0], "best match is an agency route of another type"
@@ -376,6 +402,7 @@ def match_routes(
     """
     ar = agency.routes.sort_values("route_key", kind="stable").reset_index(drop=True)
     dropped = int(ours.attrs.get("dropped_nodes", 0))
+    dropped_lines = int(ours.attrs.get("dropped_lines", 0))
     ours = ours.sort_values("route_key", kind="stable").reset_index(drop=True)
     mapped = ours["agency_type"].astype(object)
     ours["agency_type"] = mapped.where(mapped.notna(), None)
@@ -418,10 +445,14 @@ def match_routes(
             "reason": reason,
         })
 
+    def covers(p: Mapping[str, Any]) -> bool:
+        return p["score"] >= cfg.match_min_score or (
+            cfg.containment and max(p["cov_ours"], p["cov_agency"]) >= cfg.full_cov)
+
     for akey, arow in arows.items():
         on_it = by_agency.get(akey, [])
         same = [p for p in on_it if p["same_mode"]]
-        if any(p["score"] >= cfg.match_min_score for p in same):
+        if any(covers(p) for p in same):
             continue
         if same:
             reason = f"best score of ours {same[0]['score']:.2f} below {cfg.match_min_score:g}"
@@ -438,6 +469,23 @@ def match_routes(
             "agency_n_our_routes": len(users.get(akey, [])), "reason": reason,
         })
 
+    has_row = {r["agency_route_key"] for r in rows if r["agency_route_key"] is not None}
+    for akey, arow in arows.items():
+        same = [p for p in by_agency.get(akey, []) if p["same_mode"]]
+        if akey in has_row or not same:
+            continue
+        on_it = by_agency[akey]
+        best = same[0]
+        rows.append({
+            "status": "covered", "our_route_key": best["our_route_key"], "our_line_ids": [],
+            "our_line_names": [], "our_mode": None, "our_n_nodes": None, "short_route": None,
+            **_agency_fields(arow, agency.labels),
+            "cov_ours": best["cov_ours"], "cov_agency": best["cov_agency"],
+            "score": best["score"], "candidates": _candidates_text(on_it, "our_route_key"),
+            "agency_n_our_routes": len(users.get(akey, [])),
+            "reason": f"candidate of {len(on_it)} of our routes, never their best",
+        })
+
     routes = pd.DataFrame(rows, columns=ROUTE_COMPARISON_COLUMNS)
     for col in ("our_n_nodes", "agency_n_stops", "agency_n_our_routes"):
         routes[col] = routes[col].astype("Int64")
@@ -450,12 +498,12 @@ def match_routes(
         pairs[col] = pairs[col].astype(float)
 
     if report is not None:
-        _report(report, routes, ours, len(ar), len(pairs), dropped)
+        _report(report, routes, ours, len(ar), len(pairs), dropped, dropped_lines)
     return RouteComparison(pairs=pairs, routes=routes)
 
 
 def _report(report: RunReport, routes: pd.DataFrame, ours: pd.DataFrame, n_agency: int,
-            n_pairs: int, dropped: int) -> None:
+            n_pairs: int, dropped: int, dropped_lines: int = 0) -> None:
     counts = routes["status"].value_counts()
     for status in STATUSES:
         report.set_metric(f"routes_{status}", int(counts.get(status, 0)))
@@ -465,6 +513,8 @@ def _report(report: RunReport, routes: pd.DataFrame, ours: pd.DataFrame, n_agenc
         report.set_metric(name, value)
     if dropped:
         report.warn(SECTION, f"{dropped} node(s) with unparseable coordinates dropped")
+    if dropped_lines:
+        report.warn(SECTION, f"{dropped_lines} line(s) with no usable node: no route built")
     summary = ", ".join(f"{int(counts.get(s, 0))} {s}" for s in STATUSES)
     report.info(
         SECTION,

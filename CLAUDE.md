@@ -484,7 +484,7 @@ HubPrioritizing/
 ├── requirements.txt             # runtime deps (mirror of pyproject)
 │
 ├── src/
-│   ├── cli.py                   # hubs validate | run | compare | runs | serve | show-config | prepare-base | export-h3
+│   ├── cli.py                   # hubs validate | run | compare | compare-network | runs | serve | show-config | prepare-base | export-h3
 │   ├── gui/                     # hubs serve: local web page (server.py = JSON API over the pipeline, index.html = the page)
 │   ├── config.py                # thresholds, weights, CRS, column constants, tier labels
 │   ├── pipeline/                # the one-command pipeline (pure DataFrame stages)
@@ -502,8 +502,19 @@ HubPrioritizing/
 │   │   ├── postprocess.py       #   display columns incl. the former Excel formulas
 │   │   ├── export.py            #   xlsx (Excel Table) + CSV writers
 │   │   ├── calc_workbook.py     #   hub_scoring_calculation.xlsx: every scoring step as Excel formulas
+│   │   ├── all_groups.py        #   hub_groups_all.csv (every group before the filter) and network_nodes.csv
 │   │   ├── versioning.py        #   run_manifest.json, hubs compare, hubs runs
 │   │   └── run.py               #   orchestrator, write_outputs, run_from_cli
+│   ├── compare/                 # hubs compare-network: a finished run vs the planning agency's MT_Network.gpkg
+│   │   ├── settings.py          #   CompareConfig (tolerances, thresholds), YAML / --set overrides
+│   │   ├── agency.py            #   reads the agency gpkg + metadata workbook -> routes, stops, hubs
+│   │   ├── modes.py             #   our mode -> agency type (data/reference/agency_mode_map.csv)
+│   │   ├── offset.py            #   local shift between our nodes and the agency stops
+│   │   ├── routes.py            #   step 1: our routes vs agency routes, status per route
+│   │   ├── hubs.py              #   step 2: our groups (pre-filter) vs agency hubs, relation per pair
+│   │   ├── export.py            #   network_comparison.xlsx and .gpkg
+│   │   ├── maps.py              #   the two self-contained Leaflet HTML pages
+│   │   └── run.py               #   orchestrator, compare_network_from_cli
 │   ├── spatial/                 # h3_operations.py, merging.py (UnionFind)
 │   ├── classification/          # hierarchy.py (classify_hub_tier)
 │   └── utils/                   # encoding_fix.py, logging.py
@@ -517,7 +528,7 @@ HubPrioritizing/
 │   └── fixtures/real/           # place the real exports + golden workbook here (not committed)
 │
 ├── scripts/                     # compare_base_layer.py (H3 layer vs shapefile overlay)
-└── docs/                        # full_documentation/, DEVIATIONS.md, H3_BASE_LAYER.md, DATA_CONFIGURATION.md
+└── docs/                        # full_documentation/, DEVIATIONS.md, H3_BASE_LAYER.md, DATA_CONFIGURATION.md, NETWORK_COMPARISON.md, superpowers/ (design specs and plans)
 ```
 
 ### Module Responsibilities
@@ -625,10 +636,18 @@ HubPrioritizing/
 - The Monte Carlo mean is linear, so the score is Σ norm × mean weight of the hub type; the draws are regenerated from the seed (bit-identical) and stored as values
 - `calc_workbook_basename` (`""` turns it off); the code is `src/pipeline/calc_workbook.py`
 
+#### Comparison Inputs
+- `hub_groups_all.csv`, written by every run: one row per hub group before the eligibility filter, with `eligible` and `exclusion_reason` (`all_groups_basename`)
+- `network_nodes.csv`, written by every run: one row per node x line with ITM position, `group` and `hub_id` (`network_nodes_basename`)
+- Both are read by `hubs compare-network` (`docs/NETWORK_COMPARISON.md`); `""` turns either off
+
+**Format**: CSV (UTF-8 with BOM); list columns joined with `;`
+
 #### Reports
 - `run_report.md` / `.json`: every data-quality finding and metric of a run
 - `run_manifest.json`: the run's version (inputs with hashes, base-layer vintage, configuration, code, summary)
 - `compare_<A>_vs_<B>.md` / `.csv` / `.json` (`hubs compare`): what changed between two versions
+- `network_comparison.xlsx` / `.gpkg` / `_routes.html` / `_hubs.html`, `compare_config.json`, `compare_report.md` / `.json` (`hubs compare-network`): routes and hubs against the agency's network
 
 **Format**: Markdown, CSV, JSON
 
@@ -1071,6 +1090,11 @@ The pipeline is a chain of pure DataFrame stages under `src/pipeline/`, each rec
 ## 19. Document Maintenance
 
 ### Version History
+- **v2.2** (2026-11-04): Network comparison with the planning agency
+  - `hubs compare-network --run OUT --agency-gpkg MT_Network.gpkg` compares a finished run with the agency's routes and hubs in two steps (routes by geometry, hubs against all pre-filter groups) and writes `network_comparison.xlsx`, `.gpkg`, two Leaflet pages, `compare_config.json` and `compare_report.md` / `.json`
+  - New package `src/compare/` (settings, agency, modes, offset, routes, hubs, export, maps, run) and `data/reference/agency_mode_map.csv`; thresholds are `CompareConfig` keys (`--config` / `--set`)
+  - `hubs run` now also writes `hub_groups_all.csv` and `network_nodes.csv` (`src/pipeline/all_groups.py`; `all_groups_basename`, `network_nodes_basename`); scoring, tiers and every existing output are unchanged, so earlier runs must be repeated before they can be compared
+  - Guide: `docs/NETWORK_COMPARISON.md` (route `status` and hub `relation` vocabularies, known limits); design in `docs/superpowers/`
 - **v2.1** (2026-09-17): H3 base layer
   - The four reference shapefiles are pre-allocated once to H3 cells (`hubs prepare-base` → `data/reference/h3_base.parquet`); `hubs run` reads that table by default (`spatial_source=h3_base`) and never opens a shapefile
   - Population/jobs rings filled from cells with the `fraction` rule (within ~1 % of the overlay); terminals and tiers identical; ring tags of boundary hexagons follow the cell centre instead of shapefile order (4 hubs)
@@ -1133,6 +1157,7 @@ This document should be updated when:
 hubs validate --input-dir DIR            # check inputs
 hubs run --input-dir DIR --output-dir OUT [--version NAME]   # writes run_manifest.json (default version = newest export date)
 hubs compare OUT_A OUT_B                 # inputs, settings, hubs, scores and ranks that changed between two runs
+hubs compare-network --run OUT --agency-gpkg MT_Network.gpkg [--agency-meta FILE] [--tod-gpkg FILE] [--out DIR] [--config compare.yaml] [--set key=value]   # run vs the agency's network; see docs/NETWORK_COMPARISON.md
 hubs runs DIR                            # list the run versions under a directory
 hubs serve [--root DIR]                  # local web page: choose folders, validate, run, compare versions (docs/GUI.md)
 hubs show-config --defaults              # every parameter as YAML
@@ -1149,10 +1174,12 @@ pytest                                    # unit + smoke tests
 - `src/pipeline/calc_workbook.py`: the stakeholder calculation workbook (formulas)
 - `src/pipeline/h3_export.py`: the shareable cell layer
 - `src/pipeline/versioning.py`: run manifest and run-to-run comparison (`docs/VERSIONS.md`)
+- `src/compare/run.py`: `hubs compare-network` orchestrator (`docs/NETWORK_COMPARISON.md`)
 - `src/gui/server.py`: the local web page's API (`docs/GUI.md`)
 - `src/config.py`: thresholds and weights
 - `data/reference/README.md`: reference layers and curated tables
 - `docs/H3_BASE_LAYER.md`: how the base layer is built, validated against the overlay, and shared
+- `docs/NETWORK_COMPARISON.md`: how to run and read the comparison with the agency's network
 - `docs/DEVIATIONS.md`: flags and fixes
 
 ---
@@ -1167,6 +1194,6 @@ For questions about:
 
 ---
 
-**Last Updated**: 2026-09-17
-**Document Version**: 2.1
-**Status**: One-command pipeline on the H3 base layer
+**Last Updated**: 2026-11-04
+**Document Version**: 2.2
+**Status**: One-command pipeline on the H3 base layer, with network comparison against the planning agency

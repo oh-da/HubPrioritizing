@@ -127,7 +127,8 @@ Curated table, one row per mode of ours. Columns: `our_mode`, `agency_type`, `no
 | Funicular | FUNI |
 | Cable Line | (none: always reported as unmatched, not an error) |
 
-Agency types absent from the table are reported as a finding and treated as their own mode.
+Agency types absent from the table (exact, case-sensitive compare) are reported as a finding
+(section `modes`, with their route counts) and treated as their own mode.
 
 ## 4. Step 1: route comparison
 
@@ -145,8 +146,10 @@ Agency types absent from the table are reported as a finding and treated as thei
 ### 4.2 Offset
 
 Earlier work found a systematic ~40-60 m shift between our nodes and the agency stops. Using
-`local_shift` (median node -> nearest same-mode stop offset within 10 km radius, two passes) a
-shift vector is estimated per our node and applied before matching. Raw and corrected distances
+`local_shift` (median node -> nearest stop of any mode (as compare_lines.py did) offset within
+10 km radius, two passes) a shift vector is estimated per our node and applied before matching.
+When fewer than 5 node-stop pairs lie within `stop_tol_m` nothing is estimated: the shift is
+zero and the report warns "offset not estimated" (the console says so too). Raw and corrected distances
 are both written. `apply_offset = false` skips the correction.
 
 ### 4.3 Matching
@@ -158,8 +161,10 @@ For each of our routes `R` (mode `m`) and each agency route `A` of the mapped mo
 - `cov_agency(R, A)` = share of `A`'s stops within `stop_tol_m` (150 m) of any node of `R`.
 - `score = 2 * cov_ours * cov_agency / (cov_ours + cov_agency)`.
 
-Pairs with `score >= only_max_score` (0.2) are *candidates*; each of our routes keeps all its
-candidates ranked by score (ties broken by agency route key). A candidate whose agency type is
+Pairs with `score >= only_max_score` (0.2) are *candidates*; with `containment` on (default,
+amended in the final fix wave) a same-mode pair with `max(cov_ours, cov_agency) >= full_cov` is a
+candidate too, whatever its score (a short route lying on a long one). Each of our routes keeps
+all its candidates ranked by score (ties broken by agency route key). A candidate whose agency type is
 not the mapped mode of our route is a *cross-mode* candidate and is never counted as matched.
 
 ### 4.4 Status per route
@@ -169,15 +174,22 @@ Evaluated in this order for each of our routes (same-mode candidates only, unles
 | status | rule |
 |---|---|
 | `matched` | some candidate has `cov_ours >= full_cov` and `cov_agency >= full_cov` (0.8); the best-scoring such candidate is the match. A full match always wins, so routes that share a trunk (rail) are not mislabelled |
-| `split_merge` | no full match, and either at least two candidates have both coverages `>= multi_cov` (0.3) (one of our routes runs over several agency routes), or the best candidate's agency route is used, with both coverages `>= multi_cov`, by at least two of our routes and none of those pairs is a full match (several of ours share one agency route); all candidates are listed with their coverages |
+| `split_merge` | no full match, and either at least two candidates have both coverages `>= multi_cov` (0.3) (one of our routes runs over several agency routes; the row shows the best-scoring of those), or the best candidate's agency route is used, with both coverages `>= multi_cov`, by at least two of our routes and none of those pairs is a full match (several of ours share one agency route); all candidates are listed with their coverages |
 | `partial` | not the above, best candidate has `score >= match_min_score` (0.5) |
+| `ours_within_agency` | `containment` only: not the above, some candidate has `cov_ours >= full_cov`; the one with the highest `cov_agency` is shown (partial containment) |
+| `agency_within_ours` | `containment` only: not the above, some candidate has `cov_agency >= full_cov`; the one with the highest `cov_ours` is shown (partial containment) |
 | `weak` | best candidate has `only_max_score <= score < match_min_score` |
 | `mode_differs` | no same-mode candidate, but a cross-mode candidate with `score >= match_min_score` |
 | `ours_only` | none of the above (includes a mode with no agency counterpart, e.g. Cable Line) |
 
 Agency routes get status `agency_only` when no route of ours has a same-mode candidate on them
-with `score >= match_min_score`. Routes of ours with fewer than 2 nodes are compared normally
-but flagged `short_route = true`.
+with `score >= match_min_score` or (with `containment`) a coverage `>= full_cov`. An agency route
+that has such a candidate but is no route's chosen partner gets one `covered` row with its best
+same-mode pair and `reason = candidate of N of our routes, never their best`, so every agency
+route has a row; `covered` rows are on `routes` and `route_pairs`, counted in `mode_summary` and
+`summary`, and not in `routes_only_agency`. `containment = false` reproduces the score-only rule
+exactly. Routes of ours with fewer than 2 nodes are compared normally but flagged
+`short_route = true`; a line with no usable node forms no route and is reported.
 
 Each row also carries: both sides' names (our `LINE_ID`s and Hebrew line names from the run's
 line-name tables when available; agency `name`, `line_name`), mode, node/stop counts, the
@@ -213,7 +225,7 @@ spatial index. Pairs are many-to-many; the relation is derived per connected com
 | `agency_splits` | one agency hub overlaps several of our groups |
 | `ours_merges` | several agency hubs overlap one of our groups |
 | `many_to_many` | both of the above |
-| `agency_only` | no group within tolerance; nearest group, its distance, `eligible` and `exclusion_reason` are given |
+| `agency_only` | no group within tolerance; the columns of ours stay empty and the nearest group, its `hub_id`, `HubNameHE`, `eligible` and `exclusion_reason` are given in `nearest_*` columns, its distance in `distance_m` |
 | `ours_only` | no agency hub within tolerance; split by `eligible` (scored hubs vs filtered groups) |
 
 Route-level evidence comes from step 1: for each pair, the agency routes at `H` are mapped to our
@@ -227,7 +239,10 @@ of the matching rule.
 `agency_n_modes`, `agency_rail_hub`, `agency_type`, `agency_n_routes`, `agency_total_demand`
 (empty), `tod_type_sum`; ours: `group`, `hub_id`, `HubNameHE`, `Mode_Planned`, `n_modes`,
 `n_lines`, `TotalDemand`, `TotalTransfers`, `eligible`, `exclusion_reason`, `HubType`,
-`TotalScore_MC`, `RankByHubTypeMetro`; comparison: `distance_m`, `modes_shared`,
+`TotalScore_MC`, `RankByHubTypeMetro` (empty on `agency_only` rows); comparison:
+`distance_m`, `nearest_group`, `nearest_hub_id`, `nearest_HubNameHE`, `nearest_eligible`,
+`nearest_exclusion_reason` (filled on `agency_only` rows only, so a filter or join on `group`
+never sees a phantom pair), `modes_shared`,
 `modes_only_agency`, `modes_only_ours`, `routes_shared`, `routes_only_agency`,
 `routes_only_ours`, `n_modes_diff`.
 
@@ -262,12 +277,14 @@ Written to `--out` (default: the run directory):
 | `full_cov` | 0.8 |
 | `only_max_score` | 0.2 |
 | `multi_cov` | 0.3 |
+| `containment` | true (one coverage `>= full_cov` makes a same-mode candidate; statuses `ours_within_agency` / `agency_within_ours`) |
 | `apply_offset` | true |
 | `offset_radius_m` / `offset_passes` | 10000 / 2 |
 | `hub_match_tol_m` | 400 |
 | `tod_join_tol_m` | 200 |
 
-Set with `--config compare.yaml` or `--set key=value`, as the pipeline does. Values are written
+Set with `--config compare.yaml` or `--set key=value`, as the pipeline does; booleans,
+non-finite numbers and fractions for whole-number keys are rejected. Values are written
 to `compare_config.json` and the workbook's `settings` sheet. No threshold is hard-coded in a
 stage.
 

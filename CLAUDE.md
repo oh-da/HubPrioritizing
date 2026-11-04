@@ -505,13 +505,13 @@ HubPrioritizing/
 │   │   ├── all_groups.py        #   hub_groups_all.csv (every group before the filter) and network_nodes.csv
 │   │   ├── versioning.py        #   run_manifest.json, hubs compare, hubs runs
 │   │   └── run.py               #   orchestrator, write_outputs, run_from_cli
-│   ├── compare/                 # hubs compare-network: a finished run vs the planning agency's MT_Network.gpkg
+│   ├── compare/                 # hubs compare-network: a finished run vs MT_Network.gpkg of מנהל התכנון
 │   │   ├── settings.py          #   CompareConfig (tolerances, thresholds), YAML / --set overrides
-│   │   ├── agency.py            #   reads the agency gpkg + metadata workbook -> routes, stops, hubs
-│   │   ├── modes.py             #   our mode -> agency type (data/reference/agency_mode_map.csv)
-│   │   ├── offset.py            #   local shift between our nodes and the agency stops
-│   │   ├── routes.py            #   step 1: our routes vs agency routes, status per route
-│   │   ├── hubs.py              #   step 2: our groups (pre-filter) vs agency hubs, relation per pair
+│   │   ├── agency.py            #   reads the מנהל התכנון gpkg + metadata workbook -> routes, stops, hubs
+│   │   ├── modes.py             #   our mode -> מנהל התכנון type (data/reference/agency_mode_map.csv)
+│   │   ├── offset.py            #   local shift between our nodes and the stops of מנהל התכנון
+│   │   ├── routes.py            #   step 1: our routes vs the routes of מנהל התכנון, status per route
+│   │   ├── hubs.py              #   step 2: our groups (pre-filter) vs the hubs of מנהל התכנון, relation per pair
 │   │   ├── export.py            #   network_comparison.xlsx and .gpkg
 │   │   ├── maps.py              #   the two self-contained Leaflet HTML pages
 │   │   └── run.py               #   orchestrator, compare_network_from_cli
@@ -647,7 +647,7 @@ HubPrioritizing/
 - `run_report.md` / `.json`: every data-quality finding and metric of a run
 - `run_manifest.json`: the run's version (inputs with hashes, base-layer vintage, configuration, code, summary)
 - `compare_<A>_vs_<B>.md` / `.csv` / `.json` (`hubs compare`): what changed between two versions
-- `network_comparison.xlsx` / `.gpkg` / `_routes.html` / `_hubs.html`, `compare_config.json`, `compare_report.md` / `.json` (`hubs compare-network`): routes and hubs against the agency's network
+- `network_comparison.xlsx` / `.gpkg` / `_routes.html` / `_hubs.html`, `compare_config.json`, `compare_report.md` / `.json` (`hubs compare-network`): routes and hubs against the network of מנהל התכנון
 
 **Format**: Markdown, CSV, JSON
 
@@ -1090,8 +1090,8 @@ The pipeline is a chain of pure DataFrame stages under `src/pipeline/`, each rec
 ## 19. Document Maintenance
 
 ### Version History
-- **v2.2** (2026-11-04): Network comparison with the planning agency
-  - `hubs compare-network --run OUT --agency-gpkg MT_Network.gpkg` compares a finished run with the agency's routes and hubs in two steps (routes by geometry, hubs against all pre-filter groups) and writes `network_comparison.xlsx`, `.gpkg`, two Leaflet pages, `compare_config.json` and `compare_report.md` / `.json`
+- **v2.2** (2026-11-04): Network comparison with מנהל התכנון
+  - `hubs compare-network --run OUT --agency-gpkg MT_Network.gpkg` compares a finished run with the routes and hubs of מנהל התכנון in two steps (routes by geometry, hubs against all pre-filter groups) and writes `network_comparison.xlsx`, `.gpkg`, two Leaflet pages, `compare_config.json` and `compare_report.md` / `.json`
   - New package `src/compare/` (settings, agency, modes, offset, routes, hubs, export, maps, run) and `data/reference/agency_mode_map.csv`; thresholds are `CompareConfig` keys (`--config` / `--set`)
   - `hubs run` now also writes `hub_groups_all.csv` and `network_nodes.csv` (`src/pipeline/all_groups.py`; `all_groups_basename`, `network_nodes_basename`); scoring, tiers and every existing output are unchanged, so earlier runs must be repeated before they can be compared
   - Guide: `docs/NETWORK_COMPARISON.md` (route `status` and hub `relation` vocabularies, known limits); design in `docs/superpowers/`
@@ -1159,7 +1159,7 @@ This document should be updated when:
 hubs validate --input-dir DIR            # check inputs
 hubs run --input-dir DIR --output-dir OUT [--version NAME]   # writes run_manifest.json (default version = newest export date)
 hubs compare OUT_A OUT_B                 # inputs, settings, hubs, scores and ranks that changed between two runs
-hubs compare-network --run OUT --agency-gpkg MT_Network.gpkg [--agency-meta FILE] [--tod-gpkg FILE] [--out DIR] [--config compare.yaml] [--set key=value]   # run vs the agency's network; see docs/NETWORK_COMPARISON.md
+hubs compare-network --run OUT --agency-gpkg MT_Network.gpkg [--agency-meta FILE] [--tod-gpkg FILE] [--out DIR] [--config compare.yaml] [--set key=value]   # run vs the network of מנהל התכנון; see docs/NETWORK_COMPARISON.md
 python scripts/build_missing_map.py --compare-dir CMP --run-dir OUT --agency-gpkg MT_Network.gpkg [--agency-meta FILE] [--leaflet-dir DIR] [--out-dir DIR] [--run-note TEXT]   # one-page map of the lines and hubs missing on either side, with verdicts; see docs/NETWORK_COMPARISON.md
 python scripts/export_shapefiles.py --run-dir OUT [--lines-file FILE] [--out-dir DIR] [--version NAME] [--no-zip]   # the run's hubs (with type) and lines as shapefiles + zips; see docs/EXPORT_SHAPEFILES.md
 hubs runs DIR                            # list the run versions under a directory
@@ -1183,7 +1183,7 @@ pytest                                    # unit + smoke tests
 - `src/config.py`: thresholds and weights
 - `data/reference/README.md`: reference layers and curated tables
 - `docs/H3_BASE_LAYER.md`: how the base layer is built, validated against the overlay, and shared
-- `docs/NETWORK_COMPARISON.md`: how to run and read the comparison with the agency's network
+- `docs/NETWORK_COMPARISON.md`: how to run and read the comparison with the network of מנהל התכנון
 - `docs/DEVIATIONS.md`: flags and fixes
 
 ---
@@ -1200,4 +1200,4 @@ For questions about:
 
 **Last Updated**: 2026-11-04
 **Document Version**: 2.2
-**Status**: One-command pipeline on the H3 base layer, with network comparison against the planning agency
+**Status**: One-command pipeline on the H3 base layer, with network comparison against מנהל התכנון

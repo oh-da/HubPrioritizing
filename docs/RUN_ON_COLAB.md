@@ -42,7 +42,7 @@ The first cell is a form:
 | `VERSION` | a name for this run, e.g. `2026-06`; blank = the newest date in the export file names |
 | `REPO`, `BRANCH` | leave as they are unless you were told otherwise |
 | `EXTRA_ARGS` | leave blank |
-| `AGENCY_FOLDER`, `AGENCY_GPKG`, `AGENCY_META` | optional: the Drive folder that holds the planning agency's `MT_Network.gpkg` (and `MT_Network_MetaData.xlsx`) and the two file names. Blank `AGENCY_FOLDER` = no comparison. See *Comparing with the agency's network* below |
+| `AGENCY_FOLDER`, `AGENCY_GPKG`, `AGENCY_META` | optional: the Drive folder that holds the `MT_Network.gpkg` of מנהל התכנון (and `MT_Network_MetaData.xlsx`) and the two file names. Blank `AGENCY_FOLDER` = no comparison. See *Comparing with the network of מנהל התכנון* below |
 | `COMPARE_FOLDER`, `COMPARE_ARGS` | optional: where the comparison goes (blank = a folder `compare` inside `out`) and extra settings for `hubs compare-network`, e.g. `--set containment=false` |
 
 ### Using your own reference data
@@ -77,7 +77,7 @@ missing file or column. Fix the Drive folder and run the cell again; nothing els
 affected.
 
 Step 5 runs the pipeline. Step 6 lists the files it wrote and the top ten hubs. Step 7 compares the
-results with the planning agency's network when `AGENCY_FOLDER` is filled in (it prints a one-line
+results with the network of מנהל התכנון when `AGENCY_FOLDER` is filled in (it prints a one-line
 skip message otherwise).
 
 ## 5. Collect the results
@@ -100,12 +100,12 @@ the report lands next to the new results.
 
 Step 8 downloads the workbook to your computer straight away if you prefer.
 
-### Comparing with the agency's network
+### Comparing with the network of מנהל התכנון
 
 With `AGENCY_FOLDER` filled in, step 7 runs `hubs compare-network` on the run that step 5 just wrote
 and puts the comparison in `out/compare` (or `COMPARE_FOLDER`): `network_comparison.xlsx` (routes and
 hubs of both networks side by side), `network_comparison.gpkg`, two Leaflet pages and a report. How to
-read them is in `docs/NETWORK_COMPARISON.md`. If the agency files are missing the step stops with the
+read them is in `docs/NETWORK_COMPARISON.md`. If the files of מנהל התכנון are missing the step stops with the
 list of the paths it looked for; the pipeline results are already written by then. For a map of the lines
 and hubs missing from either network, run `colab/hubs_missing_map.ipynb` (section 7).
 
@@ -138,15 +138,15 @@ written by `hubs run`.
 ## 7. Optional third step: map of the missing lines and hubs
 
 `colab/hubs_missing_map.ipynb` runs **after** the first notebook, in its own Colab session. It
-draws one map page of the lines and hubs that are in only one of the two networks (ours and the
-planning agency's `MT_Network.gpkg`), with a verdict for each; see "Map of the missing lines and
+draws one map page of the lines and hubs that are in only one of the two networks (ours, and `MT_Network.gpkg` of
+מנהל התכנון), with a verdict for each; see "Map of the missing lines and
 hubs" in `docs/NETWORK_COMPARISON.md` for what the page shows and how the verdicts are decided.
 
 Before you start:
 
 - the output folder (`out`) of the first notebook must hold `hub_groups_all.csv` and
   `network_nodes.csv`; a run made before 2026-11-04 does not, so run the first notebook again;
-- put the agency's `MT_Network.gpkg` (and optionally `MT_Network_MetaData.xlsx`) in one Drive
+- put the `MT_Network.gpkg` of מנהל התכנון (and optionally `MT_Network_MetaData.xlsx`) in one Drive
   folder, for example `HubRuns/agency`.
 
 Open the notebook the same way as in section 2 and fill step 1:
@@ -154,7 +154,7 @@ Open the notebook the same way as in section 2 and fill step 1:
 | Box | What to type |
 |---|---|
 | `RUN_FOLDER` | the `out` folder of the first notebook (`HubRuns/2026_06/out`, or a full path) |
-| `AGENCY_FOLDER`, `AGENCY_GPKG`, `AGENCY_META` | the agency folder and the two file names in it; leave the metadata name blank if there is none |
+| `AGENCY_FOLDER`, `AGENCY_GPKG`, `AGENCY_META` | the folder of מנהל התכנון and the two file names in it; leave the metadata name blank if there is none |
 | `COMPARE_FOLDER` | blank = a folder `compare` inside the run folder; the comparison is written there (an existing one is overwritten unless `REDO_COMPARISON` is unticked) |
 | `REDO_COMPARISON`, `COMPARE_ARGS` | on by default: `hubs compare-network` runs every time, so the map matches the run folder. Untick it to reuse a comparison that is already in the compare folder (it still runs if the files are missing). `COMPARE_ARGS` passes settings to it, e.g. `--set containment=false` or `--set full_cov=0.75` |
 | `OUTPUT_FOLDER` | blank = the comparison folder |

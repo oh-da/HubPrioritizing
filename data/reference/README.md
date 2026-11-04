@@ -17,7 +17,7 @@ overrides the copy here.
 | `hub_names.csv` | Hebrew display names per hub, keyed by H3 index (any hex of a group carries the group's name) | `name_id, h3_index, HubNameHE` | UTF-8 with BOM |
 | `line_names_extra.csv` | Hebrew line names missing from the model export (currently the Metro M1 lines) | `LineName, Line_n_Mode, notes` | UTF-8 |
 | `manual_demand_updates.csv` | Node-level 2050 demand overrides from the National Model (replaces values hardcoded in the notebook). A blank `total_transfers` keeps the computed transfers. Candidates not yet included because they are not in the current hub set: Modiin Merkaz node 400470 (40,628 / 0) and Modiin West node 400460 (41,000 / 12,133). | `node, total_demand, total_transfers, station_name, notes`; optional `model` restricts the row to that demand model | UTF-8 |
-| `agency_mode_map.csv` | Maps the pipeline's mode names to the planning agency network's `type` values (`MT_Network.gpkg`); used by `hubs compare-network`. An empty `agency_type` means the agency network has no counterpart (Cable Line, buses). | `our_mode, agency_type, note` | UTF-8 |
+| `agency_mode_map.csv` | Maps the pipeline's mode names to the `type` values of the מנהל התכנון network (`MT_Network.gpkg`); used by `hubs compare-network`. An empty `agency_type` means the מנהל התכנון network has no counterpart (Cable Line, buses). | `our_mode, agency_type, note` | UTF-8 |
 
 Both shapefiles are in WGS84 (EPSG:4326); the pipeline reprojects as needed.
 

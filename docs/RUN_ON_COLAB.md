@@ -142,14 +142,14 @@ Open the notebook the same way as in section 2 and fill step 1:
 |---|---|
 | `RUN_FOLDER` | the `out` folder of the first notebook (`HubRuns/2026_06/out`, or a full path) |
 | `AGENCY_FOLDER`, `AGENCY_GPKG`, `AGENCY_META` | the agency folder and the two file names in it; leave the metadata name blank if there is none |
-| `COMPARE_FOLDER` | blank = a folder `compare` inside the run folder. If it already holds `network_comparison.xlsx` and `.gpkg` they are used as they are |
-| `REDO_COMPARISON`, `COMPARE_ARGS` | tick the first to run `hubs compare-network` again; the second passes settings to it, e.g. `--set containment=false` or `--set full_cov=0.75` |
+| `COMPARE_FOLDER` | blank = a folder `compare` inside the run folder; the comparison is written there (an existing one is overwritten unless `REDO_COMPARISON` is unticked) |
+| `REDO_COMPARISON`, `COMPARE_ARGS` | on by default: `hubs compare-network` runs every time, so the map matches the run folder. Untick it to reuse a comparison that is already in the compare folder (it still runs if the files are missing). `COMPARE_ARGS` passes settings to it, e.g. `--set containment=false` or `--set full_cov=0.75` |
 | `OUTPUT_FOLDER` | blank = the comparison folder |
 | `RUN_NOTE` | the note about the data shown on the page; blank = built from the run's manifest |
 | `INLINE_LEAFLET` | on = Leaflet is stored inside the page, so the page does not depend on a CDN (map tiles still need internet) |
 
-Then **Runtime → Run all**. The notebook runs `hubs compare-network` when the comparison is not
-there yet, builds the page and writes, next to it, `missing_map_summary.md` (the counts per set
+Then **Runtime → Run all**. The notebook runs `hubs compare-network` (every time, unless you untick
+`REDO_COMPARISON`), builds the page and writes, next to it, `missing_map_summary.md` (the counts per set
 and verdict and the most important findings), which it also shows. Drive only shows the HTML
 source of the page: run step 9 to download it, or download it from the Drive folder, and open it
 in your browser.

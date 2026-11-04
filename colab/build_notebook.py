@@ -396,7 +396,7 @@ verdict (likely real gap, covered elsewhere, definition difference, check). It a
    `network_nodes.csv`) is `RUN_FOLDER` below. A run made before 2026-11-04 does not have those two files:
    run it again.
 2. Put the agency's `MT_Network.gpkg` (and, optionally, `MT_Network_MetaData.xlsx`) in one Drive folder.
-3. The comparison itself (`hubs compare-network`) is run by this notebook when it is not there yet.
+3. The comparison itself (`hubs compare-network`) is run by this notebook, every time unless you untick `REDO_COMPARISON`.
 
 Then **Runtime → Run all**. Every cell prints what it did.""",
     ),
@@ -411,8 +411,8 @@ AGENCY_GPKG = "MT_Network.gpkg"  #@param {type:"string"}
 AGENCY_META = "MT_Network_MetaData.xlsx"  #@param {type:"string"}
 #@markdown Where the comparison (the output of `hubs compare-network`) is, or will be written (blank = a folder named `compare` inside the run folder):
 COMPARE_FOLDER = ""  #@param {type:"string"}
-#@markdown Run the comparison again even if it is already there:
-REDO_COMPARISON = False  #@param {type:"boolean"}
+#@markdown Run `hubs compare-network` every time, so the map always matches the run folder (untick it to reuse a comparison that is already in the compare folder):
+REDO_COMPARISON = True  #@param {type:"boolean"}
 #@markdown Extra settings for `hubs compare-network`, e.g. `--set containment=false` or `--set full_cov=0.75` (normally blank):
 COMPARE_ARGS = ""  #@param {type:"string"}
 #@markdown Where to write the map and its summary (blank = the comparison folder):
@@ -499,7 +499,7 @@ if REDO_COMPARISON or not (os.path.isfile(xlsx) and os.path.isfile(gpkg)):
         print(r.stderr[-4000:])
         raise SystemExit("STOP: the comparison failed. Read the message above.")
 else:
-    print("Using the comparison that is already in", COMPARE_DIR, "(tick REDO_COMPARISON in step 1 to run it again).")""",
+    print("REDO_COMPARISON is off: using the comparison that is already in", COMPARE_DIR, "(tick it in step 1 to run the comparison again).")""",
     ),
     (
         "code",

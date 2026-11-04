@@ -39,6 +39,7 @@ global.L = {
   layerGroup: (kids) => { const g = new Layer(kids); state.groups.push(g); return g; },
   geoJSON: mk, circleMarker: mk, polyline: mk,
   latLngBounds: (pts) => ({pts: pts}),
+  control: {zoom: () => ({addTo() { return this; }})},
 };
 (0, eval)(code);  // the runner evaluates the page script; the page itself never uses eval
 

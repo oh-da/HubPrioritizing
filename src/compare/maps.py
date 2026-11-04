@@ -25,6 +25,15 @@ VALUE_DECIMALS = 4
 ISRAEL_BOUNDS = [[29.4, 34.2], [33.4, 35.9]]  # [[south, west], [north, east]]
 ROUTE_LAYERS = ("route_pairs", "our_routes", "our_routes_raw")
 HUB_LAYERS = ("agency_hubs", "our_groups", "hub_ties")
+# attributes whose values feed a feature's "modes" (the Mode filter): our side carries both
+# the pipeline mode and its mapped agency type, so one filter value matches both sides
+FILTER_MODES = {
+    "route_pairs": ("agency_type", "our_mode"),
+    "our_routes": ("mode", "agency_type"),
+    "our_routes_raw": ("mode", "agency_type"),
+    "agency_hubs": ("modes",),
+    "our_groups": ("Mode_Planned", "common_modes"),
+}
 
 
 # ----------------------------------------------------------------------------------------
@@ -54,14 +63,30 @@ def _round(coords: Any) -> Any:
     return [_round(c) for c in coords]
 
 
-def _feature(geom: Any, props: Mapping[str, Any]) -> dict[str, Any]:
+def _modes(props: Mapping[str, Any], columns: tuple[str, ...]) -> list[str]:
+    """Distinct mode names of ``columns`` in first-seen order (``"; "``-joined text split)."""
+    out: list[str] = []
+    for col in columns:
+        text = _value(props.get(col))
+        for item in str(text).split(";") if text is not None else []:
+            item = item.strip()
+            if item and item not in out:
+                out.append(item)
+    return out
+
+
+def _feature(geom: Any, props: Mapping[str, Any],
+             mode_columns: tuple[str, ...] = ()) -> dict[str, Any]:
     geometry = None
     if geom is not None and not geom.is_empty:
         geometry = mapping(geom)
         geometry = {"type": geometry["type"], "coordinates": _round(geometry["coordinates"])}
     clean = {str(k): v for k, v in ((k, _value(v)) for k, v in props.items())
              if v is not None and v != ""}
-    return {"type": "Feature", "geometry": geometry, "properties": clean}
+    feature = {"type": "Feature", "geometry": geometry, "properties": clean}
+    if mode_columns:  # a foreign member: the filter reads it, the popup does not show it
+        feature["modes"] = _modes(props, mode_columns)
+    return feature
 
 
 def _collection(layers: Mapping[str, gpd.GeoDataFrame], name: str) -> dict[str, Any]:
@@ -74,7 +99,8 @@ def _collection(layers: Mapping[str, gpd.GeoDataFrame], name: str) -> dict[str, 
     layer = layer.to_crs(4326)
     columns = [c for c in layer.columns if c != layer.geometry.name]
     rows = layer[columns].to_dict("records")
-    features = [_feature(g, r) for g, r in zip(layer.geometry, rows)]
+    mode_columns = FILTER_MODES.get(name, ())
+    features = [_feature(g, r, mode_columns) for g, r in zip(layer.geometry, rows)]
     return {"type": "FeatureCollection", "features": features}
 
 
@@ -234,7 +260,8 @@ if (typeof L === 'undefined') {
   controls.appendChild(el('p', 'note', 'Leaflet could not be loaded from cdnjs (offline?).'));
   return;
 }
-const map = L.map('map', {preferCanvas: true});
+const map = L.map('map', {preferCanvas: true, zoomControl: false});
+L.control.zoom({position: 'topright'}).addTo(map);  // the panel covers the top-left corner
 map.fitBounds(ISRAEL);
 const osm = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom: 19,
   attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'});
@@ -315,11 +342,15 @@ select('Basemap', [['osm', 'OpenStreetMap'], ['none', 'No basemap']], v => {
 """
 
 _ROUTES_JS = """
-const COLORS = {matched: '#1b9e77', partial: '#7570b3', split_merge: '#e6ab02', weak: '#d95f02',
-  mode_differs: '#e7298a', agency_only: '#636363', ours_only: '#1f78b4'};
-const MEANING = {matched: 'full match', partial: 'partial overlap', split_merge: 'split / merged',
-  weak: 'weak overlap', mode_differs: 'overlaps a route of another mode',
-  agency_only: 'agency route nothing of ours matches', ours_only: 'our route, no agency route'};
+const COLORS = {matched: '#1b9e77', split_merge: '#e6ab02', partial: '#7570b3',
+  ours_within_agency: '#66a61e', agency_within_ours: '#a6761d', weak: '#d95f02',
+  mode_differs: '#e7298a', ours_only: '#1f78b4', agency_only: '#636363', covered: '#17becf'};
+const MEANING = {matched: 'full match', split_merge: 'split / merged',
+  partial: 'partial overlap', ours_within_agency: 'our route lies on a longer agency route',
+  agency_within_ours: 'agency route lies on a longer route of ours', weak: 'weak overlap',
+  mode_differs: 'overlaps a route of another mode', ours_only: 'our route, no agency route',
+  agency_only: 'agency route nothing of ours covers',
+  covered: 'agency route covered by ours but chosen by none (its best pair shown)'};
 const groups = {agency: L.layerGroup().addTo(map), ours: L.layerGroup().addTo(map)};
 const state = {agency: true, ours: true, mode: '', picked: '', status: {}};
 
@@ -335,8 +366,8 @@ function make(collection, kind) {  // one record per feature (row), never per ro
         Object.assign({radius: 5, fillOpacity: 0.7}, style))});
     const title = (kind === 'agency' ? p.agency_route_key : p.route_key) + ' - ' + status;
     layer.bindPopup(() => popup(title, p));
-    const modes = kind === 'agency' ? [p.agency_type, p.our_mode] : [p.mode];
-    return {kind: kind, p: p, status: status, modes: modes, layer: layer, g: f.geometry};
+    return {kind: kind, p: p, status: status, modes: f.modes || [], layer: layer,
+      g: f.geometry};
   });
 }
 const agencyRecs = make(DATA.route_pairs, 'agency');
@@ -438,8 +469,8 @@ function hubRecs(collection, kind) {
     const stops = points(f.geometry);
     if (kind === 'agency' && stops.length > 1) stops.forEach(s => parts.push(
       L.circleMarker([s[1], s[0]], {radius: 2.5, color: AGENCY, weight: 1, interactive: false})));
-    const modes = String(kind === 'agency' ? p.modes || '' : p.Mode_Planned || '').split('; ');
-    out.push({kind: kind, id: id, p: p, modes: modes, marker: m, layer: L.layerGroup(parts), c: c});
+    out.push({kind: kind, id: id, p: p, modes: f.modes || [], marker: m,
+      layer: L.layerGroup(parts), c: c});
   });
   return out;
 }

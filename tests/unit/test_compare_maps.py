@@ -204,3 +204,45 @@ def test_page_scripts_parse_and_run_against_a_stub(tmp_path: Path):
             )
             assert out.returncode == 0, out.stderr
             assert f"shown={shown} " in out.stdout, out.stdout
+
+
+def test_zoom_control_is_not_under_the_panel(tmp_path: Path):
+    routes, hubs = _write(tmp_path, _layers())
+    for html in (routes, hubs):
+        assert "zoomControl: false" in html
+        assert "L.control.zoom({position: 'topright'})" in html
+
+
+def test_mode_filter_values_cover_both_vocabularies(tmp_path: Path):
+    layers = _layers()
+    ours = layers["our_routes"].copy()
+    ours["agency_type"] = ["LRT", None]
+    ours.loc[0, "mode"] = "Suburban Rail"
+    ours.loc[0, "agency_type"] = "Rail"
+    layers["our_routes"] = ours
+    groups = layers["our_groups"].copy()
+    groups["common_modes"] = ["Rail; LRT", "LRT; BRT"]
+    groups.loc[0, "Mode_Planned"] = "Suburban Rail; LRT"
+    layers["our_groups"] = groups
+    routes, hubs = _write(tmp_path, layers)
+    r, h = _data(routes), _data(hubs)
+    first = r["our_routes"]["features"][0]
+    assert first["properties"]["mode"] == "Suburban Rail"
+    assert "Rail" in first["modes"] and "Suburban Rail" in first["modes"]
+    assert r["our_routes"]["features"][1]["modes"] == ["Cable Line"]
+    pair = r["route_pairs"]["features"][0]  # agency side: the agency type and our mode
+    assert pair["modes"] == ["LRT"]
+    group = h["our_groups"]["features"][0]
+    assert {"Suburban Rail", "Rail", "LRT"} <= set(group["modes"])
+    assert set(h["agency_hubs"]["features"][1]["modes"]) == {"LRT", "BRT"}
+    assert "f.modes" in routes and "f.modes" in hubs  # the filters read these arrays
+
+
+def test_routes_page_knows_every_status(tmp_path: Path):
+    from src.compare.routes import STATUSES
+
+    routes, _ = _write(tmp_path, _layers())
+    colors = re.search(r"const COLORS = \{(.*?)\};", routes, re.S).group(1)
+    meaning = re.search(r"const MEANING = \{(.*?)\};", routes, re.S).group(1)
+    for status in STATUSES:
+        assert f"{status}:" in colors and f"{status}:" in meaning, status

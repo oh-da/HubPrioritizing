@@ -5,6 +5,8 @@
     hubs show-config [--config pipeline.yaml] [--set key=value ...] [--defaults]
     hubs run         --input-dir DIR --output-dir DIR [--version NAME] [...]
     hubs compare     OUT_A OUT_B [--out DIR]
+    hubs compare-network --run DIR --agency-gpkg FILE [--agency-meta FILE] [--tod-gpkg FILE]
+                     [--out DIR] [--config compare.yaml] [--set key=value ...]
     hubs runs        [DIR]
     hubs serve       [--root DIR] [--port N]
     hubs prepare-base / export-h3
@@ -76,6 +78,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_cmp.add_argument("run_a", type=Path, help="output directory of the earlier run")
     p_cmp.add_argument("run_b", type=Path, help="output directory of the later run")
     p_cmp.add_argument("--out", type=Path, default=None, help="where to write compare_<A>_vs_<B>.md/.csv/.json (default: run B's directory)")
+
+    from .compare.settings import COMPARE_KEYS
+
+    p_net = sub.add_parser("compare-network", help="compare a run's routes and hubs with the planning agency's network")
+    p_net.add_argument("--run", required=True, type=Path, help="output directory of `hubs run` (with hub_groups_all.csv and network_nodes.csv)")
+    p_net.add_argument("--agency-gpkg", required=True, type=Path, help="the agency network (MT_Network.gpkg, layers lines and stations)")
+    p_net.add_argument("--agency-meta", type=Path, default=None, help="optional code dictionary (MT_Network_MetaData.xlsx)")
+    p_net.add_argument("--tod-gpkg", type=Path, default=None, help="optional scraped TOD map to cross-check the agency hubs")
+    p_net.add_argument("--out", type=Path, default=None, help="where to write the comparison (default: the --run directory)")
+    p_net.add_argument("--config", type=Path, help="compare.yaml with configuration overrides")
+    p_net.add_argument("--set", action="append", default=[], metavar="KEY=VALUE", help=f"override a comparison setting (repeatable). Keys: {', '.join(COMPARE_KEYS)}")
 
     p_runs = sub.add_parser("runs", help="list the run versions found under a directory")
     p_runs.add_argument("root", type=Path, nargs="?", default=Path("."), help="directory to search (recursively) for run_manifest.json")
@@ -193,6 +206,12 @@ def cmd_compare(args: argparse.Namespace) -> int:
     return compare_from_cli(args)
 
 
+def cmd_compare_network(args: argparse.Namespace) -> int:
+    from .compare.run import compare_network_from_cli
+
+    return compare_network_from_cli(args)
+
+
 def cmd_runs(args: argparse.Namespace) -> int:
     from .pipeline.run import runs_from_cli
 
@@ -222,7 +241,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    handlers = {"validate": cmd_validate, "show-config": cmd_show_config, "run": cmd_run, "prepare-base": cmd_prepare_base, "export-h3": cmd_export_h3, "compare": cmd_compare, "runs": cmd_runs, "serve": cmd_serve}
+    handlers = {"validate": cmd_validate, "show-config": cmd_show_config, "run": cmd_run, "prepare-base": cmd_prepare_base, "export-h3": cmd_export_h3, "compare": cmd_compare, "compare-network": cmd_compare_network, "runs": cmd_runs, "serve": cmd_serve}
     return handlers[args.command](args)
 
 

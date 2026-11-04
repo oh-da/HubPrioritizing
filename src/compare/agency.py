@@ -287,7 +287,7 @@ def _build_routes(lines: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
 
 def _assign_zero_line_stations(
-    stations: gpd.GeoDataFrame, lines: gpd.GeoDataFrame, routes: gpd.GeoDataFrame, tol_m: float
+    stations: gpd.GeoDataFrame, lines: gpd.GeoDataFrame, tol_m: float
 ) -> pd.Series:
     """Route key of each ``line_id = 0`` station: nearest same-type ``line_id = 0`` feature
     within ``tol_m`` (ties: lowest ``fid``); ``None`` where there is none."""
@@ -329,7 +329,7 @@ def _build_stops(
     keys = pd.Series(direct, index=st.index, dtype=object)
     zero = st["line_id"] == 0
     if zero.any():
-        keys[zero] = _assign_zero_line_stations(st, lines, routes, cfg.rail_assign_tol_m)[zero]
+        keys[zero] = _assign_zero_line_stations(st, lines, cfg.rail_assign_tol_m)[zero]
     st["route_key"] = keys
 
     dropped = st[st["route_key"].isna()]
@@ -456,7 +456,8 @@ def read_tod_hubs(path: Path) -> gpd.GeoDataFrame:
         EPSG:2039 = the mean position of the hub's stations.
 
     Raises:
-        InputError: If the layer, a column or the CRS is missing.
+        InputError: If the layer, a column or the CRS is missing, or a ``hub_id`` is not
+            numeric.
     """
     path = Path(path)
     problems: list[str] = []
@@ -467,7 +468,9 @@ def read_tod_hubs(path: Path) -> gpd.GeoDataFrame:
     if problems or gdf is None:
         raise InputError(problems)
     gdf = gdf[gdf["hub_id"].notna()].copy()
-    gdf["tod_hub_id"] = pd.to_numeric(gdf["hub_id"]).astype("int64")
+    gdf["tod_hub_id"] = _int_column(gdf, "hub_id", "TOD layer 'stations'", problems)
+    if problems:
+        raise InputError(problems)
     gdf["x"] = gdf.geometry.x
     gdf["y"] = gdf.geometry.y
     grouped = gdf.groupby("tod_hub_id", sort=True).agg(

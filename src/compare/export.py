@@ -337,7 +337,8 @@ def _route_pairs_layer(routes: RouteComparison, agency: AgencyNetwork) -> gpd.Ge
 
 
 def _first_by(frame: pd.DataFrame, key: str, value: str) -> dict:
-    """``key -> value`` of the first row per key (frames are sorted, so this is stable)."""
+    """``key -> value`` per key; the last row of a key wins (frames are sorted, so it is
+    stable)."""
     sub = frame[frame[key].notna()]
     return dict(zip(sub[key].astype(int), sub[value]))
 

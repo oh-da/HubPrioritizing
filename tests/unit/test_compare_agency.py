@@ -185,3 +185,15 @@ def test_read_tod_hubs(tmp_path):
     # the mean of the hub's stations, in ITM
     assert row.loc[11, "geometry"].distance(Point(180000, 665010)) < 1.0
     assert row.loc[12, "geometry"].distance(Point(182010, 665000)) < 1.0
+
+
+def test_read_tod_hubs_non_numeric_hub_id_is_an_input_error(tmp_path):
+    path = make_tod_gpkg(tmp_path / "tod.gpkg", crs="EPSG:4326")
+    gdf = gpd.read_file(path, layer="stations")
+    gdf["hub_id"] = gdf["hub_id"].astype(object)
+    gdf.loc[0, "hub_id"] = "eleven"
+    path.unlink()
+    gdf.to_file(path, layer="stations", driver="GPKG")
+    with pytest.raises(InputError) as exc:
+        read_tod_hubs(path)
+    assert any("hub_id" in p for p in exc.value.problems)

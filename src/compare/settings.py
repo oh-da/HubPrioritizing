@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any, Mapping
@@ -84,7 +85,11 @@ _FIELD_TYPES = {f.name: f.type for f in fields(CompareConfig)}
 
 
 def _coerce(name: str, value: Any) -> Any:
-    """Coerce a YAML / CLI value to the type of the field's default."""
+    """Coerce a YAML / CLI value to the type of the field's default.
+
+    Booleans are rejected for numeric fields, numbers must be finite and an integer field takes
+    only whole numbers (``3`` or ``3.0``, not ``2.7``).
+    """
     if name not in _FIELD_TYPES:
         raise ConfigError(f"unknown config key: {name}")
     default = getattr(_DEFAULTS, name)
@@ -97,12 +102,19 @@ def _coerce(name: str, value: Any) -> Any:
         if s in ("0", "false", "no", "off"):
             return False
         raise ConfigError(f"{name}: expected a boolean, got {value!r}")
+    if isinstance(value, bool):
+        raise ConfigError(f"{name}: expected a number, got {value!r}")
     try:
-        if isinstance(default, int):
-            return int(value)
-        return float(value)
+        number = float(value)
     except (TypeError, ValueError) as exc:
         raise ConfigError(f"{name}: expected a number, got {value!r}") from exc
+    if not math.isfinite(number):
+        raise ConfigError(f"{name}: expected a finite number, got {value!r}")
+    if isinstance(default, int):
+        if not number.is_integer():
+            raise ConfigError(f"{name}: expected a whole number, got {value!r}")
+        return int(number)
+    return number
 
 
 def load_compare_config(

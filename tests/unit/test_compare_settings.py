@@ -64,3 +64,23 @@ def test_bad_values_raise():
 def test_validate_rejects_bad_scores():
     with pytest.raises(ConfigError):
         CompareConfig(only_max_score=0.9, match_min_score=0.5).validate()
+
+
+@pytest.mark.parametrize("key, value", [
+    ("offset_passes", 2.7),  # a non-integral float for an int field
+    ("offset_passes", "2.7"),
+    ("offset_passes", True),  # a bool is not a number
+    ("route_tol_m", True),
+    ("route_tol_m", float("inf")),  # non-finite floats
+    ("route_tol_m", "inf"),
+    ("hub_match_tol_m", "nan"),
+])
+def test_coerce_rejects_bools_fractions_and_non_finite(key, value):
+    with pytest.raises(ConfigError):
+        load_compare_config(None, {key: value})
+
+
+def test_coerce_accepts_integral_numbers_for_int_fields():
+    assert load_compare_config(None, {"offset_passes": 3.0}).offset_passes == 3
+    assert load_compare_config(None, {"offset_passes": "3.0"}).offset_passes == 3
+    assert load_compare_config(None, {"route_tol_m": 120}).route_tol_m == 120.0

@@ -16,7 +16,7 @@ Runs the `hubs` pipeline on one folder of model exports in your Google Drive and
    `Lines_and_Planned_Mode_*.csv`, `Nodes_w_results_*.xlsx`, and optionally
    `linesNames*.csv`, `lines_exploded*.csv`, `BS_lines*.csv`.
 2. Access to the GitHub repository (a personal access token if it is private).
-3. Optional: the planning agency's network (`MT_Network.gpkg`, and `MT_Network_MetaData.xlsx`) in a Drive folder.
+3. Optional: the network of מנהל התכנון (`MT_Network.gpkg`, and `MT_Network_MetaData.xlsx`) in a Drive folder.
    Then step 7 also compares the results with it (`hubs compare-network`).
 
 Then **Runtime → Run all** and answer the prompts. Every cell prints what it did.""",
@@ -37,7 +37,7 @@ BRANCH = "main"  #@param {type:"string"}
 VERSION = ""  #@param {type:"string"}
 #@markdown Extra settings for `hubs run`, e.g. `--set mc_iterations=20000` (normally blank):
 EXTRA_ARGS = ""  #@param {type:"string"}
-#@markdown Optional: compare the results with the planning agency's network. Drive folder that holds its `MT_Network.gpkg` (blank = skip the comparison), and the two file names in it (leave the metadata name blank if there is none):
+#@markdown Optional: compare the results with the network of מנהל התכנון. Drive folder that holds its `MT_Network.gpkg` (blank = skip the comparison), and the two file names in it (leave the metadata name blank if there is none):
 AGENCY_FOLDER = ""  #@param {type:"string"}
 AGENCY_GPKG = "MT_Network.gpkg"  #@param {type:"string"}
 AGENCY_META = "MT_Network_MetaData.xlsx"  #@param {type:"string"}
@@ -65,7 +65,7 @@ COMPARE_DIR = drive_path(COMPARE_FOLDER) if COMPARE_FOLDER.strip() else f"{OUTPU
 print("input    :", INPUT_DIR)
 print("output   :", OUTPUT_DIR)
 print("reference:", REFERENCE_DIR or "(default: data/reference in the repository)")
-print("agency   :", AGENCY_DIR or "(none: the comparison with the agency's network is skipped)")""",
+print("מנהל התכנון:", AGENCY_DIR or "(none: the comparison with the network of מנהל התכנון is skipped)")""",
     ),
     (
         'code',
@@ -152,15 +152,15 @@ display(res.nsmallest(10, "Rank_TS_MC")[["group", "HubNameHE", "HubType", "Metro
 report = open(os.path.join(OUTPUT_DIR, "run_report.md"), encoding="utf-8").read()
 n_warn = report.count("⚠")
 print(f"\\nThe run report has {n_warn} warning line(s): open run_report.md in the output folder and read them before publishing.")
-print("\\nThe display workbook is hub_prioritization_results.xlsx in that folder. To download it now, run step 8.\\nNext (optional): step 7 compares with the planning agency's network; hubs_line_status.ipynb adds the line-status counts from a status table; hubs_missing_map.ipynb draws the map of the lines and hubs missing from either network.")""",
+print("\\nThe display workbook is hub_prioritization_results.xlsx in that folder. To download it now, run step 8.\\nNext (optional): step 7 compares with the network of מנהל התכנון; hubs_line_status.ipynb adds the line-status counts from a status table; hubs_missing_map.ipynb draws the map of the lines and hubs missing from either network.")""",
     ),
     (
         'code',
-        """#@title 7. (Optional) Compare with the planning agency's network (hubs compare-network, about 10 seconds)
+        """#@title 7. (Optional) Compare with the network of מנהל התכנון (hubs compare-network, about 10 seconds)
 import os, shlex, subprocess
 
 if not AGENCY_DIR:
-    print("AGENCY_FOLDER is blank in step 1: no comparison with the planning agency's network.\\nFill it in (and AGENCY_GPKG / AGENCY_META) and run this cell to add it.")
+    print("AGENCY_FOLDER is blank in step 1: no comparison with the network of מנהל התכנון.\\nFill it in (and AGENCY_GPKG / AGENCY_META) and run this cell to add it.")
 else:
     gpkg = f"{AGENCY_DIR}/{AGENCY_GPKG.strip()}"
     meta = f"{AGENCY_DIR}/{AGENCY_META.strip()}" if AGENCY_META.strip() else ""
@@ -454,7 +454,7 @@ MAP_CELLS = [
         """# Hub prioritization — map of the missing lines and hubs
 
 Draws **one map page** (`missing_lines_hubs_map.html`) of the lines and hubs that exist in only one of two
-networks: the hub prioritization pipeline's and the planning agency's (`MT_Network.gpkg`). Every item has a
+networks: the one of the hub prioritization pipeline and the one of מנהל התכנון (`MT_Network.gpkg`). Every item has a
 verdict (likely real gap, covered elsewhere, definition difference, check). It also writes
 `missing_map_summary.md` with the counts and the most important findings.
 
@@ -462,7 +462,7 @@ verdict (likely real gap, covered elsewhere, definition difference, check). It a
 1. Run `hubs_run.ipynb` first. Its output folder (the one that holds `hub_groups_all.csv` and
    `network_nodes.csv`) is `RUN_FOLDER` below. A run made before 2026-11-04 does not have those two files:
    run it again.
-2. Put the agency's `MT_Network.gpkg` (and, optionally, `MT_Network_MetaData.xlsx`) in one Drive folder.
+2. Put the `MT_Network.gpkg` of מנהל התכנון (and, optionally, `MT_Network_MetaData.xlsx`) in one Drive folder.
 3. The comparison itself (`hubs compare-network`) is run by this notebook, every time unless you untick `REDO_COMPARISON`.
 
 Then **Runtime → Run all**. Every cell prints what it did.""",
@@ -472,7 +472,7 @@ Then **Runtime → Run all**. Every cell prints what it did.""",
         """#@title 1. Settings { display-mode: "form" }
 #@markdown Drive folder with the output of `hubs_run.ipynb` (the `out` folder): either relative to My Drive (`HubRuns/2026_06/out`) or a full path (`/content/drive/MyDrive/HubRuns/2026_06/out`):
 RUN_FOLDER = "HubRuns/2026_06/out"  #@param {type:"string"}
-#@markdown Drive folder with the planning agency's network (same two path forms), and the two file names in it (leave the metadata name blank if there is none):
+#@markdown Drive folder with the network of מנהל התכנון (same two path forms), and the two file names in it (leave the metadata name blank if there is none):
 AGENCY_FOLDER = "HubRuns/agency"  #@param {type:"string"}
 AGENCY_GPKG = "MT_Network.gpkg"  #@param {type:"string"}
 AGENCY_META = "MT_Network_MetaData.xlsx"  #@param {type:"string"}
@@ -508,8 +508,8 @@ AGENCY_META_PATH = f"{drive_path(AGENCY_FOLDER)}/{AGENCY_META.strip()}" if AGENC
 COMPARE_DIR = drive_path(COMPARE_FOLDER) if COMPARE_FOLDER.strip() else f"{RUN_DIR}/compare"
 OUTPUT_DIR = drive_path(OUTPUT_FOLDER) if OUTPUT_FOLDER.strip() else COMPARE_DIR
 print("hubs run output :", RUN_DIR)
-print("agency network  :", AGENCY_GPKG_PATH)
-print("agency metadata :", AGENCY_META_PATH or "(none)")
+print("מנהל התכנון network :", AGENCY_GPKG_PATH)
+print("מנהל התכנון metadata:", AGENCY_META_PATH or "(none)")
 print("comparison      :", COMPARE_DIR)
 print("map written to  :", OUTPUT_DIR)""",
     ),

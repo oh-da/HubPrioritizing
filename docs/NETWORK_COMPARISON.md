@@ -255,26 +255,73 @@ of the agency hub's stops (centroid); `tod_disagrees` is true where it differs f
 ### The two HTML pages
 
 `network_comparison_routes.html` and `network_comparison_hubs.html` are single files with the data
-embedded as JSON; Leaflet 1.9.4 is loaded from cdnjs and the basemap is OpenStreetMap (selector
-"Basemap": OpenStreetMap / No basemap). Both have layer toggles, a legend, a picker that isolates
-one item and "Zoom to all"; the zoom buttons are at the top right, clear of the panel. Popups show
-the columns above. The "Mode" filter uses one list for both sides: a route or group of ours
-carries its pipeline mode and its agency type (`Suburban Rail` and `Rail`), so choosing `Rail`
-shows the agency rail routes and our suburban and interurban rail routes together.
+embedded as JSON; Leaflet 1.9.4 and the Heebo font are loaded from cdnjs and Google Fonts. They
+follow the design and symbology of the HubsScraping reference pages (`compare_lines.html` for the
+lines, `compare.html` for the hubs): the same colour tokens (light and dark), the 336 px panel
+(a bottom sheet on a phone), set rows with a checkbox, a symbol, a label and a count, the city
+buttons (Zoom to all, Tel Aviv, Haifa, Jerusalem, Be'er Sheva) and the popup layout. The shared
+look lives in `src/compare/map_assets.py` and is also used by `scripts/build_missing_map.py`.
 
-- **Routes page.** Agency routes are solid and thick, coloured by match status; our routes are
-  dashed and thin (a visual aid). Toggle "Our nodes at raw positions, not offset-corrected"
-  switches our layer from `our_routes` to `our_routes_raw`. Filters: match status (with counts of
-  agency / ours routes per status, the new `ours_within_agency`, `agency_within_ours` and
-  `covered` included), mode, and the picker "Isolate one route" by our key or agency key (it
-  ignores the other filters; picking a route of ours also shows a `covered` agency route whose
-  best pair it is). An agency route can appear twice (an `agency_only` row and a `weak` or
-  `mode_differs` row of ours on the same geometry); each row is its own feature.
-- **Hubs page.** Agency hubs are rings (small dots mark their stops), sized by number of modes; our
-  groups are filled circles, coloured by tier (`HubType`) or by eligible / not (selector "Colour our
-  groups by"), grey when filtered out. Ties join paired hubs (a hub exactly on its group has no
-  visible tie). Filters: relation (with counts of agency hubs / groups), mode, "Our groups shown"
-  (all / eligible only / filtered out only), and the picker "Isolate one hub with its partners".
+**Plain words only.** The pages never show the codes of the data and never say "agency": the
+planning agency is named <bdi>מנהל התכנון</bdi>, our side "Hubs project"
+(<bdi>פרויקט תעדוף מתחמים</bdi>). Every code goes through one label map, `LABELS` in
+`map_assets.py`, which is embedded in each page:
+
+| Code | Shown as | Explanation shown |
+|---|---|---|
+| `matched` | Same line | a line of ours that follows a line of מנהל התכנון |
+| `partial` | Partly the same | only part of the two lines runs together |
+| `split_merge` | Split or joined | one line on one side is several lines on the other |
+| `ours_within_agency` | Part of a longer line | our line lies on a longer line of מנהל התכנון |
+| `agency_within_ours` | Part of our longer line | their line lies on a longer line of ours |
+| `weak` | Barely overlaps | the closest line of מנהל התכנון shares only a little |
+| `mode_differs` | Other mode | same alignment, different mode |
+| `ours_only` | Only in Hubs project | no line of מנהל התכנון here |
+| `agency_only` | Only in מנהל התכנון | no line of ours follows it |
+| `covered` | Covered by another line | a line of ours already follows it |
+| hub `1:1` | one to one | |
+| hub `agency_splits` | one hub of מנהל התכנון covers several of ours | |
+| hub `ours_merges` | several hubs of מנהל התכנון are one of ours | |
+| hub `many_to_many` | overlapping hubs | |
+
+The reason texts of the routes sheet are rewritten in the same words (`plain_reason`), and the
+popup fields are plain: "stops" (our nodes), "share of our line on theirs" (`cov_ours`), "share
+of their line on ours" (`cov_agency`), "overlap score" (`score`).
+
+- **Routes page** ("Hubs project vs מנהל התכנון: transit lines"). Hubs project lines: **Same
+  line** (blue, solid; status `matched`, drawn on the matched line of מנהל התכנון, the line both
+  share), **Lines that differ** (orange, dashed; `partial`, `split_merge`, `ours_within_agency`,
+  `agency_within_ours`, `mode_differs`, `weak`, drawn through our stops in order) and **Only in
+  Hubs project** (red, dashed; `ours_only`). Lines of מנהל התכנון: **in use** (grey; every line
+  with a line of ours, `covered` included, each line once) and **without a line of ours** (purple;
+  `agency_only`). "Find a Hubs project line" picks one line (`line · mode · status`) or one status;
+  the rest dims and the map zooms to the line; popups have a "Zoom to line" button. The sub-title
+  quotes the tolerances and the overall offset of the run (`compare_config.json`). Our lines have
+  no drawn route, so they are drawn through their stops in order: the shape is approximate. The
+  page has no node layer (the comparison does not match single stops) and no longer shows the raw
+  positions (`our_routes_raw` stays in the GeoPackage).
+- **Hubs page** ("Hub list comparison"). As the reference, hubs of מנהל התכנון with 2 or more
+  modes are compared with our scored hubs (`eligible`, "not a hub" included and labelled), both
+  drawn at the centre of their stops: **In both** (filled blue = מנהל התכנון, blue ring = Hubs
+  project, a line per pair of the comparison within 400 m; the popup shows the two hubs side by
+  side, whether the modes agree, the match type and the lines at both), **Only in Hubs project**
+  (orange ring; popup with the nearest hub of מנהל התכנון with 2 or more modes) and **Only in
+  מנהל התכנון** (green dot; popup with its status: no group of ours within 400 m, or only groups
+  that are not scored, and the nearest scored hub). Two more sets, off at start, keep what the
+  comparison knows: **מנהל התכנון hubs with one mode** (small faded green dots) and **Hubs project
+  groups not scored** (small dashed orange rings, with the reason). Passenger numbers of
+  מנהל התכנון are not available.
+
+**Basemap.** Each page (and the missing-lines map) has a "Basemap" select: CARTO light (default),
+Esri light gray, OpenStreetMap (light gray) and No basemap. OpenStreetMap's tile servers refuse a
+request without a Referer, which is what a page opened from disk (`file://`, a download from Colab
+or Drive) sends, so OpenStreetMap is no longer the default. If the first 6 tiles of the active
+basemap all fail before one loads (or every tile of the view fails), the page switches to the next
+one and says so in the panel ("Basemap tiles from CARTO light did not load (blocked or offline);
+switched to Esri light gray."); when none loads it says "No basemap tiles could be loaded; the
+lines and hubs still draw on the gray background." A basemap picked by hand is never replaced.
+The fallback is tested in Chromium with the real Leaflet and stubbed tile servers
+(`tests/unit/compare_maps_browser.js`).
 
 ### Configuration and report
 
@@ -331,10 +378,10 @@ shows the agency rail routes and our suburban and interurban rail routes togethe
   `ours_within_agency` / `agency_within_ours` instead of `ours_only` / `agency_only`. It was tuned on
   stand-in data only; check a few such rows on the real run, and use `--set containment=false` to
   compare with the score-only rule.
-- **The HTML pages need a network and a real browser.** Leaflet 1.9.4 is loaded from cdnjs without
-  Subresource Integrity hashes and the basemap tiles come from OpenStreetMap. A page opened as a
-  `file://` URL may be served a placeholder tile instead of the map; choose "No basemap". The pages
-  were verified in the sandbox only with a stubbed Leaflet: open them once in a real browser.
+- **The HTML pages need a network.** Leaflet 1.9.4 is loaded from cdnjs without Subresource
+  Integrity hashes and the basemap tiles come from CARTO, Esri or OpenStreetMap; when none answers
+  the page says so and draws on a gray background. The pages are tested in Chromium (Playwright)
+  with the real Leaflet and stubbed tile servers, not against the live tile servers.
 - **Thresholds.** Scores are rounded to 9 digits and all coverage / score / distance thresholds
   are inclusive (`>=`, `<=`).
 - **Rerun needed.** The run to compare must have been made with a version that writes
@@ -382,22 +429,23 @@ python scripts/build_missing_map.py --compare-dir CMP --run-dir RUN \
 
 A missing input stops the script with exit code 1 and a message that names the file and the
 command that produces it. The output is deterministic: the same inputs give byte-identical files.
-Map tiles (OpenStreetMap) and the Heebo font are always loaded online.
+Map tiles (CARTO, Esri or OpenStreetMap, with the same automatic fallback as the two pages above) and the Heebo font are always loaded online.
 
 ### What it shows
 
-Eight sets, each with a checkbox, a count and a "show only likely real gaps" filter:
+Eight sets, each with a checkbox, a count and a "Show only what is missing" filter. The page and
+`missing_map_summary.md` use plain words only (the same label map as the two pages above):
 
 | Set | Source | Drawn as |
 |---|---|---|
-| Agency lines missing from ours | routes with status `agency_only` | the agency geometry |
-| Our lines missing from the agency's | routes with status `ours_only` | our nodes joined in order |
-| Doubtful lines | statuses `weak`, `mode_differs` | both sides, dashed |
-| Lines present in both (context) | `matched`, `split_merge`, `partial`, `ours_within_agency`, `agency_within_ours`, `covered` | the agency geometry |
-| Agency hubs with no hub of ours within 400 m | hub relation `agency_only` | ring plus a tie to the nearest group |
-| Agency hubs on groups we filtered out | agency hubs whose paired groups are all not eligible | dashed ring plus the groups |
-| Our scored hubs with no agency hub | hub relation `ours_only`, eligible | dot |
-| Hubs present in both (context) | paired hubs with at least one eligible group | ring, dot and ties |
+| מנהל התכנון lines we don't have | routes with status `agency_only` | their line |
+| Our lines מנהל התכנון doesn't have | routes with status `ours_only` | our stops joined in order |
+| Unclear lines | statuses `weak`, `mode_differs` | both sides, dashed |
+| Lines in both (context) | `matched`, `split_merge`, `partial`, `ours_within_agency`, `agency_within_ours`, `covered` | their line |
+| מנהל התכנון hubs with no hub of ours | hub relation `agency_only` | ring plus a line to our nearest group |
+| מנהל התכנון hubs we filtered out | hubs whose nearby groups of ours are all not scored | dashed ring plus the groups |
+| Our hubs מנהל התכנון doesn't have | hub relation `ours_only`, eligible | dot |
+| Hubs in both (context) | paired hubs with at least one scored group | ring, dot and lines |
 
 Clicking a feature shows its verdict and the reason first, then the facts behind it.
 
@@ -407,34 +455,35 @@ The thresholds are module constants at the top of the script; the page lists the
 
 | Constant | Value | Used for |
 |---|---|---|
-| `STOP_NEAR_NODE_M` / `RAIL_STOP_NEAR_NODE_M` | 150 m / 250 m | a stop and a node of the other side count as the same place |
-| `ROUTE_NEAR_M` / `RAIL_ROUTE_NEAR_M` | 100 m / 250 m | a point is "on" a route of the other side |
-| `SAMPLE_STEP_M` | 100 m | vertices that stand in for the stops of a route without stops |
-| `COVERED_SHARE` / `GAP_SHARE` | 0.5 / 0.2 | at least the first: covered elsewhere; below the second: real gap |
-| `FULL_COV` | 0.8 | `mode_differs` with both coverages at least this: definition difference |
+| `STOP_NEAR_NODE_M` / `RAIL_STOP_NEAR_NODE_M` | 150 m / 250 m | a stop of each side count as the same place |
+| `ROUTE_NEAR_M` / `RAIL_ROUTE_NEAR_M` | 100 m / 250 m | a point is "on" a line of the other side |
+| `SAMPLE_STEP_M` | 100 m | points that stand in for the stops of a line without stops |
+| `COVERED_SHARE` / `GAP_SHARE` | 0.5 / 0.2 | at least the first: covered by another line; below the second: missing |
+| `FULL_COV` | 0.8 | `mode_differs` with both overlap shares at least this: defined differently |
 | `NO_HUB_AROUND_M` | 800 m | nearest hub or group of the other side farther than this: nothing around |
-| `HUB_MATCH_M` | 400 m | the hub match radius of `compare-network`, quoted in the notes |
-| `MIN_DEMAND` | 1,000 | the pipeline's eligibility threshold, for "what is needed to qualify" |
+| `HUB_MATCH_M` | 400 m | the hub match distance of `compare-network`, quoted in the notes |
+| `MIN_DEMAND` | 1,000 | the pipeline's passenger minimum, for "needed to be scored" |
 
-Verdicts: `real_gap` (likely a real gap), `covered_elsewhere`, `definition_difference`, `check`
-and `present` (the two context sets).
+Verdicts (code -> shown as): `real_gap` -> **Missing**, `covered_elsewhere` -> **Covered by
+another line**, `definition_difference` -> **Defined differently**, `check` -> **Needs a look**,
+`present` -> **In both** (the two context sets).
 
-- **Agency line missing.** The share of its stops (the 100 m points when it has none) with a node
-  of ours of any mode within `STOP_NEAR_NODE_M`: at least `COVERED_SHARE` is covered elsewhere (another
-  mode or alignment, so step 1 did not pair them), below `GAP_SHARE` a real gap, otherwise check.
-- **Our line missing.** Reason `no agency mode` is a definition difference. At least
-  `COVERED_SHARE` of its nodes within `ROUTE_NEAR_M` of an agency route of another mode is covered
-  elsewhere. Less than `GAP_SHARE` near any agency route and any agency stop is a real gap.
-  Otherwise check.
-- **Doubtful.** Check, except `mode_differs` with both coverages at least `FULL_COV` (same
-  alignment, other mode), which is a definition difference.
-- **Agency hub with no hub of ours.** Nearest group farther than `NO_HUB_AROUND_M` and none of the
-  hub's routes present in our network is a real gap; otherwise check.
-- **Agency hub on filtered groups.** A group filtered for `demand < min` is check; only
-  `single mode` or `rail only` is a definition difference (the agency counts same-mode
-  interchanges as hubs, our rule needs two modes and a non-rail one).
-- **Our scored hub with no agency hub.** Nearest agency hub farther than `NO_HUB_AROUND_M` and none
-  of the hub's routes matching an agency route is a real gap; otherwise check.
+- **מנהל התכנון lines we don't have.** We count how many of its stops (points every 100 m when it
+  has no stops) have a stop of ours, of any mode, within 150 m. Half or more: Covered by another
+  line; under a fifth: Missing; in between: Needs a look.
+- **Our lines מנהל התכנון doesn't have.** A mode they do not have (Cable Line): Defined
+  differently. Half or more of its stops within 100 m (rail 250 m) of a line of theirs of another
+  mode: Covered by another line. Under a fifth near any of their lines and stops: Missing.
+  Otherwise Needs a look.
+- **Unclear lines.** Needs a look, except a line of another mode on the same path (both overlap
+  shares 0.8 or more): Defined differently.
+- **מנהל התכנון hubs with no hub of ours.** No stop of ours within 800 m and none of the hub's
+  lines in our network: Missing; otherwise Needs a look.
+- **מנהל התכנון hubs we filtered out.** A nearby group of ours with under 1,000 passengers a day:
+  Needs a look; only one mode or only rail lines: Defined differently (they count changes within
+  one mode as hubs, our rule needs 2 or more modes and a mode that is not rail).
+- **Our hubs מנהל התכנון doesn't have.** No hub of theirs within 800 m and none of the hub's lines
+  matches one of theirs: Missing; otherwise Needs a look.
 
 `missing_map_summary.md` holds the counts per set and verdict, the rules above and the most
 important findings.

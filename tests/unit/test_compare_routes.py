@@ -328,3 +328,31 @@ def test_unparseable_coordinates_are_dropped_and_counted():
     report = RunReport()
     match_routes(ours, make_agency_network({}), CFG, report)
     assert any("unparseable" in e.message for e in report.warnings)
+
+
+def test_score_exactly_on_match_min_score_is_partial():
+    # cov_ours = 7/8, cov_agency = 7/20: harmonic mean 0.5 (0.4999999999999999 unrounded)
+    nodes = pts(0, 6000, 1000) + [(0, 5000)]
+    res = _run(
+        {"LRT11": _lrt(nodes)},
+        {"LRT:1": {"coords": pts(0, 19000, 19000), "stops": pts(0, 19000, 1000)}},
+    )
+    row = _row(res, "LRT11")
+    assert row["cov_ours"] == pytest.approx(7 / 8)
+    assert row["cov_agency"] == pytest.approx(7 / 20)
+    assert row["score"] == 0.5
+    assert row["status"] == "partial"
+    assert not (res.routes["status"] == "agency_only").any()
+
+
+def test_score_exactly_on_only_max_score_is_a_candidate():
+    # cov_ours = 1, cov_agency = 1/9: harmonic mean 0.2 (0.19999999999999998 unrounded)
+    res = _run(
+        {"LRT11": _lrt([(0, 0)])},
+        {"LRT:1": {"coords": pts(0, 8000, 8000), "stops": pts(0, 8000, 1000)}},
+    )
+    assert list(res.pairs["agency_route_key"]) == ["LRT:1"]
+    assert res.pairs.iloc[0]["score"] == 0.2
+    row = _row(res, "LRT11")
+    assert row["candidates"] == "LRT:1 (0.20)"
+    assert row["status"] == "weak"

@@ -32,6 +32,7 @@ from .settings import CompareConfig
 
 SECTION = "routes"
 RAIL_TYPES = frozenset({"Rail", "Rail fast"})
+_SCORE_DIGITS = 9  # the score is rounded once, so threshold ties classify as the spec's >=
 SAMPLE_STEP_M = 100.0  # vertex spacing standing in for the stops of a route without stations
 STATUSES = (
     "matched", "split_merge", "partial", "weak", "mode_differs", "ours_only", "agency_only",
@@ -265,7 +266,7 @@ def _candidate_pairs(ours: pd.DataFrame, ar: pd.DataFrame, targets: list, cfg: C
             dist = shapely.distance(points, geoms[j])
             cov_o = float(np.mean(dist <= tols[j]))
             cov_a = _covered_share(targets[j], xy, cfg.stop_tol_m)
-            score = 0.0 if cov_o == 0 or cov_a == 0 else 2 * cov_o * cov_a / (cov_o + cov_a)
+            score = _score(cov_o, cov_a)
             if score <= 0 or score < cfg.only_max_score:
                 continue
             raw = shapely.distance(points_raw, geoms[j])
@@ -280,9 +281,20 @@ def _candidate_pairs(ours: pd.DataFrame, ar: pd.DataFrame, targets: list, cfg: C
     return rows
 
 
+def _score(cov_ours: float, cov_agency: float) -> float:
+    """Harmonic mean of the coverages, rounded once to 9 digits (0 when either is 0).
+
+    Rounding here makes a score that is exactly on a threshold (7/8 and 7/20 give 0.5) compare,
+    rank and display as that value instead of a float a hair below it.
+    """
+    if cov_ours == 0 or cov_agency == 0:
+        return 0.0
+    return round(2 * cov_ours * cov_agency / (cov_ours + cov_agency), _SCORE_DIGITS)
+
+
 def _rank(pair: Mapping[str, Any], other: str) -> tuple:
-    """Sort key: score descending (rounded against float noise), then the other side's key."""
-    return (-round(pair["score"], 9), pair[other])
+    """Sort key: score descending, then the other side's key."""
+    return (-pair["score"], pair[other])
 
 
 def _candidates_text(pairs: list, key_col: str) -> str:

@@ -78,10 +78,18 @@ Nodes in group,model
 "400020, 511128",Tel Aviv
 ```
 
+A row typed in Excel with one node per cell (saved as `400018,521063,523019` under a header
+with empty columns) and an unquoted `400018,521063` under a one-column header are read the
+same way: every cell of the row without its own header counts as a node ID. A row that ends up
+with a single ID is reported (`manual group file line N: fewer than 2 node ids`).
+
 **Behaviour:** every group touched by a row is merged into the smallest group ID among them;
 merges are transitive across rows; group IDs are then renumbered sequentially. Nodes that are
 not in the network are reported (`manual group row N: nodes not found`), and so are nodes
 present in the network but outside the row's model.
+
+Because of the renumbering, a group number from an earlier run can name a different hub once a
+merge is added: look a hub up by its nodes or `hub_id` (`hub_identity.csv`), not its old number.
 
 ## 6.2 🔧 `manual_demand_updates.csv` — overriding 2050 demand by node
 

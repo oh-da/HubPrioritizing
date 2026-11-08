@@ -443,6 +443,11 @@ def validate_inputs(
                 import pyarrow.parquet as pq
 
                 cols = list(pq.read_schema(path).names)
+            elif key == "is_same_group":
+                df, enc = read_manual_groups(path)
+                cols = [str(c) for c in df.columns]
+                if report is not None:
+                    report.record_input(key, path, encoding=enc, source=chosen.source, date=chosen.date)
             else:
                 df, enc = read_csv_auto(path, nrows=5, header=0 if spec.header else None)
                 cols = [str(c) for c in df.columns]
@@ -502,6 +507,55 @@ def read_csv_auto(
         if _hebrew_columns_look_valid(df, hebrew_columns):
             return df, enc
         last_error = ValueError(f"{path.name}: Hebrew columns look garbled with {enc}")
+    raise ValueError(f"could not decode {path} with any of {list(encodings)}: {last_error}")
+
+
+MANUAL_GROUP_NODES_COLUMN = "Nodes in group"
+
+
+def read_manual_groups(path: Path | str, *, encodings: Sequence[str] = CSV_ENCODINGS) -> tuple[pd.DataFrame, str]:
+    """Read the manual group file (``is_same_group.csv`` / ``IsSameGroup*.csv``).
+
+    The file is hand-edited, so a row may hold its node IDs in one quoted cell
+    (``"1, 2, 3"``), unquoted (``1, 2, 3``) or one per Excel cell, and rows may have
+    different lengths. :func:`pandas.read_csv` sizes the table from the first rows and
+    fails on a longer one, so the rows are read with :mod:`csv`: every cell under a
+    named header goes to that column, every other cell (blank header or past the
+    header's end) is a node ID of the row. ``Nodes in group`` comes back as one
+    ``"1, 2, 3"`` string per row; the other named columns (e.g. ``model``) unchanged.
+    """
+    import csv
+    import io
+
+    path = Path(path)
+    raw = path.read_bytes()
+    last_error: Exception | None = None
+    for enc in encodings:
+        try:
+            text = raw.decode(enc)
+        except UnicodeDecodeError as exc:
+            last_error = exc
+            continue
+        rows = [r for r in csv.reader(io.StringIO(text)) if any(c.strip() for c in r)]
+        if not rows:
+            return pd.DataFrame(), enc
+        header = [c.strip() for c in rows[0]]
+        named = {i: name for i, name in enumerate(header) if name and name != MANUAL_GROUP_NODES_COLUMN}
+        records = []
+        for r in rows[1:]:
+            record: dict[str, object] = {name: None for name in named.values()}
+            nodes = []
+            for i, cell in enumerate(r):
+                cell = cell.strip()
+                if i in named:
+                    record[named[i]] = cell or None
+                elif cell:
+                    nodes.append(cell)
+            record[MANUAL_GROUP_NODES_COLUMN] = ", ".join(nodes) if nodes else None
+            records.append(record)
+        # only the header's own names: a file without 'Nodes in group' still fails validation
+        columns = [name for name in header if name]
+        return pd.DataFrame(records, columns=columns), enc
     raise ValueError(f"could not decode {path} with any of {list(encodings)}: {last_error}")
 
 

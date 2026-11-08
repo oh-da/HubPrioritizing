@@ -87,6 +87,48 @@ def test_input_dir_overrides_reference_copy(tmp_path):
     assert inputs.path("is_same_group").parent == tmp_path
 
 
+RAGGED_GROUPS = (
+    "Nodes in group\n"
+    "400018, 521063, 523019\n"
+    "400020, 511128\n"
+    "52032, 51179\n"
+    "400350, 512111, 512161, 521006, 525043, 517023\n"
+)
+
+
+def test_read_manual_groups_unquoted_rows_of_different_length(tmp_path):
+    from src.pipeline.grouping import parse_manual_group_rows
+    from src.pipeline.inputs import read_manual_groups
+
+    p = tmp_path / "IsSameGroup_V1.1.csv"
+    p.write_text(RAGGED_GROUPS, encoding="utf-8")
+    df, _ = read_manual_groups(p)
+    assert [ids for ids, _ in parse_manual_group_rows(df)] == [
+        [400018, 521063, 523019],
+        [400020, 511128],
+        [52032, 51179],
+        [400350, 512111, 512161, 521006, 525043, 517023],
+    ]
+
+
+def test_read_manual_groups_keeps_quoted_cells_and_model(tmp_path):
+    from src.pipeline.grouping import parse_manual_group_rows
+    from src.pipeline.inputs import read_manual_groups
+
+    p = tmp_path / "is_same_group.csv"
+    p.write_text('Nodes in group,model\n"1, 2",Tel Aviv\n"3;4",\n5,,6\n', encoding="utf-8")
+    df, _ = read_manual_groups(p)
+    assert parse_manual_group_rows(df) == [([1, 2], "Tel Aviv"), ([3, 4], None), ([5, 6], None)]
+
+
+def test_validate_accepts_unquoted_manual_groups(tmp_path):
+    _write_minimal_inputs(tmp_path)
+    (tmp_path / "IsSameGroup_V1.1.csv").write_text(RAGGED_GROUPS, encoding="utf-8")
+    inputs = discover_inputs(tmp_path, REFERENCE_DIR)
+    problems = validate_inputs(inputs)
+    assert not [p for p in problems if "is_same_group" in p]
+
+
 def test_explicit_file_override(tmp_path):
     _write_minimal_inputs(tmp_path)
     pinned = tmp_path / "custom_names.csv"

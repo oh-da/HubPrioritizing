@@ -263,3 +263,9 @@ M1-KS-LOD,Metro,מטרו 1-1 - דרום,כפר סבא-לוד (דרך רעננה),Tel Aviv
 M1-LOD-KS,Metro,מטרו 1-1 - צפון,לוד-כפר סבא (דרך רעננה),Tel Aviv
 M1-RA-RE,Metro,מטרו 1-2 - דרום,רעננה-רחובות,Tel Aviv
 M1-RE-RA,Metro,מטרו 1-2 - צפון,רחובות-רעננה,Tel Aviv
+BluRT1,BRT,קו כחול,צומת בילו-צומת חולון,Tel Aviv
+BluRT2,BRT,קו כחול,צומת חולון-צומת בילו,Tel Aviv
+Light-Blue_S,LRT,,,Tel Aviv
+Turquoise_N,LRT,,,Tel Aviv
+Turquoise_S,LRT,,,Tel Aviv
+LRT10,LRT,,,Jerusalem

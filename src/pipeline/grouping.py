@@ -39,8 +39,23 @@ def group_hexes(
     return create_proximity_groups(out, distance_threshold=threshold_m, tolerance=tolerance_m)
 
 
-def parse_manual_group_rows(is_same_group: pd.DataFrame) -> list[tuple[list[int], str | None]]:
+def _cell_tokens(value: object) -> list[str]:
+    """Node-id tokens of one cell: ``"1, 2"`` / ``"1;2"`` / ``2`` / blank."""
+    if value is None or pd.isna(value):
+        return []
+    return [t.strip() for t in str(value).replace(";", ",").split(",") if t.strip()]
+
+
+def parse_manual_group_rows(
+    is_same_group: pd.DataFrame, report: RunReport | None = None
+) -> list[tuple[list[int], str | None]]:
     """``(node ids, model)`` per row of the manual group file (rows with < 2 nodes skipped).
+
+    The ids of a row are read from the ``Nodes in group`` cell (``"1, 2"`` or ``"1;2"``)
+    and from any header-less cells of the row: a row typed one node per cell in Excel
+    (``Unnamed: n`` columns) and an unquoted ``1,2`` under a one-column header (pandas
+    moves the leading ids into the index) give the same group as ``"1, 2"``. A non-blank
+    row that still holds fewer than 2 ids is reported, not silently dropped.
 
     ``model`` comes from an optional ``model`` column (blank = any) and restricts the
     merge to hexagons whose location belongs to that demand model.
@@ -49,16 +64,26 @@ def parse_manual_group_rows(is_same_group: pd.DataFrame) -> list[tuple[list[int]
         raise ValueError(f"manual group file needs a '{MANUAL_GROUP_COLUMN}' column")
     rows: list[tuple[list[int], str | None]] = []
     has_model = "model" in is_same_group.columns
-    for _, r in is_same_group.iterrows():
-        raw = r[MANUAL_GROUP_COLUMN]
-        if pd.isna(raw):
+    extra_cols = [c for c in is_same_group.columns if str(c).startswith("Unnamed:")]
+    index_holds_ids = not isinstance(is_same_group.index, pd.RangeIndex)
+    for pos, (label, r) in enumerate(is_same_group.iterrows()):
+        tokens: list[str] = []
+        if index_holds_ids:
+            for v in label if isinstance(label, tuple) else (label,):
+                tokens += _cell_tokens(v)
+        for col in [MANUAL_GROUP_COLUMN, *extra_cols]:
+            tokens += _cell_tokens(r[col])
+        if not tokens:
             continue
-        ids = []
-        for tok in str(raw).replace(";", ",").split(","):
-            tok = tok.strip()
-            if tok:
-                ids.append(int(float(tok)))
+        ids = [int(float(tok)) for tok in tokens]
         if len(ids) < 2:
+            if report is not None:
+                report.warn(
+                    "grouping",
+                    f"manual group file line {pos + 2}: fewer than 2 node ids; row skipped "
+                    f"(write the ids in one cell, e.g. \"{ids[0]}, 12345\")",
+                    nodes=ids,
+                )
             continue
         model = None
         if has_model and pd.notna(r["model"]) and str(r["model"]).strip():
@@ -98,7 +123,7 @@ def apply_manual_groups(
     areas = out["area"] if "area" in out.columns else None
 
     applied = merged = 0
-    for row_num, (node_ids, model) in enumerate(parse_manual_group_rows(is_same_group)):
+    for row_num, (node_ids, model) in enumerate(parse_manual_group_rows(is_same_group, report)):
         idxs, missing, wrong_model = [], [], []
         for n in node_ids:
             if n not in node_to_idx:

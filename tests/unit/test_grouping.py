@@ -53,6 +53,41 @@ def test_apply_manual_groups_merges_and_renumbers(hexes):
     assert report.metrics["groups_merged_manually"] == 1
 
 
+def _read(tmp_path, text):
+    from src.pipeline.inputs import read_csv_auto
+
+    p = tmp_path / "IsSameGroup_V1.1.csv"
+    p.write_text(text, encoding="utf-8")
+    return read_csv_auto(p)[0]
+
+
+def test_parse_manual_groups_nodes_in_separate_cells(tmp_path):
+    # Excel "Save as CSV" of a row typed one node per cell: the header row gets trailing commas
+    df = _read(tmp_path, "Nodes in group,,\n4,5,\n1,2,3\n")
+    assert parse_manual_groups(df) == [[4, 5], [1, 2, 3]]
+
+
+def test_parse_manual_groups_unquoted_commas(tmp_path):
+    # hand-typed without quotes: pandas pushes the leading ids into the index
+    df = _read(tmp_path, "Nodes in group\n4,5\n")
+    assert parse_manual_groups(df) == [[4, 5]]
+
+
+def test_parse_manual_groups_keeps_model_column_apart(tmp_path):
+    from src.pipeline.grouping import parse_manual_group_rows
+
+    df = _read(tmp_path, "Nodes in group,model,,\n4,Tel Aviv,5,\n")
+    assert parse_manual_group_rows(df) == [([4, 5], "Tel Aviv")]
+
+
+def test_apply_manual_groups_warns_on_row_with_one_node(hexes):
+    g = group_hexes(hexes, threshold_m=110)
+    report = RunReport()
+    out = apply_manual_groups(g, pd.DataFrame({"Nodes in group": ["5"]}), report)
+    assert list(out["group"]) == list(g["group"])
+    assert any("fewer than 2 node ids" in w.message for w in report.warnings)
+
+
 def test_apply_manual_groups_without_file_is_noop(hexes):
     g = group_hexes(hexes, threshold_m=110)
     out = apply_manual_groups(g, None)

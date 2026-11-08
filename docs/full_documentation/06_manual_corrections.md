@@ -78,10 +78,17 @@ Nodes in group,model
 "400020, 511128",Tel Aviv
 ```
 
-A row typed in Excel with one node per cell (saved as `400018,521063,523019` under a header
-with empty columns) and an unquoted `400018,521063` under a one-column header are read the
-same way: every cell of the row without its own header counts as a node ID. A row that ends up
-with a single ID is reported (`manual group file line N: fewer than 2 node ids`).
+The file is read row by row (`inputs.read_manual_groups`), so the quotes are optional and rows
+may have different lengths: a row typed in Excel with one node per cell, or an unquoted
+`400018, 521063, 523019` under a one-column header, gives the same group. Every cell without
+its own header counts as a node ID. With a `model` column, keep the IDs in the first column in
+quotes so they do not shift into `model`. A row that ends up with a single ID is reported
+(`manual group file line N: fewer than 2 node ids`).
+
+A merge can only join nodes that reach the grouping stage. A node all of whose lines lack a row
+in the lines/mode file is gone before then (`N lines have no row in the lines/mode file and are
+excluded`), and the merge row reports it as `nodes not found in network`: add the lines to the
+lines/mode file instead.
 
 **Behaviour:** every group touched by a row is merged into the smallest group ID among them;
 merges are transitive across rows; group IDs are then renumbered sequentially. Nodes that are

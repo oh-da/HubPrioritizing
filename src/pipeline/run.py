@@ -25,7 +25,7 @@ from .base_layer import add_influence_area_from_base, read_base_layer, tag_area_
 from .demand import apply_manual_demand, assign_demand, load_demand_workbook
 from .export import write_results_csv, write_results_xlsx
 from .grouping import apply_manual_groups, assign_hub_ids, group_hexes, hub_identity_table
-from .inputs import InputError, InputSet, read_csv_auto, read_excel_sheets, read_shapefile, validate_inputs
+from .inputs import InputError, InputSet, read_csv_auto, read_excel_sheets, read_manual_groups, read_shapefile, validate_inputs
 from .network import (
     add_mode_line_columns,
     aggregate_to_hexes,
@@ -65,7 +65,7 @@ def _read_optional_csv(inputs: InputSet, key: str, report: RunReport, **kwargs) 
     if path is None:
         report.info("inputs", f"optional input '{key}' not provided")
         return None
-    df, enc = read_csv_auto(path, **kwargs)
+    df, enc = read_manual_groups(path) if key == "is_same_group" else read_csv_auto(path, **kwargs)
     report.record_input(key, path, encoding=enc, source=inputs.files[key].source, date=inputs.files[key].date)
     return df
 
